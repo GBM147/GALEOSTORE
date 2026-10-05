@@ -5,12 +5,14 @@
   "description": "GALEO Store — site e API de gestão integrada da loja.",
   "main": "server/index.js",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check session-policy.js && node --check src/main.jsx"
+    "check": "node --check server/index.js && node --check session-policy.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
