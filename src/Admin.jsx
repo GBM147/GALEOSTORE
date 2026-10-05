@@ -36,19 +36,30 @@ const dateBR = (v) => {
 }
 
 
-const uploadMedia = async (productId, files) => {
-  const formData = new FormData()
-  for (const file of files) formData.append('media', file)
-  const response = await fetch('/api/admin/products/' + productId + '/media', {
-    method: 'POST',
-    body: formData,
-    credentials: 'include'
-  })
-  const raw = await response.text()
-  let data = null
-  try { data = raw ? JSON.parse(raw) : null } catch {}
-  if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar a mídia.')
-  return data
+const uploadMedia = async (productId, files, onProgress) => {
+  const batchSize = 8
+  const results = []
+
+  for (let start = 0; start < files.length; start += batchSize) {
+    const batch = files.slice(start, start + batchSize)
+    const formData = new FormData()
+    for (const file of batch) formData.append('media', file)
+
+    const response = await fetch('/api/admin/products/' + productId + '/media', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include'
+    })
+    const raw = await response.text()
+    let data = null
+    try { data = raw ? JSON.parse(raw) : null } catch {}
+    if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar a mídia.')
+
+    if (Array.isArray(data?.media)) results.push(...data.media)
+    onProgress?.(Math.min(start + batch.length, files.length), files.length)
+  }
+
+  return { success: true, media: results }
 }
 
 const emptyProduct = {
@@ -120,10 +131,28 @@ function ProductForm({ product, categories, onClose, onDone }) {
   const [media, setMedia] = useState([])
   const [imageFiles, setImageFiles] = useState([])
   const [videoFiles, setVideoFiles] = useState([])
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 })
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [mediaError, setMediaError] = useState('')
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+
+  function appendFiles(setter, incomingFiles) {
+    setter((current) => {
+      const existing = new Set(
+        current.map((file) => [file.name, file.size, file.lastModified].join('|'))
+      )
+      const additions = Array.from(incomingFiles || []).filter((file) => {
+        const key = [file.name, file.size, file.lastModified].join('|')
+        return existing.has(key) ? false : (existing.add(key), true)
+      })
+      return [...current, ...additions]
+    })
+  }
+
+  function removeQueuedFile(setter, index) {
+    setter((current) => current.filter((_, fileIndex) => fileIndex !== index))
+  }
 
   async function loadMedia(productId) {
     if (!productId) return setMedia([])
@@ -170,10 +199,14 @@ function ProductForm({ product, categories, onClose, onDone }) {
       const files = [...imageFiles, ...videoFiles]
       if (productId && files.length) {
         setUploading(true)
+        setUploadProgress({ done: 0, total: files.length })
         try {
-          await uploadMedia(productId, files)
+          await uploadMedia(productId, files, (done, total) => {
+            setUploadProgress({ done, total })
+          })
         } finally {
           setUploading(false)
+          setUploadProgress({ done: 0, total: 0 })
         }
       }
 
@@ -215,17 +248,59 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <div>
             <span className="eyebrow">MÍDIA / UPLOAD</span>
             <h3>Fotos do produto</h3>
-            <p>Selecione até 8 arquivos. JPG, PNG ou WebP, até 25 MB cada.</p>
-            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => setImageFiles(Array.from(e.target.files || []).slice(0, 8))} />
-            {imageFiles.length > 0 && <small>{imageFiles.length} foto(s) selecionada(s)</small>}
+            <p>Selecione várias fotos. Você pode repetir a seleção e todas serão acumuladas antes de salvar.</p>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(e) => {
+                appendFiles(setImageFiles, e.target.files)
+                e.target.value = ''
+              }}
+            />
+            {imageFiles.length > 0 && (
+              <div className="admin-queued-media">
+                <small>{imageFiles.length} foto(s) na fila</small>
+                {imageFiles.map((file, index) => (
+                  <div className="admin-queued-item" key={[file.name, file.size, file.lastModified].join('|')}>
+                    <span>{file.name}</span>
+                    <button type="button" onClick={() => removeQueuedFile(setImageFiles, index)}>Remover</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <h3>Vídeos do produto</h3>
-            <p>MP4, WebM ou MOV, até 25 MB cada.</p>
-            <input type="file" accept="video/mp4,video/webm,video/quicktime" multiple onChange={(e) => setVideoFiles(Array.from(e.target.files || []).slice(0, 4))} />
-            {videoFiles.length > 0 && <small>{videoFiles.length} vídeo(s) selecionado(s)</small>}
+            <p>MP4, WebM ou MOV, até 25 MB cada. Os arquivos também podem ser adicionados em várias seleções.</p>
+            <input
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime"
+              multiple
+              onChange={(e) => {
+                appendFiles(setVideoFiles, e.target.files)
+                e.target.value = ''
+              }}
+            />
+            {videoFiles.length > 0 && (
+              <div className="admin-queued-media">
+                <small>{videoFiles.length} vídeo(s) na fila</small>
+                {videoFiles.map((file, index) => (
+                  <div className="admin-queued-item" key={[file.name, file.size, file.lastModified].join('|')}>
+                    <span>{file.name}</span>
+                    <button type="button" onClick={() => removeQueuedFile(setVideoFiles, index)}>Remover</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+
+        {uploading && (
+          <div className="admin-media-note">
+            Enviando {uploadProgress.done} de {uploadProgress.total} arquivo(s) para o armazenamento de mídia…
+          </div>
+        )
 
         {editing && (
           <div>
