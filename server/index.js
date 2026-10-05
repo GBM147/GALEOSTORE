@@ -249,6 +249,7 @@ async function init() {
       CONSTRAINT fk_rec_account FOREIGN KEY (account_id) REFERENCES financial_accounts(id) ON DELETE SET NULL,
       INDEX idx_rec_active_day (active, due_day)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS sales (      id INT AUTO_INCREMENT PRIMARY KEY,      code VARCHAR(32) NOT NULL UNIQUE,      customer_name VARCHAR(180) NOT NULL DEFAULT '',      payment_method ENUM('PIX','CARTAO_CREDITO','CARTAO_DEBITO','DINHEIRO','TRANSFERENCIA','OUTRO') NOT NULL DEFAULT 'PIX',      total DECIMAL(12,2) NOT NULL DEFAULT 0,      status ENUM('PAGA','CANCELADA') NOT NULL DEFAULT 'PAGA',      notes TEXT NULL,      sold_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,      user_id INT NULL,      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,      CONSTRAINT fk_sales_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,      INDEX idx_sales_sold_status (sold_at, status)    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,    `CREATE TABLE IF NOT EXISTS sale_items (      id INT AUTO_INCREMENT PRIMARY KEY,      sale_id INT NOT NULL,      product_id INT NOT NULL,      quantity INT NOT NULL,      unit_price DECIMAL(12,2) NOT NULL,      unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0,      line_total DECIMAL(12,2) NOT NULL,      CONSTRAINT fk_sale_items_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,      CONSTRAINT fk_sale_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,      INDEX idx_sale_items_sale (sale_id),      INDEX idx_sale_items_product (product_id)    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS audit_logs (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NULL,
@@ -542,7 +543,7 @@ app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
     monthStart.setHours(0,0,0,0)
     const currentMonth = monthStart.toISOString().slice(0,10)
 
-    const [productSummary, stockSummary, incomeSummary, expenseSummary, payableSummary, receivableSummary] = await Promise.all([
+    const [productSummary, stockSummary, salesSummary, incomeSummary, expenseSummary, payableSummary, receivableSummary] = await Promise.all([
       query(`
         SELECT
           COUNT(*) AS count,
@@ -553,14 +554,20 @@ app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
       query(`
         SELECT
           COALESCE(SUM(CASE WHEN type='ENTRADA' THEN quantity ELSE 0 END),0) AS entradas,
-          COALESCE(SUM(CASE WHEN type IN ('SAIDA','AJUSTE') AND quantity>0 THEN quantity ELSE 0 END),0) AS saidas
+          COALESCE(SUM(CASE WHEN type='SAIDA' AND quantity>0 THEN quantity ELSE 0 END),0) AS saidas
         FROM stock_movements
         WHERE created_at>=?
       `, [currentMonth]),
+      query(
+        "SELECT COUNT(*) AS count, COALESCE(SUM(total),0) AS total FROM sales WHERE status='PAGA' AND sold_at>=?",
+        [currentMonth + ' 00:00:00']
+      ),
       query(`
         SELECT COALESCE(SUM(amount),0) AS total
         FROM financial_entries
-        WHERE type='RECEITA' AND status='PAGO' AND DATE(COALESCE(paid_at,created_at))>=?
+        WHERE type='RECEITA' AND status='PAGO'
+          AND DATE(COALESCE(paid_at,created_at))>=?
+          AND COALESCE(reference_type,'')<>'VENDA'
       `, [currentMonth]),
       query(`
         SELECT COALESCE(SUM(amount),0) AS total
@@ -581,6 +588,10 @@ app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
         entradas: Number(stockSummary[0]?.entradas || 0),
         saidas: Number(stockSummary[0]?.saidas || 0)
       },
+      sales: {
+        count: Number(salesSummary[0]?.count || 0),
+        total: Number(salesSummary[0]?.total || 0)
+      },
       income: Number(incomeSummary[0]?.total || 0),
       expense: Number(expenseSummary[0]?.total || 0),
       payable: Number(payableSummary[0]?.total || 0),
@@ -589,6 +600,153 @@ app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
   } catch (error) {
     console.error('Erro no dashboard:', error)
     res.status(500).json({ error: 'Não foi possível carregar o dashboard.' })
+  }
+})
+
+
+app.get('/api/admin/sales', exigirLogin, async (req, res) => {
+  try {
+    const rows = await query('SELECT s.*, COUNT(si.id) AS items_count FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id GROUP BY s.id ORDER BY s.sold_at DESC, s.id DESC LIMIT 500')
+    res.json(rows)
+  } catch (error) {
+    console.error('Erro ao listar vendas:', error)
+    res.status(500).json({ error: 'Não foi possível carregar as vendas.' })
+  }
+})
+
+app.get('/api/admin/sales/:id', exigirLogin, async (req, res) => {
+  try {
+    const saleId = Number(req.params.id)
+    const saleRows = await query('SELECT * FROM sales WHERE id=? LIMIT 1', [saleId])
+    if (!saleRows.length) return res.status(404).json({ error: 'Venda não encontrada.' })
+    const items = await query('SELECT si.*, p.name AS product, p.brand FROM sale_items si INNER JOIN products p ON p.id=si.product_id WHERE si.sale_id=? ORDER BY si.id', [saleId])
+    res.json({ ...saleRows[0], items })
+  } catch (error) {
+    console.error('Erro ao detalhar venda:', error)
+    res.status(500).json({ error: 'Não foi possível carregar a venda.' })
+  }
+})
+
+app.post('/api/admin/sales', exigirLogin, async (req, res) => {
+  const body = req.body || {}
+  const rawItems = Array.isArray(body.items) ? body.items : []
+  if (!rawItems.length) return res.status(400).json({ error: 'Adicione pelo menos um produto à venda.' })
+
+  const merged = new Map()
+  for (const item of rawItems) {
+    const productId = Number(item?.product_id)
+    const quantity = Number(item?.quantity)
+    if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({ error: 'Item de venda inválido.' })
+    }
+    merged.set(productId, (merged.get(productId) || 0) + quantity)
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const paymentMethods = ['PIX','CARTAO_CREDITO','CARTAO_DEBITO','DINHEIRO','TRANSFERENCIA','OUTRO']
+    const paymentMethod = paymentMethods.includes(String(body.payment_method || '')) ? String(body.payment_method) : 'PIX'
+
+    const [saleResult] = await conn.execute(
+      "INSERT INTO sales(code,customer_name,payment_method,total,status,notes,user_id) VALUES(?,?,?,?, 'PAGA',?,?)",
+      ['PENDING', String(body.customer_name || '').trim(), paymentMethod, 0, String(body.notes || '').trim(), req.admin.id]
+    )
+
+    const saleId = saleResult.insertId
+    const saleCode = 'VDA-' + String(saleId).padStart(6, '0')
+    let total = 0
+
+    for (const [productId, quantity] of merged.entries()) {
+      const [productRows] = await conn.execute('SELECT * FROM products WHERE id=? AND active=1 FOR UPDATE', [productId])
+      if (!productRows.length) throw new Error('Produto não encontrado ou inativo.')
+      const product = productRows[0]
+      const stock = Number(product.stock)
+      if (stock < quantity) throw new Error('Estoque insuficiente para ' + product.name + '. Disponível: ' + stock + '.')
+
+      const unitPrice = Number(product.price)
+      const unitCost = Number(product.cost)
+      const lineTotal = unitPrice * quantity
+      total += lineTotal
+
+      await conn.execute(
+        'INSERT INTO sale_items(sale_id,product_id,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?)',
+        [saleId, productId, quantity, unitPrice, unitCost, lineTotal]
+      )
+
+      const stockAfter = stock - quantity
+      await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, productId])
+      await conn.execute(
+        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,?)",
+        [productId, quantity, stock, stockAfter, 'Venda ' + saleCode, 'sale:' + saleId, unitCost, req.admin.id]
+      )
+    }
+
+    await conn.execute('UPDATE sales SET code=?, total=? WHERE id=?', [saleCode, total, saleId])
+
+    const [categoryRows] = await conn.execute("SELECT id FROM financial_categories WHERE name='Vendas' AND type='RECEITA' LIMIT 1")
+    const [accountRows] = await conn.execute("SELECT id FROM financial_accounts WHERE name='Caixa da loja' LIMIT 1")
+    if (!categoryRows.length || !accountRows.length) throw new Error('Categoria ou conta financeira da venda não encontrada.')
+
+    await conn.execute(
+      "INSERT INTO financial_entries(account_id,category_id,type,description,amount,due_date,paid_at,status,recurring,reference_type,reference_id,user_id) VALUES(?,?,?,?,?,CURDATE(),NOW(),'PAGO',0,'VENDA',?,?)",
+      [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, total, 'sale:' + saleId, req.admin.id]
+    )
+
+    await conn.commit()
+    await audit(req.admin.id, 'CRIAR', 'venda', saleId, { code: saleCode, total, items: Array.from(merged.entries()) })
+
+    const inserted = await query('SELECT * FROM sales WHERE id=? LIMIT 1', [saleId])
+    res.status(201).json(inserted[0])
+  } catch (error) {
+    await conn.rollback()
+    console.error('Erro ao registrar venda:', error)
+    res.status(400).json({ error: error.message || 'Não foi possível registrar a venda.' })
+  } finally {
+    conn.release()
+  }
+})
+
+app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
+  const saleId = Number(req.params.id)
+  const conn = await db.getConnection()
+
+  try {
+    await conn.beginTransaction()
+
+    const [saleRows] = await conn.execute('SELECT * FROM sales WHERE id=? FOR UPDATE', [saleId])
+    if (!saleRows.length) throw new Error('Venda não encontrada.')
+    const sale = saleRows[0]
+    if (sale.status === 'CANCELADA') throw new Error('Esta venda já está cancelada.')
+
+    const [items] = await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id', [saleId])
+    for (const item of items) {
+      const [productRows] = await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE', [item.product_id])
+      if (!productRows.length) throw new Error('Produto da venda não encontrado.')
+      const product = productRows[0]
+      const stockBefore = Number(product.stock)
+      const stockAfter = stockBefore + Number(item.quantity)
+
+      await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, item.product_id])
+      await conn.execute(
+        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
+        [item.product_id, item.quantity, stockBefore, stockAfter, 'Estorno da venda ' + sale.code, 'sale:' + saleId, Number(item.unit_cost || 0), req.admin.id]
+      )
+    }
+
+    await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?", [saleId])
+    await conn.execute("UPDATE financial_entries SET status='CANCELADO', paid_at=NULL WHERE reference_type='VENDA' AND reference_id=?", ['sale:' + saleId])
+
+    await conn.commit()
+    await audit(req.admin.id, 'CANCELAR', 'venda', saleId, { code: sale.code, total: Number(sale.total) })
+    res.json({ success: true, id: saleId })
+  } catch (error) {
+    await conn.rollback()
+    console.error('Erro ao cancelar venda:', error)
+    res.status(400).json({ error: error.message || 'Não foi possível cancelar a venda.' })
+  } finally {
+    conn.release()
   }
 })
 
