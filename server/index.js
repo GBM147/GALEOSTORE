@@ -7,6 +7,9 @@ import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
 import mysql from 'mysql2/promise'
+import { v2 as cloudinary } from 'cloudinary'
+import multer from 'multer'
+import { Readable } from 'node:stream'
 import cron from 'node-cron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +20,32 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
+
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+  })
+}
+
+const mediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 8 },
+  fileFilter(req, file, callback) {
+    const allowed = [
+      'image/jpeg', 'image/png', 'image/webp',
+      'video/mp4', 'video/webm', 'video/quicktime'
+    ]
+    if (!allowed.includes(String(file.mimetype || '').toLowerCase())) {
+      const error = new Error('Arquivo não suportado. Use JPG, PNG, WebP, MP4, WebM ou MOV.')
+      error.status = 400
+      return callback(error)
+    }
+    callback(null, true)
+  }
+})
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 
@@ -184,6 +213,21 @@ async function init() {
       CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
       INDEX idx_products_active (active),
       INDEX idx_products_category (category_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS product_media (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id INT NOT NULL,
+      media_type ENUM('image','video') NOT NULL,
+      url VARCHAR(1200) NOT NULL,
+      public_id VARCHAR(255) NOT NULL,
+      width INT NULL,
+      height INT NULL,
+      duration DECIMAL(12,3) NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_media_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      INDEX idx_media_product_order (product_id,sort_order,id),
+      INDEX idx_media_public_id (public_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS stock_movements (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -747,6 +791,169 @@ app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
     res.status(400).json({ error: error.message || 'Não foi possível cancelar a venda.' })
   } finally {
     conn.release()
+  }
+})
+
+
+function cloudinaryConfigurado() {
+  return Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET
+  )
+}
+
+function enviarParaCloudinary(buffer, options) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) return reject(error)
+      resolve(result)
+    })
+    Readable.from(buffer).pipe(stream)
+  })
+}
+
+app.get('/api/admin/products/:id/media', exigirLogin, async (req, res) => {
+  const productId = Number(req.params.id)
+  try {
+    const product = await query('SELECT id FROM products WHERE id=? LIMIT 1', [productId])
+    if (!product.length) return res.status(404).json({ error: 'Produto não encontrado.' })
+    const media = await query(
+      'SELECT id,product_id,media_type,url,public_id,width,height,duration,sort_order,created_at FROM product_media WHERE product_id=? ORDER BY sort_order,id',
+      [productId]
+    )
+    res.json(media)
+  } catch (error) {
+    console.error('Erro ao listar mídia:', error)
+    res.status(500).json({ error: 'Não foi possível carregar a mídia do produto.' })
+  }
+})
+
+app.post('/api/admin/products/:id/media', exigirLogin, mediaUpload.array('media', 8), async (req, res) => {
+  const productId = Number(req.params.id)
+  if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ error: 'Produto inválido.' })
+  if (!req.files?.length) return res.status(400).json({ error: 'Selecione pelo menos um arquivo.' })
+  if (!cloudinaryConfigurado()) {
+    return res.status(503).json({
+      error: 'Upload de mídia ainda não configurado no servidor. Configure o Cloudinary no Render.'
+    })
+  }
+
+  try {
+    const product = await query('SELECT id,image,video FROM products WHERE id=? LIMIT 1', [productId])
+    if (!product.length) return res.status(404).json({ error: 'Produto não encontrado.' })
+
+    const existing = await query('SELECT COALESCE(MAX(sort_order),-1) AS max_order FROM product_media WHERE product_id=?', [productId])
+    let sortOrder = Number(existing[0]?.max_order ?? -1) + 1
+    const inserted = []
+
+    for (const file of req.files) {
+      const mediaType = String(file.mimetype).startsWith('video/') ? 'video' : 'image'
+      const result = await enviarParaCloudinary(file.buffer, {
+        folder: 'galeo-store/products/' + productId,
+        resource_type: 'auto',
+        type: 'upload',
+        context: { product_id: String(productId) }
+      })
+
+      const [insertResult] = await db.execute(
+        'INSERT INTO product_media(product_id,media_type,url,public_id,width,height,duration,sort_order) VALUES(?,?,?,?,?,?,?,?)',
+        [
+          productId,
+          mediaType,
+          result.secure_url || result.url,
+          result.public_id,
+          result.width || null,
+          result.height || null,
+          result.duration || null,
+          sortOrder++
+        ]
+      )
+
+      inserted.push({
+        id: insertResult.insertId,
+        product_id: productId,
+        media_type: mediaType,
+        url: result.secure_url || result.url,
+        public_id: result.public_id,
+        width: result.width || null,
+        height: result.height || null,
+        duration: result.duration || null
+      })
+
+      if (mediaType === 'image' && !product[0].image) {
+        await db.execute('UPDATE products SET image=? WHERE id=?', [result.secure_url || result.url, productId])
+        product[0].image = result.secure_url || result.url
+      }
+      if (mediaType === 'video' && !product[0].video) {
+        await db.execute('UPDATE products SET video=? WHERE id=?', [result.secure_url || result.url, productId])
+        product[0].video = result.secure_url || result.url
+      }
+    }
+
+    await audit(req.admin.id, 'MEDIA_UPLOAD', 'produto', productId, {
+      count: inserted.length,
+      media: inserted.map((item) => ({ id: item.id, type: item.media_type }))
+    })
+
+    res.status(201).json({ success: true, media: inserted })
+  } catch (error) {
+    console.error('Erro no upload de mídia:', error)
+    res.status(500).json({ error: 'Não foi possível enviar a mídia. Tente novamente.' })
+  }
+})
+
+app.delete('/api/admin/products/:productId/media/:mediaId', exigirLogin, async (req, res) => {
+  const productId = Number(req.params.productId)
+  const mediaId = Number(req.params.mediaId)
+
+  try {
+    const rows = await query(
+      'SELECT * FROM product_media WHERE id=? AND product_id=? LIMIT 1',
+      [mediaId, productId]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Mídia não encontrada.' })
+
+    const media = rows[0]
+    if (cloudinaryConfigurado()) {
+      try {
+        await cloudinary.uploader.destroy(media.public_id, {
+          resource_type: media.media_type === 'video' ? 'video' : 'image',
+          type: 'upload'
+        })
+      } catch (cloudinaryError) {
+        console.error('Aviso ao remover mídia no Cloudinary:', cloudinaryError)
+      }
+    }
+
+    await query('DELETE FROM product_media WHERE id=?', [mediaId])
+
+    const product = await query('SELECT image,video FROM products WHERE id=? LIMIT 1', [productId])
+    if (product.length) {
+      if (product[0].image === media.url) {
+        const replacement = await query(
+          "SELECT url FROM product_media WHERE product_id=? AND media_type='image' ORDER BY sort_order,id LIMIT 1",
+          [productId]
+        )
+        await query('UPDATE products SET image=? WHERE id=?', [replacement[0]?.url || '', productId])
+      }
+      if (product[0].video === media.url) {
+        const replacement = await query(
+          "SELECT url FROM product_media WHERE product_id=? AND media_type='video' ORDER BY sort_order,id LIMIT 1",
+          [productId]
+        )
+        await query('UPDATE products SET video=? WHERE id=?', [replacement[0]?.url || '', productId])
+      }
+    }
+
+    await audit(req.admin.id, 'MEDIA_DELETE', 'produto', productId, {
+      mediaId,
+      mediaType: media.media_type
+    })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Erro ao excluir mídia:', error)
+    res.status(500).json({ error: 'Não foi possível excluir a mídia.' })
   }
 })
 
