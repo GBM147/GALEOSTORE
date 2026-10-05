@@ -60,7 +60,21 @@ app.get('/api/store',async(req,res)=>{
   res.json({products:products.rows,categories:categories.rows})
 })
 
+async function generateCurrentRecurring() {
+ const rec=(await q('SELECT * FROM recurring_expenses WHERE active=true')).rows
+ const month=new Date().toISOString().slice(0,7)
+ for(const r of rec){
+   const referenceId='recurring:'+r.id+':'+month
+   const exists=await q('SELECT 1 FROM financial_entries WHERE reference_id=$1',[referenceId])
+   if(!exists.rowCount){
+     const day=String(r.due_day).padStart(2,'0')
+     await q("INSERT INTO financial_entries(account_id,category_id,type,description,amount,due_date,status,recurring,recurrence,reference_type,reference_id) VALUES($1,$2,'DESPESA',$3,$4,$5,'PENDENTE',true,'MENSAL','RECURRING',$6)",[r.account_id,r.category_id,r.description,r.amount,month+'-'+day,referenceId])
+   }
+ }
+}
+
 app.get('/api/admin/dashboard',auth,async(req,res)=>{
+  await generateCurrentRecurring()
   const [p,s,income,expense,payable,receivable]=await Promise.all([
     q("SELECT COUNT(*)::int count,COALESCE(SUM(stock),0)::int stock,COUNT(*) FILTER (WHERE stock<=min_stock AND active)::int low_stock FROM products"),
     q("SELECT COALESCE(SUM(quantity) FILTER (WHERE type='ENTRADA'),0)::int entradas,COALESCE(SUM(quantity) FILTER (WHERE type='SAIDA'),0)::int saidas FROM stock_movements WHERE created_at>=date_trunc('month',CURRENT_DATE)"),
