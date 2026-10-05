@@ -97,10 +97,13 @@ function Home({ products = fallbackProducts }) {
 }
 
 function ProductCard({ product }) {
+  const price = Number(product?.price || 0)
+  const image = product?.image || '/images/product-placeholder.svg'
+
   return (
     <Link className="product-card" to={`/produto/${product.id}`}>
-      <div className="product-image"><img src={product.image} alt="" loading="lazy" /><span>↗</span></div>
-      <div className="product-meta"><span>{product.category}</span><strong>{product.name}</strong><b>R$ {product.price.toFixed(2).replace('.', ',')}</b></div>
+      <div className="product-image"><img src={image} alt="" loading="lazy" /><span>↗</span></div>
+      <div className="product-meta"><span>{product?.category || 'Sem categoria'}</span><strong>{product?.name || 'Produto'}</strong><b>R$ {price.toFixed(2).replace('.', ',')}</b></div>
     </Link>
   )
 }
