@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
+import AdminGate from './Admin'
 
-const products = [
+const fallbackProducts = [
   { id: 1, name: 'Camiseta Galeo Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
   { id: 2, name: 'Moletom Galeo Core', category: 'Moletons', price: 219.9, image: '/images/product-placeholder.svg' },
   { id: 3, name: 'Camiseta Oversized', category: 'Camisetas', price: 149.9, image: '/images/product-placeholder.svg' },
@@ -37,7 +38,7 @@ function Header({ theme, onToggle }) {
   )
 }
 
-function Home() {
+function Home({ products = fallbackProducts }) {
   return (
     <>
       <main>
@@ -104,7 +105,7 @@ function ProductCard({ product }) {
   )
 }
 
-function Shop() {
+function Shop({ products = fallbackProducts }) {
   return (
     <main className="section-shell page-space">
       <div className="page-heading"><span className="eyebrow">SHOP / 001</span><h1>Produtos.</h1></div>
@@ -120,6 +121,8 @@ function PlaceholderPage({ title, label }) {
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('galeo-theme') || 'dark')
+  const [catalog, setCatalog] = useState(fallbackProducts)
+  useEffect(() => { fetch('/api/store').then(r => r.ok ? r.json() : null).then(d => { if (d?.products?.length) setCatalog(d.products) }).catch(() => {}) }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -130,8 +133,9 @@ export default function App() {
     <div className="app">
       <Header theme={theme} onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/shop" element={<Shop />} />
+        <Route path="/admin/*" element={<AdminGate />} />
+        <Route path="/" element={<Home products={catalog} />} />
+        <Route path="/shop" element={<Shop products={catalog} />} />
         <Route path="/produto/:id" element={<PlaceholderPage title="Produto" label="PRODUCT / 001" />} />
         <Route path="/conta" element={<PlaceholderPage title="Minha conta" label="ACCOUNT / 001" />} />
         <Route path="/carrinho" element={<PlaceholderPage title="Sua bag" label="BAG / 001" />} />
