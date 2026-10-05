@@ -95,7 +95,7 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 
 function Login({onLogin}){
  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState('')
- async function submit(e){e.preventDefault();setError('');try{let d;try{d=await api('/api/auth/login',{method:'POST',body:{email,password}})}catch{if(email===DEMO_EMAIL&&password===DEMO_PASSWORD)d={token:DEMO_TOKEN,demo:true};else throw Error('E-mail ou senha inválidos')}if(!d||!d.token)throw Error('Não foi possível iniciar a sessão.');localStorage.setItem('galeo-admin-token',d.token);onLogin()}catch(e){setError(e?.message||'Não foi possível entrar no painel.')}}
+ async function submit(e){e.preventDefault();setError('');try{let d;try{d=await api('/api/auth/login',{method:'POST',body:{email,password}});if((!d||!d.token)&&email===DEMO_EMAIL&&password===DEMO_PASSWORD)d={token:DEMO_TOKEN,demo:true}}catch(err){if(email===DEMO_EMAIL&&password===DEMO_PASSWORD)d={token:DEMO_TOKEN,demo:true};else throw err}if(!d||!d.token)throw Error('E-mail ou senha inválidos');localStorage.setItem('galeo-admin-token',d.token);onLogin()}catch(e){setError(e?.message||'Não foi possível entrar no painel.')}}
  return <main className="admin-login"><form onSubmit={submit}><span className="eyebrow">GALEO / ADMIN</span><h1>Painel administrativo.</h1><input placeholder="E-mail" type="email" value={email} onChange={e=>setEmail(e.target.value)} required/><input placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} required/><button className="button button-primary">Entrar ↗</button>{error&&<p className="admin-error">{error}</p>}</form></main>
 }
 
