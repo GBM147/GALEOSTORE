@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const api = async (path, options = {}) => {
   const headers = new Headers(options.headers || {})
@@ -28,15 +28,38 @@ const money = (v) => Number(v || 0).toLocaleString('pt-BR', {
   currency: 'BRL'
 })
 
+const dateBR = (v) => {
+  if (!v) return '—'
+  const value = String(v).slice(0, 10)
+  const [y, m, d] = value.split('-')
+  return y && m && d ? d + '/' + m + '/' + y : String(v)
+}
+
+const emptyProduct = {
+  name: '',
+  brand: '',
+  category_id: '',
+  description: '',
+  price: '',
+  cost: '',
+  stock: 0,
+  min_stock: 0,
+  image: '',
+  video: '',
+  active: true
+}
+
 function Login({ onLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [manterConectado, setManterConectado] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   async function submit(event) {
     event.preventDefault()
     setError('')
+    setLoading(true)
     try {
       const data = await api('/api/auth/login', {
         method: 'POST',
@@ -46,6 +69,8 @@ function Login({ onLogin }) {
       onLogin(data.user)
     } catch (err) {
       setError(err?.message || 'Não foi possível entrar no painel.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -60,10 +85,316 @@ function Login({ onLogin }) {
           <input type="checkbox" checked={manterConectado} onChange={(e) => setManterConectado(e.target.checked)} />
           Manter conectado
         </label>
-        <button className="button button-primary">Entrar ↗</button>
+        <button className="button button-primary" disabled={loading}>
+          {loading ? 'Entrando…' : 'Entrar ↗'}
+        </button>
         {error && <p className="admin-error">{error}</p>}
       </form>
     </main>
+  )
+}
+
+function ProductForm({ product, categories, onClose, onDone }) {
+  const editing = Boolean(product?.id)
+  const [form, setForm] = useState(product ? {
+    ...product,
+    category_id: product.category_id || '',
+    active: Boolean(product.active)
+  } : emptyProduct)
+  const [saving, setSaving] = useState(false)
+  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+
+  async function submit(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await api(editing ? '/api/admin/products/' + product.id : '/api/admin/products', {
+        method: editing ? 'PUT' : 'POST',
+        body: {
+          ...form,
+          price: Number(form.price || 0),
+          cost: Number(form.cost || 0),
+          stock: Number(form.stock || 0),
+          min_stock: Number(form.min_stock || 0),
+          category_id: Number(form.category_id) || null
+        }
+      })
+      onDone()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="admin-modal admin-modal-wide" onSubmit={submit}>
+        <button type="button" className="modal-close" onClick={onClose}>×</button>
+        <span className="eyebrow">{editing ? 'PRODUTO / EDITAR' : 'PRODUTO / NOVO'}</span>
+        <h2>{editing ? 'Editar produto' : 'Cadastrar produto'}</h2>
+
+        <div className="admin-form-grid">
+          <label>Nome<input value={form.name} onChange={(e) => set('name', e.target.value)} required /></label>
+          <label>Marca<input value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="Ex.: Nike, Adidas…" /></label>
+          <label>Categoria<select value={form.category_id} onChange={(e) => set('category_id', e.target.value)}><option value="">Sem categoria</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label>Preço de venda<input type="number" min="0" step="0.01" value={form.price} onChange={(e) => set('price', e.target.value)} required /></label>
+          <label>Custo<input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => set('cost', e.target.value)} /></label>
+          <label>Estoque inicial / atual<input type="number" min="0" step="1" value={form.stock} onChange={(e) => set('stock', e.target.value)} required /></label>
+          <label>Estoque mínimo<input type="number" min="0" step="1" value={form.min_stock} onChange={(e) => set('min_stock', e.target.value)} /></label>
+          <label>Status<select value={form.active ? '1' : '0'} onChange={(e) => set('active', e.target.value === '1')}><option value="1">Ativo no site</option><option value="0">Oculto</option></select></label>
+        </div>
+
+        <label>Descrição<textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows="4" placeholder="Descrição, composição, medidas, cuidados…" /></label>
+
+        <div className="admin-form-grid">
+          <label>URL da foto principal<input value={form.image} onChange={(e) => set('image', e.target.value)} placeholder="https://..." /></label>
+          <label>URL do vídeo<input value={form.video} onChange={(e) => set('video', e.target.value)} placeholder="https://..." /></label>
+        </div>
+
+        <div className="admin-media-note">
+          As fotos e vídeos ficam vinculados ao produto por URL. Depois podemos adicionar upload direto para um armazenamento externo sem colocar arquivos no disco efêmero do Render.
+        </div>
+
+        <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar produto'}</button>
+      </form>
+    </div>
+  )
+}
+
+function StockModal({ products, onClose, onDone }) {
+  const [form, setForm] = useState({ product_id: '', type: 'ENTRADA', quantity: '', reason: '' })
+  const [saving, setSaving] = useState(false)
+  const set = (k, v) => setForm((c) => ({ ...c, [k]: v }))
+
+  async function submit(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await api('/api/admin/stock', {
+        method: 'POST',
+        body: {
+          ...form,
+          product_id: Number(form.product_id),
+          quantity: Number(form.quantity)
+        }
+      })
+      onDone()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="admin-modal" onSubmit={submit}>
+        <button type="button" className="modal-close" onClick={onClose}>×</button>
+        <span className="eyebrow">ESTOQUE</span>
+        <h2>Movimentar estoque</h2>
+        <select value={form.product_id} onChange={(e) => set('product_id', e.target.value)} required>
+          <option value="">Selecione o produto</option>
+          {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.stock} un.</option>)}
+        </select>
+        <select value={form.type} onChange={(e) => set('type', e.target.value)}>
+          <option value="ENTRADA">Entrada</option>
+          <option value="SAIDA">Saída</option>
+        </select>
+        <input type="number" min="1" step="1" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} placeholder="Quantidade" required />
+        <input value={form.reason} onChange={(e) => set('reason', e.target.value)} placeholder="Motivo" />
+        <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Confirmar'}</button>
+      </form>
+    </div>
+  )
+}
+
+function SaleModal({ products, onClose, onDone }) {
+  const [customerName, setCustomerName] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('PIX')
+  const [notes, setNotes] = useState('')
+  const [items, setItems] = useState([{ product_id: '', quantity: 1 }])
+  const [saving, setSaving] = useState(false)
+
+  const setItem = (index, key, value) => {
+    setItems((current) => current.map((item, i) => i === index ? { ...item, [key]: value } : item))
+  }
+  const addItem = () => setItems((current) => [...current, { product_id: '', quantity: 1 }])
+  const removeItem = (index) => setItems((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))
+
+  const estimatedTotal = useMemo(() => items.reduce((sum, item) => {
+    const product = products.find((p) => Number(p.id) === Number(item.product_id))
+    return sum + (product ? Number(product.price) * Number(item.quantity || 0) : 0)
+  }, 0), [items, products])
+
+  async function submit(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await api('/api/admin/sales', {
+        method: 'POST',
+        body: {
+          customer_name: customerName,
+          payment_method: paymentMethod,
+          notes,
+          items: items.map((item) => ({
+            product_id: Number(item.product_id),
+            quantity: Number(item.quantity)
+          }))
+        }
+      })
+      onDone()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="admin-modal admin-modal-wide" onSubmit={submit}>
+        <button type="button" className="modal-close" onClick={onClose}>×</button>
+        <span className="eyebrow">VENDAS / NOVA</span>
+        <h2>Registrar venda</h2>
+        <div className="admin-form-grid">
+          <label>Cliente<input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nome opcional" /></label>
+          <label>Pagamento<select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option>PIX</option><option>CARTAO_CREDITO</option><option>CARTAO_DEBITO</option><option>DINHEIRO</option><option>TRANSFERENCIA</option><option>OUTRO</option></select></label>
+        </div>
+
+        <div className="sale-items">
+          {items.map((item, index) => (
+            <div className="sale-item" key={index}>
+              <select value={item.product_id} onChange={(e) => setItem(index, 'product_id', e.target.value)} required>
+                <option value="">Produto</option>
+                {products.filter((p) => Number(p.stock) > 0).map((p) => <option key={p.id} value={p.id}>{p.name} — {money(p.price)} — {p.stock} em estoque</option>)}
+              </select>
+              <input type="number" min="1" step="1" value={item.quantity} onChange={(e) => setItem(index, 'quantity', e.target.value)} required />
+              <button type="button" onClick={() => removeItem(index)}>Remover</button>
+            </div>
+          ))}
+        </div>
+
+        <button className="text-button" type="button" onClick={addItem}>+ adicionar item</button>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows="3" placeholder="Observações da venda" />
+        <div className="sale-total"><span>Total estimado</span><strong>{money(estimatedTotal)}</strong></div>
+        <button className="button button-primary" disabled={saving}>{saving ? 'Registrando…' : 'Finalizar venda'}</button>
+      </form>
+    </div>
+  )
+}
+
+function FinanceModal({ categories, accounts, onClose, onDone }) {
+  const [form, setForm] = useState({
+    type: 'DESPESA',
+    status: 'PENDENTE',
+    description: '',
+    amount: '',
+    due_date: '',
+    category_id: '',
+    account_id: ''
+  })
+  const [saving, setSaving] = useState(false)
+  const set = (k, v) => setForm((c) => ({ ...c, [k]: v }))
+
+  const filtered = categories.filter((c) => c.type === form.type)
+
+  async function submit(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await api('/api/admin/finance/entries', {
+        method: 'POST',
+        body: {
+          ...form,
+          amount: Number(form.amount),
+          category_id: Number(form.category_id) || null,
+          account_id: Number(form.account_id) || null
+        }
+      })
+      onDone()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="admin-modal" onSubmit={submit}>
+        <button type="button" className="modal-close" onClick={onClose}>×</button>
+        <span className="eyebrow">FINANCEIRO / NOVO</span>
+        <h2>Novo lançamento</h2>
+        <select value={form.type} onChange={(e) => set('type', e.target.value)}>
+          <option value="DESPESA">Despesa</option>
+          <option value="RECEITA">Receita</option>
+        </select>
+        <input value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Descrição" required />
+        <input type="number" min="0.01" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="Valor" required />
+        <select value={form.category_id} onChange={(e) => set('category_id', e.target.value)} required>
+          <option value="">Categoria</option>
+          {filtered.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
+          <option value="">Conta</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        <input type="date" value={form.due_date} onChange={(e) => set('due_date', e.target.value)} />
+        <select value={form.status} onChange={(e) => set('status', e.target.value)}><option value="PENDENTE">Pendente</option><option value="PAGO">Pago</option></select>
+        <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar lançamento'}</button>
+      </form>
+    </div>
+  )
+}
+
+function RecurringModal({ categories, accounts, onClose, onDone }) {
+  const [form, setForm] = useState({ description: '', amount: '', due_day: 10, category_id: '', account_id: '' })
+  const [saving, setSaving] = useState(false)
+  const set = (k, v) => setForm((c) => ({ ...c, [k]: v }))
+
+  async function submit(event) {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await api('/api/admin/finance/recurring', {
+        method: 'POST',
+        body: {
+          ...form,
+          amount: Number(form.amount),
+          due_day: Number(form.due_day),
+          category_id: Number(form.category_id) || null,
+          account_id: Number(form.account_id) || null
+        }
+      })
+      onDone()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="admin-modal" onSubmit={submit}>
+        <button type="button" className="modal-close" onClick={onClose}>×</button>
+        <span className="eyebrow">FINANCEIRO / RECORRÊNCIA</span>
+        <h2>Nova conta recorrente</h2>
+        <input value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Ex.: Aluguel" required />
+        <input type="number" min="0.01" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="Valor mensal" required />
+        <input type="number" min="1" max="31" value={form.due_day} onChange={(e) => set('due_day', e.target.value)} placeholder="Dia do vencimento" required />
+        <select value={form.category_id} onChange={(e) => set('category_id', e.target.value)} required>
+          <option value="">Categoria</option>
+          {categories.filter((c) => c.type === 'DESPESA').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
+          <option value="">Conta</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Criar recorrência'}</button>
+      </form>
+    </div>
   )
 }
 
@@ -73,62 +404,60 @@ function Admin({ user, onLogout }) {
   const [products, setProducts] = useState([])
   const [entries, setEntries] = useState([])
   const [categories, setCategories] = useState([])
+  const [accounts, setAccounts] = useState([])
   const [recurring, setRecurring] = useState([])
+  const [movements, setMovements] = useState([])
+  const [sales, setSales] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
+  const [editingProduct, setEditingProduct] = useState(null)
 
-  const load = async () => {
+  async function load() {
     setLoading(true)
     try {
-      const [d, p, e, c, r] = await Promise.all([
+      const [d, p, e, c, a, r, m, s] = await Promise.all([
         api('/api/admin/dashboard'),
         api('/api/admin/products'),
         api('/api/admin/finance/entries'),
         api('/api/admin/finance/categories'),
-        api('/api/admin/finance/recurring')
+        api('/api/admin/finance/accounts'),
+        api('/api/admin/finance/recurring'),
+        api('/api/admin/stock/movements'),
+        api('/api/admin/sales')
       ])
       setDash(d)
       setProducts(p)
       setEntries(e)
       setCategories(c)
+      setAccounts(a)
       setRecurring(r)
+      setMovements(m)
+      setSales(s)
+    } catch (error) {
+      if (error.message.includes('Sessão') || error.message.includes('conta')) onLogout()
+      else alert(error.message)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    load().catch((error) => {
-      if (error.message.includes('Sessão') || error.message.includes('conta')) {
-        onLogout()
-      } else {
-        alert(error.message)
-      }
-    })
+    load()
   }, [])
 
-  async function stock(product, type) {
-    const qty = prompt(type === 'ENTRADA' ? 'Quantidade que entrou:' : 'Quantidade que saiu:')
-    if (!qty) return
+  async function pay(id) {
     try {
-      await api('/api/admin/stock', {
-        method: 'POST',
-        body: {
-          product_id: product.id,
-          type,
-          quantity: Number(qty),
-          reason: type === 'ENTRADA' ? 'Entrada de mercadoria' : 'Saída manual'
-        }
-      })
+      await api('/api/admin/finance/entries/' + id + '/pay', { method: 'PATCH' })
       await load()
     } catch (error) {
       alert(error.message)
     }
   }
 
-  async function pay(id) {
+  async function cancelSale(id) {
+    if (!window.confirm('Cancelar esta venda? O estoque e o financeiro serão estornados.')) return
     try {
-      await api('/api/admin/finance/entries/' + id + '/pay', { method: 'PATCH' })
+      await api('/api/admin/sales/' + id + '/cancel', { method: 'PATCH' })
       await load()
     } catch (error) {
       alert(error.message)
@@ -140,6 +469,23 @@ function Admin({ user, onLogout }) {
     onLogout()
   }
 
+  const title = {
+    dashboard: 'Visão geral',
+    products: 'Produtos e estoque',
+    sales: 'Vendas',
+    finance: 'Financeiro',
+    recurring: 'Contas recorrentes',
+    movements: 'Histórico de estoque'
+  }[tab]
+
+  const cta = {
+    products: ['+ Cadastrar produto', () => { setEditingProduct(null); setModal('product') }],
+    sales: ['+ Registrar venda', () => setModal('sale')],
+    finance: ['+ Registrar lançamento', () => setModal('finance')],
+    recurring: ['+ Nova recorrência', () => setModal('recurring')],
+    movements: ['+ Movimentar estoque', () => setModal('stock')]
+  }[tab]
+
   return (
     <div className="admin-shell">
       <aside className="admin-side">
@@ -147,17 +493,14 @@ function Admin({ user, onLogout }) {
         {[
           ['dashboard', 'Visão geral'],
           ['products', 'Produtos e estoque'],
+          ['sales', 'Vendas'],
           ['finance', 'Financeiro'],
-          ['recurring', 'Contas recorrentes']
+          ['recurring', 'Contas recorrentes'],
+          ['movements', 'Histórico de estoque']
         ].map(([key, label]) => (
-          <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => setTab(key)} key={key}>
-            {label}
-          </button>
+          <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => setTab(key)} key={key}>{label}</button>
         ))}
-        <div className="admin-user">
-          <strong>{user?.email}</strong>
-          <small>{user?.role}</small>
-        </div>
+        <div className="admin-user"><strong>{user?.email}</strong><small>{user?.role}</small></div>
         <button className="admin-nav logout" onClick={logout}>Sair</button>
       </aside>
 
@@ -165,45 +508,32 @@ function Admin({ user, onLogout }) {
         <div className="admin-top">
           <div>
             <span className="eyebrow">ADMIN / {String(user?.id || '').padStart(3, '0')}</span>
-            <h1>
-              {tab === 'dashboard'
-                ? 'Visão geral'
-                : tab === 'products'
-                  ? 'Produtos e estoque'
-                  : tab === 'finance'
-                    ? 'Financeiro'
-                    : 'Contas recorrentes'}
-            </h1>
+            <h1>{title}</h1>
           </div>
-          <button
-            className="button button-primary"
-            onClick={() => setModal(tab === 'products' ? 'stock' : tab === 'finance' ? 'expense' : 'recurring')}
-          >
-            {tab === 'products' ? '+ Movimentar estoque' : tab === 'finance' ? '+ Registrar lançamento' : '+ Nova recorrência'}
-          </button>
+          {cta && <button className="button button-primary" onClick={cta[1]}>{cta[0]}</button>}
         </div>
 
-        {loading ? <p>Carregando...</p> : null}
+        {loading ? <div className="admin-loading">Carregando dados reais…</div> : null}
 
         {!loading && tab === 'dashboard' && (
           <>
-            <div className="metric-grid">
-              {[
-                ['Produtos', dash.products.count],
-                ['Estoque', dash.products.stock + ' un.'],
-                ['Entradas no mês', '+' + dash.stock.entradas],
-                ['Saídas no mês', '-' + dash.stock.saidas],
-                ['Receitas pagas', money(dash.income)],
-                ['Despesas pagas', money(dash.expense)],
-                ['A pagar', money(dash.payable)],
-                ['A receber', money(dash.receivable)]
-              ].map(([label, value]) => (
-                <div className="metric" key={label}><span>{label}</span><strong>{value}</strong></div>
-              ))}
+            <div className="metric-grid metric-grid-extended">
+              <div className="metric"><span>Produtos ativos</span><strong>{dash.products.count}</strong></div>
+              <div className="metric"><span>Unidades em estoque</span><strong>{dash.products.stock}</strong></div>
+              <div className="metric"><span>Produtos em estoque baixo</span><strong>{dash.products.low_stock}</strong></div>
+              <div className="metric"><span>Vendas no mês</span><strong>{dash.sales.count}</strong></div>
+              <div className="metric"><span>Receita de vendas</span><strong>{money(dash.sales.total)}</strong></div>
+              <div className="metric"><span>Outras receitas</span><strong>{money(dash.income)}</strong></div>
+              <div className="metric"><span>Despesas pagas</span><strong>{money(dash.expense)}</strong></div>
+              <div className="metric"><span>Resultado do mês</span><strong>{money(Number(dash.sales.total || 0) + Number(dash.income || 0) - Number(dash.expense || 0))}</strong></div>
+              <div className="metric"><span>A pagar</span><strong>{money(dash.payable)}</strong></div>
+              <div className="metric"><span>A receber</span><strong>{money(dash.receivable)}</strong></div>
+              <div className="metric"><span>Entradas de estoque</span><strong>+{dash.stock.entradas}</strong></div>
+              <div className="metric"><span>Saídas de estoque</span><strong>-{dash.stock.saidas}</strong></div>
             </div>
-            <div className="admin-panel">
-              <h2>Alertas</h2>
-              <p>{dash.products.low_stock} produto(s) no estoque mínimo ou abaixo.</p>
+            <div className="admin-panel dashboard-split">
+              <div><span className="eyebrow">ATENÇÃO</span><h2>Estoque crítico</h2><p>{dash.products.low_stock} produto(s) no estoque mínimo ou abaixo.</p></div>
+              <div><span className="eyebrow">ÚLTIMA VENDA</span><h2>{sales[0]?.code || 'Ainda não há vendas'}</h2><p>{sales[0] ? money(sales[0].total) + ' · ' + dateBR(sales[0].sold_at) : 'Registre a primeira venda pelo painel.'}</p></div>
             </div>
           </>
         )}
@@ -211,20 +541,46 @@ function Admin({ user, onLogout }) {
         {!loading && tab === 'products' && (
           <div className="admin-panel">
             <table>
-              <thead><tr><th>Produto</th><th>Preço</th><th>Custo</th><th>Estoque</th><th></th></tr></thead>
+              <thead><tr><th>Produto</th><th>Marca</th><th>Preço</th><th>Custo</th><th>Estoque</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {products.map((product) => (
                   <tr key={product.id}>
                     <td><strong>{product.name}</strong><small>{product.category || 'Sem categoria'}</small></td>
+                    <td>{product.brand || '—'}</td>
                     <td>{money(product.price)}</td>
                     <td>{money(product.cost)}</td>
                     <td><strong>{product.stock}</strong>{product.stock <= product.min_stock && <small className="warn"> estoque baixo</small>}</td>
-                    <td>
-                      <button onClick={() => stock(product, 'ENTRADA')}>+ entrada</button>{' '}
-                      <button onClick={() => stock(product, 'SAIDA')}>− saída</button>
+                    <td>{Number(product.active) ? 'Ativo' : 'Oculto'}</td>
+                    <td className="admin-actions">
+                      <button onClick={() => { setEditingProduct(product); setModal('product') }}>Editar</button>
+                      <button onClick={() => { setModal('stock'); setEditingProduct(product) }}>Estoque</button>
                     </td>
                   </tr>
                 ))}
+                {!products.length && <tr><td colSpan="7" className="empty-state">Nenhum produto cadastrado ainda.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && tab === 'sales' && (
+          <div className="admin-panel">
+            <table>
+              <thead><tr><th>Venda</th><th>Cliente</th><th>Pagamento</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {sales.map((sale) => (
+                  <tr key={sale.id}>
+                    <td><strong>{sale.code}</strong></td>
+                    <td>{sale.customer_name || 'Consumidor final'}</td>
+                    <td>{String(sale.payment_method || '').replaceAll('_', ' ')}</td>
+                    <td>{dateBR(sale.sold_at)}</td>
+                    <td>{sale.items_count}</td>
+                    <td><strong>{money(sale.total)}</strong></td>
+                    <td><span className={'status-pill status-' + String(sale.status).toLowerCase()}>{sale.status}</span></td>
+                    <td>{sale.status === 'PAGA' && <button onClick={() => cancelSale(sale.id)}>Cancelar</button>}</td>
+                  </tr>
+                ))}
+                {!sales.length && <tr><td colSpan="8" className="empty-state">Nenhuma venda registrada.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -233,18 +589,21 @@ function Admin({ user, onLogout }) {
         {!loading && tab === 'finance' && (
           <div className="admin-panel">
             <table>
-              <thead><tr><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Tipo</th><th>Descrição</th><th>Categoria</th><th>Conta</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {entries.map((entry) => (
                   <tr key={entry.id}>
-                    <td>{entry.description}</td>
+                    <td>{entry.type}</td>
+                    <td><strong>{entry.description}</strong>{entry.reference_type && <small>{entry.reference_type}</small>}</td>
                     <td>{entry.category || '—'}</td>
-                    <td>{entry.due_date || '—'}</td>
+                    <td>{entry.account || '—'}</td>
+                    <td>{dateBR(entry.due_date)}</td>
                     <td>{money(entry.amount)}</td>
-                    <td>{entry.status}</td>
+                    <td><span className={'status-pill status-' + String(entry.status).toLowerCase()}>{entry.status}</span></td>
                     <td>{entry.status === 'PENDENTE' && <button onClick={() => pay(entry.id)}>Marcar pago</button>}</td>
                   </tr>
                 ))}
+                {!entries.length && <tr><td colSpan="8" className="empty-state">Nenhum lançamento financeiro.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -253,112 +612,37 @@ function Admin({ user, onLogout }) {
         {!loading && tab === 'recurring' && (
           <div className="admin-panel">
             <table>
-              <thead><tr><th>Despesa</th><th>Categoria</th><th>Valor</th><th>Dia</th></tr></thead>
+              <thead><tr><th>Despesa</th><th>Categoria</th><th>Conta</th><th>Valor</th><th>Dia</th><th>Status</th></tr></thead>
               <tbody>
                 {recurring.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.description}</td>
-                    <td>{item.category || '—'}</td>
-                    <td>{money(item.amount)}</td>
-                    <td>{item.due_day}</td>
-                  </tr>
+                  <tr key={item.id}><td>{item.description}</td><td>{item.category || '—'}</td><td>{item.account || '—'}</td><td>{money(item.amount)}</td><td>{item.due_day}</td><td>{Number(item.active) ? 'Ativa' : 'Inativa'}</td></tr>
                 ))}
+                {!recurring.length && <tr><td colSpan="6" className="empty-state">Nenhuma conta recorrente cadastrada.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && tab === 'movements' && (
+          <div className="admin-panel">
+            <table>
+              <thead><tr><th>Data</th><th>Produto</th><th>Tipo</th><th>Quantidade</th><th>Antes</th><th>Depois</th><th>Motivo</th></tr></thead>
+              <tbody>
+                {movements.map((m) => (
+                  <tr key={m.id}><td>{dateBR(m.created_at)}</td><td>{m.product}</td><td>{m.type}</td><td>{m.quantity}</td><td>{m.stock_before}</td><td>{m.stock_after}</td><td>{m.reason || '—'}</td></tr>
+                ))}
+                {!movements.length && <tr><td colSpan="7" className="empty-state">Nenhuma movimentação registrada.</td></tr>}
               </tbody>
             </table>
           </div>
         )}
       </main>
 
-      {modal && (
-        <Modal
-          type={modal}
-          categories={categories}
-          products={products}
-          onClose={() => setModal(null)}
-          onDone={() => { setModal(null); load() }}
-        />
-      )}
-    </div>
-  )
-}
-
-function Modal({ type, categories, products, onClose, onDone }) {
-  const [form, setForm] = useState({ type: 'DESPESA', status: 'PENDENTE', due_day: 10 })
-  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
-
-  async function submit(event) {
-    event.preventDefault()
-    try {
-      if (type === 'stock') {
-        await api('/api/admin/stock', {
-          method: 'POST',
-          body: {
-            ...form,
-            quantity: Number(form.quantity),
-            product_id: Number(form.product_id)
-          }
-        })
-      }
-
-      if (type === 'expense') {
-        await api('/api/admin/finance/entries', {
-          method: 'POST',
-          body: { ...form, amount: Number(form.amount), type: 'DESPESA' }
-        })
-      }
-
-      if (type === 'recurring') {
-        await api('/api/admin/finance/recurring', {
-          method: 'POST',
-          body: { ...form, amount: Number(form.amount), due_day: Number(form.due_day) }
-        })
-      }
-
-      onDone()
-    } catch (error) {
-      alert(error.message)
-    }
-  }
-
-  return (
-    <div className="modal-backdrop">
-      <form className="admin-modal" onSubmit={submit}>
-        <button type="button" className="modal-close" onClick={onClose}>×</button>
-        <span className="eyebrow">NOVO LANÇAMENTO</span>
-        <h2>{type === 'stock' ? 'Movimentar estoque' : type === 'expense' ? 'Registrar gasto' : 'Despesa recorrente'}</h2>
-
-        {type === 'stock' ? (
-          <>
-            <select value={form.product_id || ''} onChange={(e) => set('product_id', e.target.value)} required>
-              <option value="">Produto</option>
-              {products.map((product) => <option value={product.id} key={product.id}>{product.name} — estoque {product.stock}</option>)}
-            </select>
-            <select value={form.type || 'ENTRADA'} onChange={(e) => set('type', e.target.value)}>
-              <option value="ENTRADA">ENTRADA</option>
-              <option value="SAIDA">SAIDA</option>
-            </select>
-            <input type="number" min="1" placeholder="Quantidade" onChange={(e) => set('quantity', e.target.value)} required />
-            <input placeholder="Motivo" onChange={(e) => set('reason', e.target.value)} />
-          </>
-        ) : (
-          <>
-            <input placeholder="Descrição" onChange={(e) => set('description', e.target.value)} required />
-            <select onChange={(e) => set('category_id', e.target.value)} required>
-              <option value="">Categoria</option>
-              {categories.filter((category) => category.type === 'DESPESA').map((category) => (
-                <option value={category.id} key={category.id}>{category.name}</option>
-              ))}
-            </select>
-            <input type="number" step="0.01" placeholder="Valor" onChange={(e) => set('amount', e.target.value)} required />
-            <input type="date" onChange={(e) => set('due_date', e.target.value)} />
-            {type === 'expense'
-              ? <select onChange={(e) => set('status', e.target.value)}><option>PENDENTE</option><option>PAGO</option></select>
-              : <input type="number" min="1" max="31" placeholder="Dia do vencimento" onChange={(e) => set('due_day', e.target.value)} />}
-          </>
-        )}
-
-        <button className="button button-primary">Salvar</button>
-      </form>
+      {modal === 'product' && <ProductForm product={editingProduct} categories={categories} onClose={() => setModal(null)} onDone={() => { setModal(null); setEditingProduct(null); load() }} />}
+      {modal === 'stock' && <StockModal products={products} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
+      {modal === 'sale' && <SaleModal products={products} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
+      {modal === 'finance' && <FinanceModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
+      {modal === 'recurring' && <RecurringModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
     </div>
   )
 }
