@@ -3,7 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import bcrypt from 'bcrypt'
-import rateLimit from 'express-rate-limit'
+import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
 import mysql from 'mysql2/promise'
@@ -151,24 +151,22 @@ async function audit(userId, action, entity, entityId, details = null) {
 }
 
 async function init() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
+  const schema = [
+    `CREATE TABLE IF NOT EXISTS admin_users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       email VARCHAR(255) NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
       role ENUM('owner','manager','staff') NOT NULL DEFAULT 'owner',
       active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS categories (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(120) NOT NULL UNIQUE,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS products (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS products (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(180) NOT NULL,
       brand VARCHAR(120) NOT NULL DEFAULT '',
@@ -186,9 +184,8 @@ async function init() {
       CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
       INDEX idx_products_active (active),
       INDEX idx_products_category (category_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS stock_movements (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS stock_movements (
       id INT AUTO_INCREMENT PRIMARY KEY,
       product_id INT NOT NULL,
       type ENUM('ENTRADA','SAIDA','AJUSTE') NOT NULL,
@@ -204,22 +201,19 @@ async function init() {
       CONSTRAINT fk_stock_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,
       INDEX idx_stock_product_created (product_id, created_at),
       INDEX idx_stock_reference (reference_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS financial_categories (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS financial_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(120) NOT NULL UNIQUE,
       type ENUM('RECEITA','DESPESA') NOT NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS financial_accounts (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS financial_accounts (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(120) NOT NULL UNIQUE,
       initial_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
       active TINYINT(1) NOT NULL DEFAULT 1
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS financial_entries (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS financial_entries (
       id INT AUTO_INCREMENT PRIMARY KEY,
       account_id INT NULL,
       category_id INT NULL,
@@ -241,9 +235,8 @@ async function init() {
       UNIQUE KEY uq_fin_reference (reference_id),
       INDEX idx_fin_due_status (due_date, status),
       INDEX idx_fin_type_status (type, status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS recurring_expenses (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS recurring_expenses (
       id INT AUTO_INCREMENT PRIMARY KEY,
       description VARCHAR(255) NOT NULL,
       category_id INT NULL,
@@ -255,9 +248,8 @@ async function init() {
       CONSTRAINT fk_rec_category FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
       CONSTRAINT fk_rec_account FOREIGN KEY (account_id) REFERENCES financial_accounts(id) ON DELETE SET NULL,
       INDEX idx_rec_active_day (active, due_day)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-    CREATE TABLE IF NOT EXISTS audit_logs (
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS audit_logs (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NULL,
       action VARCHAR(80) NOT NULL,
@@ -267,42 +259,28 @@ async function init() {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,
       INDEX idx_audit_entity_created (entity, entity_id, created_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  ]
+
+  for (const statement of schema) await query(statement)
 
   const productCategories = [
-    ['Camisetas', 10],
-    ['Calças', 20],
-    ['Vestidos', 30],
-    ['Casacos', 40],
-    ['Calçados', 50],
-    ['Acessórios', 60],
-    ['Outros', 99]
+    ['Camisetas', 10], ['Calças', 20], ['Vestidos', 30],
+    ['Casacos', 40], ['Calçados', 50], ['Acessórios', 60], ['Outros', 99]
   ]
   for (const [name, sortOrder] of productCategories) {
-    await query(
-      'INSERT IGNORE INTO categories(name,sort_order) VALUES(?,?)',
-      [name, sortOrder]
-    )
+    await query('INSERT IGNORE INTO categories(name,sort_order) VALUES(?,?)', [name, sortOrder])
   }
 
   const financialCategories = [
-    ['Vendas', 'RECEITA'],
-    ['Outras receitas', 'RECEITA'],
-    ['Compra de mercadorias', 'DESPESA'],
-    ['Aluguel', 'DESPESA'],
-    ['Condomínio', 'DESPESA'],
-    ['Água', 'DESPESA'],
-    ['Energia', 'DESPESA'],
-    ['Internet', 'DESPESA'],
-    ['Marketing', 'DESPESA'],
-    ['Salários', 'DESPESA'],
-    ['Impostos', 'DESPESA'],
-    ['Frete', 'DESPESA'],
-    ['Embalagens', 'DESPESA'],
-    ['Taxas de cartão', 'DESPESA'],
-    ['Taxas de marketplace', 'DESPESA'],
-    ['Manutenção', 'DESPESA'],
+    ['Vendas', 'RECEITA'], ['Outras receitas', 'RECEITA'],
+    ['Compra de mercadorias', 'DESPESA'], ['Aluguel', 'DESPESA'],
+    ['Condomínio', 'DESPESA'], ['Água', 'DESPESA'],
+    ['Energia', 'DESPESA'], ['Internet', 'DESPESA'],
+    ['Marketing', 'DESPESA'], ['Salários', 'DESPESA'],
+    ['Impostos', 'DESPESA'], ['Frete', 'DESPESA'],
+    ['Embalagens', 'DESPESA'], ['Taxas de cartão', 'DESPESA'],
+    ['Taxas de marketplace', 'DESPESA'], ['Manutenção', 'DESPESA'],
     ['Outras despesas', 'DESPESA']
   ]
   for (const [name, type] of financialCategories) {
@@ -311,6 +289,7 @@ async function init() {
       [name, type]
     )
   }
+
   await query(
     "INSERT INTO financial_accounts(name) VALUES('Caixa da loja') ON DUPLICATE KEY UPDATE name=name"
   )
@@ -321,6 +300,7 @@ async function init() {
       [process.env.ADMIN_EMAIL]
     )
     const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12)
+
     if (existing.length) {
       await query(
         'UPDATE admin_users SET password_hash=?, active=1 WHERE id=?',
@@ -334,7 +314,6 @@ async function init() {
     }
   }
 }
-
 async function exigirLogin(req, res, next) {
   if (!req.session.userId) {
     return res.status(401).json({
