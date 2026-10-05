@@ -27,8 +27,7 @@
     "node-cron": "^4.2.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-router-dom": "^7.9.4",
-    "serve": "file:render-serve"
+    "react-router-dom": "^7.9.4"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.4",
