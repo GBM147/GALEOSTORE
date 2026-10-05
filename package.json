@@ -1,24 +1,31 @@
 {
   "name": "galeo-store",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "description": "GALEO Store — site e API de gestão integrada da loja.",
+  "main": "server/index.js",
   "type": "module",
+  "engines": { "node": ">=20" },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "check": "node --check server/index.js && node --check session-policy.js && node --check src/main.jsx"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-mysql-session": "^3.0.3",
+    "express-rate-limit": "^8.6.2",
+    "express-session": "^1.18.1",
+    "helmet": "^8.3.0",
+    "mysql2": "^3.14.3",
+    "node-cron": "^4.2.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.4",
-    "express": "^5.1.0",
-    "cors": "^2.8.5",
-    "pg": "^8.16.3",
-    "dotenv": "^17.2.3",
-    "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^3.0.2",
     "serve": "file:render-serve"
   },
   "devDependencies": {
