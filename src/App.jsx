@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
+import AdminGate from './Admin'
 
 const products = [
   { id: 1, name: 'Camiseta Galeo Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
@@ -130,6 +131,7 @@ export default function App() {
     <div className="app">
       <Header theme={theme} onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />
       <Routes>
+        <Route path="/admin/*" element={<AdminGate />} />
         <Route path="/" element={<Home />} />
         <Route path="/shop" element={<Shop />} />
         <Route path="/produto/:id" element={<PlaceholderPage title="Produto" label="PRODUCT / 001" />} />
