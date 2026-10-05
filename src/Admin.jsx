@@ -300,7 +300,7 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <div className="admin-media-note">
             Enviando {uploadProgress.done} de {uploadProgress.total} arquivo(s) para o armazenamento de mídia…
           </div>
-        )
+        )}
 
         {editing && (
           <div>
