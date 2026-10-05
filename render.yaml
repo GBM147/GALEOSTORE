@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NPM_CONFIG_INCLUDE
+        value: dev
       - key: APP_URL
         value: https://galeo-store.onrender.com
       - key: ALLOWED_ORIGINS
@@ -26,7 +28,7 @@ services:
       - key: DB_SSL
         value: "true"
       - key: DB_SSL_REJECT_UNAUTHORIZED
-        value: "true"
+        value: "false"
       - key: SESSION_SECRET
         sync: false
       - key: ADMIN_EMAIL
