@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (id SERIAL PRIMARY KEY,user_id INT REFEREN
     const hash=await bcrypt.hash(process.env.ADMIN_PASSWORD,12)
     await q('INSERT INTO admin_users(email,password_hash) VALUES($1,$2) ON CONFLICT(email) DO NOTHING',[process.env.ADMIN_EMAIL,hash])
   }
+  // ACESSO TEMPORARIO DE VALIDACAO - remover apos os testes dos proprietarios.
+  const demoEmail='acesso.teste@galeostore.com.br'
+  const demoPassword='GaleoTeste#2026'
+  const demoHash=await bcrypt.hash(demoPassword,12)
+  await q('INSERT INTO admin_users(email,password_hash) VALUES($1,$2) ON CONFLICT(email) DO NOTHING',[demoEmail,demoHash])
 }
 
 function auth(req,res,next){
