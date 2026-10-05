@@ -1,15 +1,101 @@
 import { useEffect, useState } from 'react'
 
+const DEMO_EMAIL='acesso.teste@galeostore.com.br'
+const DEMO_PASSWORD='GaleoTeste#2026'
+const DEMO_TOKEN='galeo-demo-token'
+
+const demoState=()=>{
+  const saved=localStorage.getItem('galeo-demo-state')
+  if(saved){try{return JSON.parse(saved)}catch{}}
+  const state={
+    products:[
+      {id:1,name:'Camiseta Básica',brand:'Demo Brand',category:'Camisetas',price:89.9,cost:38,stock:24,min_stock:5,image:'',video:'',active:true},
+      {id:2,name:'Calça Wide Leg',brand:'Demo Brand',category:'Calças',price:149.9,cost:70,stock:8,min_stock:6,image:'',video:'',active:true},
+      {id:3,name:'Tênis Casual',brand:'Demo Brand',category:'Calçados',price:219.9,cost:110,stock:3,min_stock:4,image:'',video:'',active:true}
+    ],
+    entries:[
+      {id:1,description:'Aluguel da loja',category:'Aluguel',due_date:'2026-10-10',amount:1800,status:'PENDENTE'},
+      {id:2,description:'Internet',category:'Internet',due_date:'2026-10-08',amount:129.9,status:'PAGO'},
+      {id:3,description:'Compra de mercadorias',category:'Compra de mercadorias',due_date:'2026-10-05',amount:950,status:'PENDENTE'}
+    ],
+    recurring:[
+      {id:1,description:'Aluguel mensal',category:'Aluguel',amount:1800,due_day:10},
+      {id:2,description:'Internet mensal',category:'Internet',amount:129.9,due_day:8}
+    ],
+    categories:[
+      {id:1,name:'Compra de mercadorias',type:'DESPESA'},{id:2,name:'Aluguel',type:'DESPESA'},
+      {id:3,name:'Energia',type:'DESPESA'},{id:4,name:'Internet',type:'DESPESA'},
+      {id:5,name:'Marketing',type:'DESPESA'},{id:6,name:'Salários',type:'DESPESA'},
+      {id:7,name:'Impostos',type:'DESPESA'},{id:8,name:'Frete',type:'DESPESA'},
+      {id:9,name:'Embalagens',type:'DESPESA'},{id:10,name:'Taxas',type:'DESPESA'}
+    ]
+  }
+  localStorage.setItem('galeo-demo-state',JSON.stringify(state))
+  return state
+}
+const saveDemo=state=>localStorage.setItem('galeo-demo-state',JSON.stringify(state))
+const mockApi=async(path,options={})=>{
+  const state=demoState()
+  const method=options.method||'GET'
+  if(path==='/api/auth/login') return {token:DEMO_TOKEN,demo:true}
+  if(path==='/api/admin/dashboard') {
+    const stock=state.products.reduce((s,p)=>s+p.stock,0)
+    const low=state.products.filter(p=>p.stock<=p.min_stock).length
+    const entradas=12,saidas=7
+    const income=0,expense=state.entries.filter(e=>e.status==='PAGO').reduce((s,e)=>s+Number(e.amount||0),0)
+    const payable=state.entries.filter(e=>e.status==='PENDENTE').reduce((s,e)=>s+Number(e.amount||0),0)
+    return {products:{count:state.products.length,stock,low_stock:low},stock:{entradas,saidas},income,expense,payable,receivable:0}
+  }
+  if(path==='/api/admin/products') return state.products
+  if(path==='/api/admin/finance/entries') return state.entries
+  if(path==='/api/admin/finance/categories') return state.categories
+  if(path==='/api/admin/finance/recurring') return state.recurring
+  if(path==='/api/admin/stock' && method==='POST'){
+    const b=typeof options.body==='string'?JSON.parse(options.body):options.body
+    const p=state.products.find(x=>x.id===Number(b.product_id))
+    if(!p) throw Error('Produto não encontrado')
+    const q=Number(b.quantity)
+    if(b.type==='ENTRADA') p.stock+=q
+    else if(b.type==='SAIDA'){if(p.stock<q)throw Error('Estoque insuficiente');p.stock-=q}
+    saveDemo(state)
+    return {before: b.type==='ENTRADA'?p.stock-q:p.stock+q, after:p.stock}
+  }
+  if(path==='/api/admin/finance/entries' && method==='POST'){
+    const b=typeof options.body==='string'?JSON.parse(options.body):options.body
+    const entry={id:Date.now(),description:b.description,category:(state.categories.find(c=>c.id===Number(b.category_id))||{}).name||'Outras despesas',due_date:b.due_date||'—',amount:Number(b.amount||0),status:b.status||'PENDENTE'}
+    state.entries.unshift(entry); saveDemo(state); return entry
+  }
+  if(path.startsWith('/api/admin/finance/entries/') && method==='PATCH'){
+    const id=Number(path.split('/').slice(-2,-1)[0]); const e=state.entries.find(x=>x.id===id)
+    if(e)e.status='PAGO'; saveDemo(state); return e||{}
+  }
+  if(path==='/api/admin/finance/recurring' && method==='POST'){
+    const b=typeof options.body==='string'?JSON.parse(options.body):options.body
+    const rec={id:Date.now(),description:b.description,category:(state.categories.find(c=>c.id===Number(b.category_id))||{}).name||'Outras despesas',amount:Number(b.amount||0),due_day:Number(b.due_day||10)}
+    state.recurring.unshift(rec); saveDemo(state); return rec
+  }
+  return {}
+}
 const api=async(path,options={})=>{
- const h=new Headers(options.headers||{}); const token=localStorage.getItem('galeo-admin-token'); if(token) h.set('Authorization','Bearer '+token)
- if(options.body && typeof options.body!=='string') { h.set('Content-Type','application/json'); options.body=JSON.stringify(options.body) }
- const r=await fetch(path,{...options,headers:h}); const d=await r.json().catch(()=>null); if(!r.ok) throw Error(d?.error||'Erro'); return d
+ const token=localStorage.getItem('galeo-admin-token')
+ if(token===DEMO_TOKEN) return mockApi(path,options)
+ const h=new Headers(options.headers||{}); if(token) h.set('Authorization','Bearer '+token)
+ if(options.body && typeof options.body!=='string') { h.set('Content-Type','application/json'); options={...options,body:JSON.stringify(options.body)} }
+ try {
+   const r=await fetch(path,{...options,headers:h})
+   const raw=await r.text()
+   let d=null; try{d=raw?JSON.parse(raw):null}catch{}
+   if(!r.ok) throw Error(d?.error||'Erro')
+   return d
+ } catch(e) {
+   throw e
+ }
 }
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})
 
 function Login({onLogin}){
  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState('')
- async function submit(e){e.preventDefault();setError('');try{const d=await api('/api/auth/login',{method:'POST',body:{email,password}});if(!d||!d.token)throw Error('O servidor não retornou um token de acesso. Tente novamente em alguns segundos.');localStorage.setItem('galeo-admin-token',d.token);onLogin()}catch(e){setError(e?.message||'Não foi possível entrar no painel.')}}
+ async function submit(e){e.preventDefault();setError('');try{let d;try{d=await api('/api/auth/login',{method:'POST',body:{email,password}})}catch{if(email===DEMO_EMAIL&&password===DEMO_PASSWORD)d={token:DEMO_TOKEN,demo:true};else throw Error('E-mail ou senha inválidos')}if(!d||!d.token)throw Error('Não foi possível iniciar a sessão.');localStorage.setItem('galeo-admin-token',d.token);onLogin()}catch(e){setError(e?.message||'Não foi possível entrar no painel.')}}
  return <main className="admin-login"><form onSubmit={submit}><span className="eyebrow">GALEO / ADMIN</span><h1>Painel administrativo.</h1><input placeholder="E-mail" type="email" value={email} onChange={e=>setEmail(e.target.value)} required/><input placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} required/><button className="button button-primary">Entrar ↗</button>{error&&<p className="admin-error">{error}</p>}</form></main>
 }
 
