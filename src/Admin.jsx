@@ -248,7 +248,7 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <div>
             <span className="eyebrow">MÍDIA / UPLOAD</span>
             <h3>Fotos do produto</h3>
-            <p>Selecione várias fotos. Você pode repetir a seleção e todas serão acumuladas antes de salvar.</p>
+            <p>Selecione várias fotos de uma vez (use Ctrl para escolher várias) ou clique novamente para adicionar mais. Todas ficam na fila até salvar.</p>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -624,6 +624,35 @@ function Admin({ user, onLogout }) {
     }
   }
 
+  async function removeProduct(product) {
+    const confirmed = window.confirm(
+      'Excluir o produto "' + product.name + '"? Se ele já tiver histórico de vendas/estoque, o GALEO irá apenas ocultá-lo para preservar o histórico.'
+    )
+    if (!confirmed) return
+    try {
+      const result = await api('/api/admin/products/' + product.id, { method: 'DELETE' })
+      alert(result?.mode === 'hidden'
+        ? 'Produto ocultado. O histórico foi preservado.'
+        : 'Produto excluído.')
+      await load()
+    } catch (error) {
+      alert(error.message)
+    }
+  }
+
+  async function removeFinanceEntry(entry) {
+    const confirmed = window.confirm(
+      'Excluir o lançamento "' + entry.description + '" no valor de ' + money(entry.amount) + '?'
+    )
+    if (!confirmed) return
+    try {
+      await api('/api/admin/finance/entries/' + entry.id, { method: 'DELETE' })
+      await load()
+    } catch (error) {
+      alert(error.message)
+    }
+  }
+
   async function cancelSale(id) {
     if (!window.confirm('Cancelar esta venda? O estoque e o financeiro serão estornados.')) return
     try {
@@ -724,6 +753,7 @@ function Admin({ user, onLogout }) {
                     <td className="admin-actions">
                       <button onClick={() => { setEditingProduct(product); setModal('product') }}>Editar</button>
                       <button onClick={() => { setModal('stock'); setEditingProduct(product) }}>Estoque</button>
+                      <button onClick={() => removeProduct(product)}>Excluir</button>
                     </td>
                   </tr>
                 ))}
@@ -770,7 +800,10 @@ function Admin({ user, onLogout }) {
                     <td>{dateBR(entry.due_date)}</td>
                     <td>{money(entry.amount)}</td>
                     <td><span className={'status-pill status-' + String(entry.status).toLowerCase()}>{entry.status}</span></td>
-                    <td>{entry.status === 'PENDENTE' && <button onClick={() => pay(entry.id)}>Marcar pago</button>}</td>
+                    <td className="admin-actions">
+                      {entry.status === 'PENDENTE' && <button onClick={() => pay(entry.id)}>Marcar pago</button>}
+                      {entry.status !== 'CANCELADO' && <button onClick={() => removeFinanceEntry(entry)}>Excluir</button>}
+                    </td>
                   </tr>
                 ))}
                 {!entries.length && <tr><td colSpan="8" className="empty-state">Nenhum lançamento financeiro.</td></tr>}
