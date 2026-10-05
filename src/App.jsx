@@ -62,7 +62,7 @@ function Home({ products = fallbackProducts }) {
             <h2>Encontre seu<br /><em>movimento.</em></h2>
           </div>
           <div className="category-grid">
-            {['Camisetas', 'Moletons', 'Acessórios'].map((item, index) => (
+            {['Camisetas', 'Calças', 'Vestidos', 'Casacos', 'Calçados', 'Acessórios'].slice(0, 3).map((item, index) => (
               <Link className="category-card" to="/shop" key={item}>
                 <span>0{index + 1}</span>
                 <strong>{item}</strong>
@@ -74,7 +74,7 @@ function Home({ products = fallbackProducts }) {
 
         <section className="section-shell section-block" id="destaques">
           <div className="section-heading row-heading">
-            <div><span className="eyebrow">02 / DESTAQUES</span><h2>Seleção <em>Galeo.</em></h2></div>
+            <div><span className="eyebrow">02 / DESTAQUES</span><h2>Seleção <em>multimarcas.</em></h2></div>
             <Link className="text-link" to="/shop">Ver todos ↗</Link>
           </div>
           <div className="product-grid">
@@ -109,7 +109,7 @@ function Shop({ products = fallbackProducts }) {
   return (
     <main className="section-shell page-space">
       <div className="page-heading"><span className="eyebrow">SHOP / 001</span><h1>Produtos.</h1></div>
-      <div className="filters"><button className="filter-active">Todos</button><button>Camisetas</button><button>Moletons</button><button>Acessórios</button><span /><button>Ordenar ↕</button></div>
+      <div className="filters"><button className="filter-active">Todos</button><button>Camisetas</button><button>Calças</button><button>Vestidos</button><button>Calçados</button><button>Acessórios</button><span /><button>Ordenar ↕</button></div>
       <div className="product-grid">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
     </main>
   )
