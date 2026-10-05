@@ -35,6 +35,22 @@ const dateBR = (v) => {
   return y && m && d ? d + '/' + m + '/' + y : String(v)
 }
 
+
+const uploadMedia = async (productId, files) => {
+  const formData = new FormData()
+  for (const file of files) formData.append('media', file)
+  const response = await fetch('/api/admin/products/' + productId + '/media', {
+    method: 'POST',
+    body: formData,
+    credentials: 'include'
+  })
+  const raw = await response.text()
+  let data = null
+  try { data = raw ? JSON.parse(raw) : null } catch {}
+  if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar a mídia.')
+  return data
+}
+
 const emptyProduct = {
   name: '',
   brand: '',
@@ -101,14 +117,44 @@ function ProductForm({ product, categories, onClose, onDone }) {
     category_id: product.category_id || '',
     active: Boolean(product.active)
   } : emptyProduct)
+  const [media, setMedia] = useState([])
+  const [imageFiles, setImageFiles] = useState([])
+  const [videoFiles, setVideoFiles] = useState([])
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [mediaError, setMediaError] = useState('')
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+
+  async function loadMedia(productId) {
+    if (!productId) return setMedia([])
+    try {
+      const data = await api('/api/admin/products/' + productId + '/media')
+      setMedia(Array.isArray(data) ? data : [])
+    } catch (error) {
+      setMediaError(error.message)
+    }
+  }
+
+  useEffect(() => {
+    if (editing) loadMedia(product.id)
+  }, [editing, product?.id])
+
+  async function removeMedia(item) {
+    if (!window.confirm('Excluir esta mídia do produto?')) return
+    try {
+      await api('/api/admin/products/' + item.product_id + '/media/' + item.id, { method: 'DELETE' })
+      await loadMedia(item.product_id)
+    } catch (error) {
+      alert(error.message)
+    }
+  }
 
   async function submit(event) {
     event.preventDefault()
     setSaving(true)
+    setMediaError('')
     try {
-      await api(editing ? '/api/admin/products/' + product.id : '/api/admin/products', {
+      const saved = await api(editing ? '/api/admin/products/' + product.id : '/api/admin/products', {
         method: editing ? 'PUT' : 'POST',
         body: {
           ...form,
@@ -119,11 +165,24 @@ function ProductForm({ product, categories, onClose, onDone }) {
           category_id: Number(form.category_id) || null
         }
       })
+
+      const productId = saved?.id || product?.id
+      const files = [...imageFiles, ...videoFiles]
+      if (productId && files.length) {
+        setUploading(true)
+        try {
+          await uploadMedia(productId, files)
+        } finally {
+          setUploading(false)
+        }
+      }
+
       onDone()
     } catch (error) {
       alert(error.message)
     } finally {
       setSaving(false)
+      setUploading(false)
     }
   }
 
@@ -152,11 +211,47 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <label>URL do vídeo<input value={form.video} onChange={(e) => set('video', e.target.value)} placeholder="https://..." /></label>
         </div>
 
-        <div className="admin-media-note">
-          As fotos e vídeos ficam vinculados ao produto por URL. Depois podemos adicionar upload direto para um armazenamento externo sem colocar arquivos no disco efêmero do Render.
+        <div className="admin-media-upload">
+          <div>
+            <span className="eyebrow">MÍDIA / UPLOAD</span>
+            <h3>Fotos do produto</h3>
+            <p>Selecione até 8 arquivos. JPG, PNG ou WebP, até 25 MB cada.</p>
+            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => setImageFiles(Array.from(e.target.files || []).slice(0, 8))} />
+            {imageFiles.length > 0 && <small>{imageFiles.length} foto(s) selecionada(s)</small>}
+          </div>
+          <div>
+            <h3>Vídeos do produto</h3>
+            <p>MP4, WebM ou MOV, até 25 MB cada.</p>
+            <input type="file" accept="video/mp4,video/webm,video/quicktime" multiple onChange={(e) => setVideoFiles(Array.from(e.target.files || []).slice(0, 4))} />
+            {videoFiles.length > 0 && <small>{videoFiles.length} vídeo(s) selecionado(s)</small>}
+          </div>
         </div>
 
-        <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar produto'}</button>
+        {editing && (
+          <div>
+            <span className="eyebrow">MÍDIA / GALERIA ATUAL</span>
+            {mediaError && <p className="admin-error">{mediaError}</p>}
+            <div className="media-gallery">
+              {media.map((item) => (
+                <div className="media-tile" key={item.id}>
+                  {item.media_type === 'video'
+                    ? <video src={item.url} controls muted preload="metadata" />
+                    : <img src={item.url} alt="" loading="lazy" />}
+                  <div><span>{item.media_type === 'video' ? 'Vídeo' : 'Foto'}</span><button type="button" onClick={() => removeMedia(item)}>Excluir</button></div>
+                </div>
+              ))}
+              {!media.length && <p className="page-note">Nenhuma mídia enviada ainda.</p>}
+            </div>
+          </div>
+        )}
+
+        <div className="admin-media-note">
+          O arquivo é enviado para o armazenamento de mídia e o banco guarda apenas o endereço e os metadados. O Render não é usado como armazenamento permanente.
+        </div>
+
+        <button className="button button-primary" disabled={saving || uploading}>
+          {uploading ? 'Enviando mídia…' : saving ? 'Salvando…' : 'Salvar produto'}
+        </button>
       </form>
     </div>
   )
