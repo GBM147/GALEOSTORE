@@ -1,0 +1,8 @@
+{
+  "name": "render-serve-compat",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "serve": "index.js"
+  }
+}
