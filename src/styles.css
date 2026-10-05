@@ -108,3 +108,7 @@ h1 em, h2 em, .manifesto em { color: var(--accent); font-family: Georgia, serif;
   .newsletter { padding-block: 78px; }
   .site-footer { padding-inline: 14px; font-size: 8px; flex-wrap: wrap; }
 }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
