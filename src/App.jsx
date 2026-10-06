@@ -95,7 +95,7 @@ function Home({ products = fallbackProducts }) {
           <Link className="text-link" to="/shop">Ver catálogo ↗</Link>
         </div>
         <div className="category-grid">
-          {['Camisetas', 'Calças', 'Moletons'].map((item, index) => (
+          {['Camisetas', 'Calças', 'Blusas'].map((item, index) => (
             <Link className={'category-card category-card-' + index} to="/shop" key={item}>
               <span>0{index + 1}</span>
               <strong>{item}</strong>
