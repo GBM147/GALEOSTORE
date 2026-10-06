@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import AdminGate from './Admin'
+import Intro from './Intro'
 
 const fallbackProducts = [
   { id: 1, name: 'Camiseta Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
@@ -44,6 +45,7 @@ function Home({ products = fallbackProducts }) {
   return (
     <>
       <main>
+        <Intro />
         <section className="hero section-shell">
           <div className="hero-copy">
             <span className="eyebrow">GALEO / 001 — NEW STORE</span>
