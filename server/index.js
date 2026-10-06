@@ -303,6 +303,333 @@ async function init() {
       INDEX idx_rec_active_day (active, due_day)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS sales (      id INT AUTO_INCREMENT PRIMARY KEY,      code VARCHAR(32) NOT NULL UNIQUE,      customer_name VARCHAR(180) NOT NULL DEFAULT '',      payment_method ENUM('PIX','CARTAO_CREDITO','CARTAO_DEBITO','DINHEIRO','TRANSFERENCIA','OUTRO') NOT NULL DEFAULT 'PIX',      total DECIMAL(12,2) NOT NULL DEFAULT 0,      status ENUM('PAGA','CANCELADA') NOT NULL DEFAULT 'PAGA',      notes TEXT NULL,      sold_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,      user_id INT NULL,      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,      CONSTRAINT fk_sales_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,      INDEX idx_sales_sold_status (sold_at, status)    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,    `CREATE TABLE IF NOT EXISTS sale_items (      id INT AUTO_INCREMENT PRIMARY KEY,      sale_id INT NOT NULL,      product_id INT NOT NULL,      quantity INT NOT NULL,      unit_price DECIMAL(12,2) NOT NULL,      unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0,      line_total DECIMAL(12,2) NOT NULL,      CONSTRAINT fk_sale_items_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,      CONSTRAINT fk_sale_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,      INDEX idx_sale_items_sale (sale_id),      INDEX idx_sale_items_product (product_id)    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+,
+    `CREATE TABLE IF NOT EXISTS home_sections (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      section_key VARCHAR(80) NOT NULL UNIQUE,
+      section_type VARCHAR(50) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      visible TINYINT(1) NOT NULL DEFAULT 1,
+      draft_content JSON NOT NULL,
+      published_content JSON NOT NULL,
+      updated_by INT NULL,
+      published_by INT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      published_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_home_updated_by FOREIGN KEY (updated_by) REFERENCES admin_users(id) ON DELETE SET NULL,
+      CONSTRAINT fk_home_published_by FOREIGN KEY (published_by) REFERENCES admin_users(id) ON DELETE SET NULL,
+      INDEX idx_home_order_visible (sort_order, visible)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS home_settings (
+      setting_key VARCHAR(80) PRIMARY KEY,
+      setting_value JSON NOT NULL,
+      updated_by INT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_home_setting_user FOREIGN KEY (updated_by) REFERENCES admin_users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`m 'cors'
+import helmet from 'helmet'
+import bcrypt from 'bcrypt'
+import { rateLimit } from 'express-rate-limit'
+import session from 'express-session'
+import MySQLStoreFactory from 'express-mysql-session'
+import mysql from 'mysql2/promise'
+import { v2 as cloudinary } from 'cloudinary'
+import multer from 'multer'
+import { Readable } from 'node:stream'
+import cron from 'node-cron'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
+import {
+  configurarPersistenciaSessao,
+  normalizarManterConectado
+} from '../session-policy.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const app = express()
+
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+  })
+}
+
+const mediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 8 },
+  fileFilter(req, file, callback) {
+    const allowed = [
+      'image/jpeg', 'image/png', 'image/webp',
+      'video/mp4', 'video/webm', 'video/quicktime'
+    ]
+    if (!allowed.includes(String(file.mimetype || '').toLowerCase())) {
+      const error = new Error('Arquivo não suportado. Use JPG, PNG, WebP, MP4, WebM ou MOV.')
+      error.status = 400
+      return callback(error)
+    }
+    callback(null, true)
+  }
+})
+app.disable('x-powered-by')
+app.set('trust proxy', 1)
+
+const PORT = Number(process.env.PORT || 10000)
+const NODE_ENV = process.env.NODE_ENV || 'production'
+const DB_PORT = Number(process.env.DB_PORT || 3306)
+const DB_SSL = process.env.DB_SSL !== 'false'
+const DB_SSL_REJECT_UNAUTHORIZED = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
+
+for (const key of ['DB_HOST','DB_USER','DB_PASSWORD','DB_NAME','SESSION_SECRET']) {
+  if (!process.env[key]) throw new Error(key + ' não configurada')
+}
+
+const dbConfig = {
+  host: process.env.DB_HOST,
+  port: DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 8,
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
+  ssl: DB_SSL ? { rejectUnauthorized: DB_SSL_REJECT_UNAUTHORIZED } : undefined
+}
+
+const db = mysql.createPool(dbConfig)
+
+const appUrl = String(process.env.APP_URL || '').trim()
+const allowedOrigins = String(process.env.ALLOWED_ORIGINS || appUrl)
+  .split(',')
+  .map((x) => x.trim())
+  .filter(Boolean)
+
+app.use(express.json({ limit: '1mb' }))
+app.use(express.urlencoded({ extended: true, limit: '256kb' }))
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      connectSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
+      mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}))
+
+app.use(cors({
+  credentials: true,
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true)
+    return callback(new Error('Origem não autorizada pelo CORS.'))
+  }
+}))
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+  next()
+})
+
+function criarLimitador({ janelaMs, maximo, prefixo }) {
+  return rateLimit({
+    windowMs: janelaMs,
+    limit: maximo,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    identifier: prefixo,
+    validate: { trustProxy: false },
+    handler(req, res) {
+      const expiraEm = req.rateLimit?.resetTime?.getTime?.()
+      const segundos = Number.isFinite(expiraEm)
+        ? Math.max(1, Math.ceil((expiraEm - Date.now()) / 1000))
+        : Math.ceil(janelaMs / 1000)
+      res.setHeader('Retry-After', String(segundos))
+      return res.status(429).json({
+        success: false,
+        error: `Muitas tentativas. Aguarde ${segundos} segundos.`
+      })
+    }
+  })
+}
+
+const limitarAutenticacao = criarLimitador({
+  janelaMs: 15 * 60 * 1000,
+  maximo: 20,
+  prefixo: 'admin-auth'
+})
+
+const limitarAlteracaoSenha = criarLimitador({
+  janelaMs: 15 * 60 * 1000,
+  maximo: 5,
+  prefixo: 'admin-password'
+})
+
+const Store = MySQLStoreFactory(session)
+const sessionStore = new Store({
+  host: dbConfig.host,
+  port: dbConfig.port,
+  user: dbConfig.user,
+  password: dbConfig.password,
+  database: dbConfig.database,
+  ssl: dbConfig.ssl
+})
+
+app.use(session({
+  name: 'galeo_sid',
+  secret: process.env.SESSION_SECRET,
+  store: sessionStore,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
+}))
+
+app.use(validarCsrf)
+
+async function query(sql, params = [], executor = db) {
+  const [rows] = await executor.execute(sql, params)
+  return rows
+}
+
+async function audit(userId, action, entity, entityId, details = null) {
+  await query(
+    'INSERT INTO audit_logs(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
+    [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null]
+  )
+}
+
+async function init() {
+  const schema = [
+    `CREATE TABLE IF NOT EXISTS admin_users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      role ENUM('owner','manager','staff') NOT NULL DEFAULT 'owner',
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS products (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(180) NOT NULL,
+      brand VARCHAR(120) NOT NULL DEFAULT '',
+      category_id INT NULL,
+      description TEXT NOT NULL,
+      price DECIMAL(12,2) NOT NULL DEFAULT 0,
+      cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+      stock INT NOT NULL DEFAULT 0,
+      min_stock INT NOT NULL DEFAULT 0,
+      image VARCHAR(1000) NOT NULL DEFAULT '',
+      video VARCHAR(1000) NOT NULL DEFAULT '',
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+      INDEX idx_products_active (active),
+      INDEX idx_products_category (category_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS product_media (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id INT NOT NULL,
+      media_type ENUM('image','video') NOT NULL,
+      url VARCHAR(1200) NOT NULL,
+      public_id VARCHAR(255) NOT NULL,
+      width INT NULL,
+      height INT NULL,
+      duration DECIMAL(12,3) NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_media_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      INDEX idx_media_product_order (product_id,sort_order,id),
+      INDEX idx_media_public_id (public_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS stock_movements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id INT NOT NULL,
+      type ENUM('ENTRADA','SAIDA','AJUSTE') NOT NULL,
+      quantity INT NOT NULL,
+      stock_before INT NOT NULL,
+      stock_after INT NOT NULL,
+      reason VARCHAR(255) NOT NULL DEFAULT '',
+      reference_id VARCHAR(120) NULL,
+      unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+      user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_stock_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,
+      CONSTRAINT fk_stock_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,
+      INDEX idx_stock_product_created (product_id, created_at),
+      INDEX idx_stock_reference (reference_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS financial_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      type ENUM('RECEITA','DESPESA') NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS financial_accounts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      initial_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+      active TINYINT(1) NOT NULL DEFAULT 1
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS financial_entries (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      account_id INT NULL,
+      category_id INT NULL,
+      type ENUM('RECEITA','DESPESA') NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      amount DECIMAL(12,2) NOT NULL,
+      due_date DATE NULL,
+      paid_at DATETIME NULL,
+      status ENUM('PENDENTE','PAGO','CANCELADO') NOT NULL DEFAULT 'PENDENTE',
+      recurring TINYINT(1) NOT NULL DEFAULT 0,
+      recurrence VARCHAR(40) NULL,
+      reference_type VARCHAR(80) NULL,
+      reference_id VARCHAR(120) NULL,
+      user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_fin_account FOREIGN KEY (account_id) REFERENCES financial_accounts(id) ON DELETE SET NULL,
+      CONSTRAINT fk_fin_category FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
+      CONSTRAINT fk_fin_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,
+      UNIQUE KEY uq_fin_reference (reference_id),
+      INDEX idx_fin_due_status (due_date, status),
+      INDEX idx_fin_type_status (type, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS recurring_expenses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      description VARCHAR(255) NOT NULL,
+      category_id INT NULL,
+      account_id INT NULL,
+      amount DECIMAL(12,2) NOT NULL,
+      due_day INT NOT NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_rec_category FOREIGN KEY (category_id) REFERENCES financial_categories(id) ON DELETE SET NULL,
+      CONSTRAINT fk_rec_account FOREIGN KEY (account_id) REFERENCES financial_accounts(id) ON DELETE SET NULL,
+      INDEX idx_rec_active_day (active, due_day)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS sales (      id INT AUTO_INCREMENT PRIMARY KEY,      code VARCHAR(32) NOT NULL UNIQUE,      customer_name VARCHAR(180) NOT NULL DEFAULT '',      payment_method ENUM('PIX','CARTAO_CREDITO','CARTAO_DEBITO','DINHEIRO','TRANSFERENCIA','OUTRO') NOT NULL DEFAULT 'PIX',      total DECIMAL(12,2) NOT NULL DEFAULT 0,      status ENUM('PAGA','CANCELADA') NOT NULL DEFAULT 'PAGA',      notes TEXT NULL,      sold_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,      user_id INT NULL,      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,      CONSTRAINT fk_sales_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,      INDEX idx_sales_sold_status (sold_at, status)    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,    `CREATE TABLE IF NOT EXISTS sale_items (      id INT AUTO_INCREMENT PRIMARY KEY,      sale_id INT NOT NULL,      product_id INT NOT NULL,      quantity INT NOT NULL,      unit_price DECIMAL(12,2) NOT NULL,      unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0,      line_total DECIMAL(12,2) NOT NULL,      CONSTRAINT fk_sale_items_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,      CONSTRAINT fk_sale_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,      INDEX idx_sale_items_sale (sale_id),      INDEX idx_sale_items_product (product_id)    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS audit_logs (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NULL,
@@ -347,6 +674,100 @@ async function init() {
   await query(
     "INSERT INTO financial_accounts(name) VALUES('Caixa da loja') ON DUPLICATE KEY UPDATE name=name"
   )
+
+  const homeDefaults = [
+    {
+      key: 'hero',
+      type: 'hero',
+      order: 10,
+      content: {
+        eyebrow: 'GALEO / MULTIBRAND STORE',
+        title: 'Vista o que representa você.',
+        description: 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho.',
+        button_label: 'Explorar coleção',
+        button_url: '/shop',
+        desktop_media_id: null,
+        mobile_media_id: null,
+        video_media_id: null
+      }
+    },
+    {
+      key: 'utility',
+      type: 'utility',
+      order: 20,
+      content: {
+        items: ['Curadoria multimarcas', 'Compra segura', 'Envio para todo o Brasil', 'Novas peças toda semana']
+      }
+    },
+    {
+      key: 'categories',
+      type: 'categories',
+      order: 30,
+      content: {
+        eyebrow: '01 / CATEGORIAS',
+        title: 'Escolha seu movimento.',
+        button_label: 'Ver catálogo',
+        button_url: '/shop',
+        items: [
+          { title: 'Camisetas', url: '/shop', media_id: null },
+          { title: 'Calças', url: '/shop', media_id: null },
+          { title: 'Blusas', url: '/shop', media_id: null }
+        ]
+      }
+    },
+    {
+      key: 'featured_products',
+      type: 'featured_products',
+      order: 40,
+      content: {
+        eyebrow: '02 / TRENDING NOW',
+        title: 'Seleção multimarcas.',
+        button_label: 'Ver todos',
+        button_url: '/shop',
+        source: 'latest',
+        product_ids: []
+      }
+    },
+    {
+      key: 'campaigns',
+      type: 'campaigns',
+      order: 50,
+      content: {
+        defaults: { effect: 'zoom', transition: 'crossfade', speed: 'slow', duration_seconds: 6 },
+        items: [
+          { eyebrow: 'NEW DROPS', title: 'Peças que marcam presença.', button_label: 'Descobrir agora', button_url: '/shop', media_id: null },
+          { eyebrow: 'PREMIUM SELECTION', title: 'Seu estilo, sem rótulo.', button_label: 'Ver seleção', button_url: '/shop', media_id: null },
+          { eyebrow: 'LIMITED EDITION', title: 'Feito para ser notado.', button_label: 'Explorar', button_url: '/shop', media_id: null }
+        ]
+      }
+    },
+    {
+      key: 'manifesto',
+      type: 'manifesto',
+      order: 60,
+      content: { eyebrow: '03 / SOBRE A GALEO', text: 'Não seguimos o padrão. Criamos o nosso.' }
+    },
+    {
+      key: 'newsletter',
+      type: 'newsletter',
+      order: 70,
+      content: { eyebrow: 'GALEO / INSIDER', title: 'Entre para a próxima fase.', button_label: 'Entrar' }
+    }
+  ]
+
+  for (const section of homeDefaults) {
+    const payload = JSON.stringify(section.content)
+    await query(
+      "INSERT INTO home_sections (section_key,section_type,sort_order,visible,draft_content,published_content) VALUES(?,?,?,1,?,?) ON DUPLICATE KEY UPDATE section_type=VALUES(section_type), sort_order=VALUES(sort_order)",
+      [section.key, section.type, section.order, payload, payload]
+    )
+  }
+
+  await query(
+    "INSERT INTO home_settings(setting_key,setting_value) VALUES('campaign_defaults',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
+    [JSON.stringify({ effect: 'zoom', transition: 'crossfade', speed: 'slow', duration_seconds: 6 })]
+  )
+
 
   await query("UPDATE admin_users SET role='staff' WHERE role='manager'")
   await query("ALTER TABLE admin_users MODIFY role ENUM('owner','staff') NOT NULL DEFAULT 'owner'")
@@ -649,6 +1070,43 @@ app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, 
   }
 })
 
+
+app.get('/api/store/home', async (req, res) => {
+  try {
+    const rows = await query(
+      'SELECT section_key,section_type,sort_order,visible,published_content,published_at FROM home_sections WHERE visible=1 ORDER BY sort_order,id'
+    )
+    res.json({
+      sections: rows.map((row) => ({
+        key: row.section_key,
+        type: row.section_type,
+        order: Number(row.sort_order),
+        visible: Boolean(row.visible),
+        content: typeof row.published_content === 'string' ? JSON.parse(row.published_content) : row.published_content,
+        published_at: row.published_at
+      }))
+    })
+  } catch (error) {
+    console.error('Erro ao carregar conteúdo publicado da home:', error)
+    res.status(500).json({ error: 'Não foi possível carregar o conteúdo da home.' })
+  }
+})
+
+app.get('/api/store/home/settings', async (req, res) => {
+  try {
+    const rows = await query('SELECT setting_key,setting_value FROM home_settings ORDER BY setting_key')
+    res.json({
+      settings: rows.map((row) => ({
+        key: row.setting_key,
+        value: typeof row.setting_value === 'string' ? JSON.parse(row.setting_value) : row.setting_value
+      }))
+    })
+  } catch (error) {
+    console.error('Erro ao carregar configurações públicas da home:', error)
+    res.status(500).json({ error: 'Não foi possível carregar as configurações da home.' })
+  }
+})
+
 app.get('/api/store', async (req, res) => {
   try {
     const [products, categories] = await Promise.all([
@@ -702,6 +1160,109 @@ async function seedAndScheduleRecurring() {
 cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' })
 
 app.use('/api/admin', exigirLogin, exigirOperacao)
+
+
+app.get('/api/admin/home', exigirLogin, exigirOwner, async (req, res) => {
+  try {
+    const rows = await query(
+      'SELECT section_key,section_type,sort_order,visible,draft_content,published_content,updated_by,published_by,updated_at,published_at FROM home_sections ORDER BY sort_order,id'
+    )
+    res.json({
+      sections: rows.map((row) => ({
+        key: row.section_key,
+        type: row.section_type,
+        order: Number(row.sort_order),
+        visible: Boolean(row.visible),
+        draft: typeof row.draft_content === 'string' ? JSON.parse(row.draft_content) : row.draft_content,
+        published: typeof row.published_content === 'string' ? JSON.parse(row.published_content) : row.published_content,
+        updated_by: row.updated_by,
+        published_by: row.published_by,
+        updated_at: row.updated_at,
+        published_at: row.published_at
+      }))
+    })
+  } catch (error) {
+    console.error('Erro ao carregar CMS da home:', error)
+    res.status(500).json({ error: 'Não foi possível carregar o conteúdo administrativo da home.' })
+  }
+})
+
+app.put('/api/admin/home/:key', exigirLogin, exigirOwner, async (req, res) => {
+  const key = String(req.params.key || '').trim()
+  const allowedKeys = ['hero','utility','categories','featured_products','campaigns','manifesto','newsletter']
+  if (!allowedKeys.includes(key)) return res.status(400).json({ error: 'Seção de home inválida.' })
+
+  const content = req.body?.content
+  if (!content || typeof content !== 'object' || Array.isArray(content)) {
+    return res.status(400).json({ error: 'O conteúdo da seção deve ser um objeto JSON válido.' })
+  }
+
+  const payload = JSON.stringify(content)
+  if (Buffer.byteLength(payload, 'utf8') > 100 * 1024) {
+    return res.status(413).json({ error: 'O conteúdo desta seção excede o limite de 100 KB.' })
+  }
+
+  try {
+    const rows = await query('SELECT id FROM home_sections WHERE section_key=? LIMIT 1', [key])
+    if (!rows.length) return res.status(404).json({ error: 'Seção de home não encontrada.' })
+
+    await query('UPDATE home_sections SET draft_content=?, updated_by=? WHERE section_key=?', [payload, req.admin.id, key])
+    res.json({ success: true, key, saved_as: 'draft' })
+  } catch (error) {
+    console.error('Erro ao salvar rascunho da home:', error)
+    res.status(500).json({ error: 'Não foi possível salvar o conteúdo da home.' })
+  }
+})
+
+app.get('/api/admin/home/settings', exigirLogin, exigirOwner, async (req, res) => {
+  try {
+    const rows = await query('SELECT setting_key,setting_value FROM home_settings ORDER BY setting_key')
+    res.json({
+      settings: rows.map((row) => ({
+        key: row.setting_key,
+        value: typeof row.setting_value === 'string' ? JSON.parse(row.setting_value) : row.setting_value
+      }))
+    })
+  } catch (error) {
+    console.error('Erro ao carregar configurações do CMS:', error)
+    res.status(500).json({ error: 'Não foi possível carregar as configurações do CMS.' })
+  }
+})
+
+app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, res) => {
+  const key = String(req.params.key || '').trim()
+  if (key !== 'campaign_defaults') return res.status(400).json({ error: 'Configuração inválida.' })
+
+  const value = req.body?.value
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return res.status(400).json({ error: 'A configuração deve ser um objeto JSON válido.' })
+  }
+
+  const allowedEffects = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns']
+  const allowedTransitions = ['fade','slide','crossfade']
+  const allowedSpeeds = ['slow','normal','fast']
+  const effect = allowedEffects.includes(String(value.effect)) ? String(value.effect) : 'zoom'
+  const transition = allowedTransitions.includes(String(value.transition)) ? String(value.transition) : 'crossfade'
+  const speed = allowedSpeeds.includes(String(value.speed)) ? String(value.speed) : 'slow'
+  const duration = Number(value.duration_seconds)
+
+  if (!Number.isFinite(duration) || duration < 2 || duration > 30) {
+    return res.status(400).json({ error: 'A duração da campanha deve ficar entre 2 e 30 segundos.' })
+  }
+
+  const setting = { effect, transition, speed, duration_seconds: duration }
+
+  try {
+    await query(
+      "INSERT INTO home_settings(setting_key,setting_value,updated_by) VALUES(?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)",
+      [key, JSON.stringify(setting), req.admin.id]
+    )
+    res.json({ success: true, key, value: setting })
+  } catch (error) {
+    console.error('Erro ao salvar configuração do CMS:', error)
+    res.status(500).json({ error: 'Não foi possível salvar a configuração do CMS.' })
+  }
+})
 
 app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
   try {
