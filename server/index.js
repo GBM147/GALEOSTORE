@@ -1671,12 +1671,20 @@ async function bootstrap() {
       COALESCE(SUM(active = 0), 0) AS inactive
     FROM products
   `)
+  const activeProducts = await query(`
+    SELECT p.id, p.name, p.brand, p.active, c.name AS category
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.active = 1
+    ORDER BY p.id DESC
+  `)
   console.log(
     'PRODUCT HEALTH:',
     JSON.stringify({
       total: Number(productHealth[0]?.total || 0),
       active: Number(productHealth[0]?.active || 0),
-      inactive: Number(productHealth[0]?.inactive || 0)
+      inactive: Number(productHealth[0]?.inactive || 0),
+      activeProducts
     })
   )
 
