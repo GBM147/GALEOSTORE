@@ -22,12 +22,12 @@ function Header({ theme, onToggle }) {
     <header className="site-header">
       <Link className="brand" to="/" aria-label="Galeo Store">
         <span className="brand-logo-wrap">
-          <img className="brand-logo" src="/images/galeo-brand.svg" alt="GALEO" />
+          <img className="brand-logo" src="/images/galeo-brand.png" alt="GALEO" />
         </span>
         <span className="brand-wordmark">GALEO</span>
       </Link>
       <nav className="desktop-nav" aria-label="Navegação principal">
-        <Link to="/shop">Shop</Link>
+        <Link to="/shop"></Link>
         <a href="#colecoes">Coleções</a>
         <a href="#sobre">Sobre</a>
       </nav>
@@ -46,27 +46,22 @@ function Home({ products = fallbackProducts }) {
       <main>
         <section className="hero section-shell">
           <div className="hero-copy">
-            <span className="eyebrow">GALEO / 001 — NEW STORE</span>
-            <h1>Vista sua<br /><em>identidade.</em></h1>
-            <p>Uma experiência de moda construída para destacar a marca, o produto e quem usa.</p>
-            <Link className="button button-primary" to="/shop">Explorar coleção <span>↗</span></Link>
+            <h1>opcional<br /><em>opcional</em></h1>
+            <p>opcional</p>
+            <Link className="button button-primary" to="/shop">opcional <span>↗</span></Link>
           </div>
           <div className="hero-art" aria-label="Campanha GALEO com movimento automático">
             <div className="hero-campaign-glow" />
             <div className="hero-grid" />
             <div className="hero-campaign-stage">
-              <img className="hero-campaign-logo hero-campaign-logo-a" src="/images/galeo-brand.svg" alt="Logo GALEO" />
-              <img className="hero-campaign-logo hero-campaign-logo-b" src="/images/galeo-brand.svg" alt="" aria-hidden="true" />
+              <img className="hero-campaign-logo hero-campaign-logo-a" src="/images/galeo-brand.png" alt="Logo GALEO" />
+              <img className="hero-campaign-logo hero-campaign-logo-b" src="/images/galeo-brand.png" alt="" aria-hidden="true" />
             </div>
             <div className="hero-campaign-vignette" />
             <div className="hero-campaign-meta">
-              <span>GALEO / CAMPAIGN 001</span>
-              <span>AUTOPLAY VISUAL</span>
             </div>
             <div className="hero-campaign-copy">
               <span>MULTIMARCA / SÃO PAULO</span>
-              <strong>Presença<br /><em>em movimento.</em></strong>
-              <p>Uma vitrine viva, com imagens que respiram, mudam de enquadramento e conduzem a coleção.</p>
             </div>
             <div className="hero-campaign-scroll">SCROLL / 001 ↘</div>
           </div>
@@ -127,7 +122,7 @@ function ProductCard({ product }) {
 function Shop({ products = fallbackProducts }) {
   return (
     <main className="section-shell page-space">
-      <div className="page-heading"><span className="eyebrow">SHOP / 001</span><h1>Produtos.</h1></div>
+      <div className="page-heading"><h2>Garanta seu kit</h2></div>
       <div className="filters"><button className="filter-active">Todos</button><button>Camisetas</button><button>Calças</button><button>Vestidos</button><button>Calçados</button><button>Acessórios</button><span /><button>Ordenar ↕</button></div>
       <div className="product-grid">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
     </main>
@@ -155,9 +150,9 @@ export default function App() {
         <Route path="/admin/*" element={<AdminGate />} />
         <Route path="/" element={<Home products={catalog} />} />
         <Route path="/shop" element={<Shop products={catalog} />} />
-        <Route path="/produto/:id" element={<PlaceholderPage title="Produto" label="PRODUCT / 001" />} />
-        <Route path="/conta" element={<PlaceholderPage title="Minha conta" label="ACCOUNT / 001" />} />
-        <Route path="/carrinho" element={<PlaceholderPage title="Sua bag" label="BAG / 001" />} />
+        <Route path="/produto/:id" element={<PlaceholderPage title="Produto" />} />
+        <Route path="/conta" element={<PlaceholderPage title="Minha conta"  />} />
+        <Route path="/carrinho" element={<PlaceholderPage title="Carrinho" />} />
       </Routes>
       <footer className="site-footer"><span>GALEO STORE</span><span>São Paulo / BR</span><span>© 2026</span></footer>
     </div>
