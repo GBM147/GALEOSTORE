@@ -61,19 +61,17 @@ function Home({ products = fallbackProducts }) {
             <div className="hero-campaign-meta">
             </div>
             <div className="hero-campaign-copy">
-              <span>MULTIMARCA / SÃO PAULO</span>
             </div>
-            <div className="hero-campaign-scroll">SCROLL / 001 ↘</div>
           </div>
         </section>
 
         <section className="section-shell section-block" id="colecoes">
           <div className="section-heading">
-            <span className="eyebrow">01 / CATEGORIAS</span>
+            <span className="eyebrow">CATEGORIAS</span>
             <h2>Encontre seu<br /><em>movimento.</em></h2>
           </div>
           <div className="category-grid">
-            {['Camisetas', 'Calças', 'Vestidos', 'Casacos', 'Calçados', 'Acessórios'].slice(0, 3).map((item, index) => (
+            {['Camisetas', 'Calças', 'Lupas', 'Blusas', 'Tênis', 'Cuecas'].slice(0, 3).map((item, index) => (
               <Link className="category-card" to="/shop" key={item}>
                 <span>0{index + 1}</span>
                 <strong>{item}</strong>
@@ -122,8 +120,8 @@ function ProductCard({ product }) {
 function Shop({ products = fallbackProducts }) {
   return (
     <main className="section-shell page-space">
-      <div className="page-heading"><h2>Garanta seu kit</h2></div>
-      <div className="filters"><button className="filter-active">Todos</button><button>Camisetas</button><button>Calças</button><button>Vestidos</button><button>Calçados</button><button>Acessórios</button><span /><button>Ordenar ↕</button></div>
+      <div className="page-heading"><h1>Garanta seu kit</h1></div>
+      <div className="filters"><button className="filter-active">Todos</button><button>Camisetas</button><button>Calças</button><button>Lupas</button><button>Tênis</button><button>Acessórios</button><span /><button>Ordenar ↕</button></div>
       <div className="product-grid">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
     </main>
   )
