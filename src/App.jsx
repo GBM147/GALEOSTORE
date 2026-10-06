@@ -27,7 +27,7 @@ function Header({ theme, onToggle }) {
         <span className="brand-wordmark">GALEO</span>
       </Link>
       <nav className="desktop-nav" aria-label="Navegação principal">
-        <Link to="/shop"></Link>
+        <Link to="/shop">Carrinho</Link>
         <a href="#colecoes">Coleções</a>
         <a href="#sobre">Sobre</a>
       </nav>
