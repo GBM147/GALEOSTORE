@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import AdminGate from './Admin'
-import GaleoOpening from './GaleoOpening'
 
 const fallbackProducts = [
   { id: 1, name: 'Camiseta Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
@@ -142,9 +141,6 @@ function PlaceholderPage({ title, label }) {
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('galeo-theme') || 'dark')
   const [catalog, setCatalog] = useState(fallbackProducts)
-  const [showOpening, setShowOpening] = useState(() => {
-    try { return sessionStorage.getItem('galeo-opening-seen') !== '1' } catch { return true }
-  })
   useEffect(() => { fetch('/api/store').then(r => r.ok ? r.json() : null).then(d => { if (d?.products?.length) setCatalog(d.products) }).catch(() => {}) }, [])
 
   useEffect(() => {
@@ -152,14 +148,8 @@ export default function App() {
     localStorage.setItem('galeo-theme', theme)
   }, [theme])
 
-  const finishOpening = () => {
-    try { sessionStorage.setItem('galeo-opening-seen', '1') } catch {}
-    setShowOpening(false)
-  }
-
   return (
     <div className="app">
-      {showOpening && <GaleoOpening onEnter={finishOpening} />}
       <Header theme={theme} onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
