@@ -95,7 +95,7 @@ function Home({ products = fallbackProducts }) {
         </section>
 
         <section className="newsletter section-shell">
-          <div><span className="eyebrow">04 / NEWSLETTER</span><h2>Entre para a próxima fase.</h2></div>
+          <div><h2>Entre para a próxima fase.</h2></div>
           <form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu e-mail" /><button type="submit">Entrar ↗</button></form>
         </section>
       </main>
