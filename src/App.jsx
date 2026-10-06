@@ -91,7 +91,6 @@ function Home({ products = fallbackProducts }) {
         </section>
 
         <section className="manifesto section-shell" id="sobre">
-          <span className="eyebrow">03 / MANIFESTO</span>
           <p>Não seguimos o padrão.<br /><em>Criamos o nosso.</em></p>
         </section>
 
