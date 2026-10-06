@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import Lenis from 'lenis'
+import gsap from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Link, Route, Routes } from 'react-router-dom'
 import AdminGate from './Admin'
 
@@ -10,6 +13,163 @@ const fallbackProducts = [
   { id: 5, name: 'Calça Essential', category: 'Calças', price: 189.9, image: '/images/product-placeholder.svg' },
   { id: 6, name: 'Tênis Urban', category: 'Tênis', price: 299.9, image: '/images/product-placeholder.svg' }
 ]
+
+function StorefrontMotion() {
+  useEffect(() => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduceMotion) return undefined
+
+    gsap.registerPlugin(ScrollTrigger)
+
+    const lenis = new Lenis({
+      duration: 1.05,
+      wheelMultiplier: 0.95,
+      smoothWheel: true,
+      autoRaf: false
+    })
+
+    const header = document.querySelector('.site-header')
+    const updateScrollChrome = ({ scroll }) => {
+      if (header) header.classList.toggle('is-scrolled', scroll > 24)
+
+      const documentHeight = document.documentElement.scrollHeight - window.innerHeight
+      const progress = documentHeight > 0 ? Math.min(1, Math.max(0, scroll / documentHeight)) : 0
+      document.documentElement.style.setProperty('--scroll-progress', String(progress))
+    }
+
+    lenis.on('scroll', updateScrollChrome)
+    const raf = (time) => lenis.raf(time * 1000)
+    gsap.ticker.add(raf)
+    gsap.ticker.lagSmoothing(0)
+
+    const ctx = gsap.context(() => {
+      gsap.utils.toArray('[data-reveal]').forEach((element) => {
+        gsap.fromTo(
+          element,
+          { autoAlpha: 0, y: 24 },
+          {
+            autoAlpha: 1,
+            y: 0,
+            duration: 0.8,
+            ease: 'power2.out',
+            scrollTrigger: {
+              trigger: element,
+              start: 'top 86%',
+              once: true
+            }
+          }
+        )
+      })
+
+      const staggerGroups = ['.category-card', '.product-card', '.campaign-card']
+      staggerGroups.forEach((selector) => {
+        const elements = gsap.utils.toArray(selector)
+        if (!elements.length) return
+        gsap.fromTo(
+          elements,
+          { autoAlpha: 0, y: 26 },
+          {
+            autoAlpha: 1,
+            y: 0,
+            duration: 0.75,
+            stagger: 0.06,
+            ease: 'power2.out',
+            scrollTrigger: {
+              trigger: elements[0],
+              start: 'top 88%',
+              once: true
+            }
+          }
+        )
+      })
+
+      gsap.to('.hero-full-media', {
+        yPercent: 5,
+        scale: 1.045,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: '.hero-full',
+          start: 'top top',
+          end: 'bottom top',
+          scrub: true
+        }
+      })
+
+      gsap.to('.hero-full-content', {
+        y: -22,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: '.hero-full',
+          start: 'top top',
+          end: 'bottom top',
+          scrub: true
+        }
+      })
+
+      gsap.from('.hero-full .hero-title-line', {
+        yPercent: 120,
+        duration: 0.9,
+        stagger: 0.08,
+        ease: 'power4.out',
+        delay: 0.12
+      })
+
+      gsap.from('.hero-full .eyebrow, .hero-full p, .hero-full-actions, .hero-full-meta', {
+        autoAlpha: 0,
+        y: 18,
+        duration: 0.7,
+        stagger: 0.08,
+        ease: 'power2.out',
+        delay: 0.3
+      })
+
+      gsap.utils.toArray('.campaign-card').forEach((card) => {
+        const visual = card.querySelector('.campaign-visual')
+        if (!visual) return
+        gsap.to(visual, {
+          scale: 1.055,
+          xPercent: 1.5,
+          yPercent: -1.5,
+          ease: 'none',
+          scrollTrigger: {
+            trigger: card,
+            start: 'top bottom',
+            end: 'bottom top',
+            scrub: true
+          }
+        })
+      })
+
+      gsap.utils.toArray('.manifesto p').forEach((element) => {
+        gsap.fromTo(
+          element,
+          { xPercent: -5 },
+          {
+            xPercent: 0,
+            ease: 'none',
+            scrollTrigger: {
+              trigger: element,
+              start: 'top bottom',
+              end: 'bottom top',
+              scrub: true
+            }
+          }
+        )
+      })
+
+      ScrollTrigger.refresh()
+    })
+
+    return () => {
+      lenis.off('scroll', updateScrollChrome)
+      gsap.ticker.remove(raf)
+      lenis.destroy()
+      ctx.revert()
+    }
+  }, [])
+
+  return null
+}
 
 function ModeButton({ theme, onToggle }) {
   return (
@@ -66,7 +226,10 @@ function Home({ products = fallbackProducts }) {
         </div>
         <div className="hero-full-content">
           <span className="eyebrow">GALEO / MULTIBRAND STORE</span>
-          <h1>Vista o que<br /><em>representa você.</em></h1>
+          <h1 className="hero-title">
+            <span className="hero-title-line"><span className="hero-title-mask">Vista o que</span></span>
+            <span className="hero-title-line"><span className="hero-title-mask"><em>representa você.</em></span></span>
+          </h1>
           <p>Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho.</p>
           <div className="hero-full-actions">
             <Link className="button button-primary" to="/shop">Explorar coleção <span>↗</span></Link>
@@ -87,7 +250,7 @@ function Home({ products = fallbackProducts }) {
       </section>
 
       <section className="section-shell section-block" id="colecoes">
-        <div className="section-heading row-heading">
+        <div className="section-heading row-heading" data-reveal>
           <div>
             <span className="eyebrow">01 / CATEGORIAS</span>
             <h2>Escolha seu<br /><em>movimento.</em></h2>
@@ -120,7 +283,7 @@ function Home({ products = fallbackProducts }) {
         </div>
       </section>
 
-      <section className="section-shell campaign-grid" aria-label="Campanhas">
+      <section className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
         <Link className="campaign-card campaign-card-wide" to="/shop">
           <CampaignVisual variant={1} />
           <div className="campaign-card-copy">
@@ -147,12 +310,12 @@ function Home({ products = fallbackProducts }) {
         </Link>
       </section>
 
-      <section className="manifesto section-shell" id="sobre">
+      <section className="manifesto section-shell" id="sobre" data-reveal>
         <span className="eyebrow">03 / SOBRE A GALEO</span>
         <p>Não seguimos o padrão.<br /><em>Criamos o nosso.</em></p>
       </section>
 
-      <section className="newsletter section-shell">
+      <section className="newsletter section-shell" data-reveal>
         <div>
           <span className="eyebrow">GALEO / INSIDER</span>
           <h2>Entre para a próxima fase.</h2>
@@ -188,18 +351,18 @@ function ProductCard({ product, index = 0 }) {
 function Shop({ products = fallbackProducts }) {
   return (
     <main className="section-shell page-space">
-      <div className="page-heading">
+      <div className="page-heading" data-reveal>
         <span className="eyebrow">GALEO / SHOP</span>
         <h1>Descubra<br /><em>seu próximo kit.</em></h1>
       </div>
-      <div className="filters">
+      <div className="filters" data-reveal>
         {['Todos', 'Camisetas', 'Calças', 'Moletons', 'Tênis', 'Acessórios'].map((item, index) => (
           <button key={item} className={index === 0 ? 'filter-active' : ''}>{item}</button>
         ))}
         <span />
         <button>Ordenar ↕</button>
       </div>
-      <div className="product-grid">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
+      <div className="product-grid" data-reveal>{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
     </main>
   )
 }
@@ -234,6 +397,8 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="scroll-progress" aria-hidden="true"><span /></div>
+      <StorefrontMotion />
       <Header theme={theme} onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
