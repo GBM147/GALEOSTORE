@@ -742,6 +742,15 @@ app.get('/api/store', async (req, res) => {
       `),
       query('SELECT id,name,sort_order FROM categories ORDER BY sort_order,id')
     ])
+    console.log(
+      'STORE CATALOG:',
+      JSON.stringify({
+        activeProducts: products.length,
+        productIds: products.map(product => product.id),
+        categories: categories.map(category => category.name)
+      })
+    )
+
     res.json({ products, categories })
   } catch (error) {
     console.error('Erro no catálogo:', error)
