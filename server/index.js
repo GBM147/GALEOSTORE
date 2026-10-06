@@ -1663,6 +1663,23 @@ app.use((error, req, res, next) => {
 async function bootstrap() {
   await init()
   await seedAndScheduleRecurring()
+
+  const productHealth = await query(`
+    SELECT
+      COUNT(*) AS total,
+      COALESCE(SUM(active = 1), 0) AS active,
+      COALESCE(SUM(active = 0), 0) AS inactive
+    FROM products
+  `)
+  console.log(
+    'PRODUCT HEALTH:',
+    JSON.stringify({
+      total: Number(productHealth[0]?.total || 0),
+      active: Number(productHealth[0]?.active || 0),
+      inactive: Number(productHealth[0]?.inactive || 0)
+    })
+  )
+
   app.listen(PORT, () => {
     console.log(`GALEO API running on port ${PORT}`)
   })
