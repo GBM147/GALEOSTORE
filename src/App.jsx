@@ -22,7 +22,7 @@ function Header({ theme, onToggle }) {
     <header className="site-header">
       <Link className="brand" to="/" aria-label="Galeo Store">
         <span className="brand-logo-wrap">
-          <img className="brand-logo" src="/images/galeo-brand.svg" alt="GALEO" />
+          <img className="brand-logo" src="https://res.cloudinary.com/ovbsocaw/image/upload/v1791245015/galeo-store/branding/galeo-logo-photo.webp" alt="GALEO" />
         </span>
         <span className="brand-wordmark">GALEO</span>
       </Link>
@@ -55,8 +55,8 @@ function Home({ products = fallbackProducts }) {
             <div className="hero-campaign-glow" />
             <div className="hero-grid" />
             <div className="hero-campaign-stage">
-              <img className="hero-campaign-logo hero-campaign-logo-a" src="/images/galeo-brand.svg" alt="Logo GALEO" />
-              <img className="hero-campaign-logo hero-campaign-logo-b" src="/images/galeo-brand.svg" alt="" aria-hidden="true" />
+              <img className="hero-campaign-logo hero-campaign-logo-a" src="https://res.cloudinary.com/ovbsocaw/image/upload/v1791245015/galeo-store/branding/galeo-logo-photo.webp" alt="Logo GALEO" />
+              <img className="hero-campaign-logo hero-campaign-logo-b" src="https://res.cloudinary.com/ovbsocaw/image/upload/v1791245015/galeo-store/branding/galeo-logo-photo.webp" alt="" aria-hidden="true" />
             </div>
             <div className="hero-campaign-vignette" />
             <div className="hero-campaign-meta">
