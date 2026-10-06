@@ -733,3 +733,312 @@ h1 em, h2 em, .manifesto em { color: var(--accent-soft); font-family: Georgia, "
   .hero-campaign-glow,
   .hero-campaign-scroll { animation: none !important; }
 }
+
+
+/* GALEO storefront visual system — editorial, restrained, motion-first */
+html {
+  scroll-behavior: auto;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --scroll-progress: 0;
+}
+
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: #080706;
+}
+
+.scroll-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 2px;
+  z-index: 100;
+  pointer-events: none;
+  transform-origin: left center;
+  background: transparent;
+}
+
+.scroll-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent-soft);
+  transform: scaleX(var(--scroll-progress, 0));
+  transform-origin: left center;
+  will-change: transform;
+  opacity: .9;
+}
+
+.site-header {
+  transition:
+    min-height .45s cubic-bezier(.2,.8,.2,1),
+    padding .45s cubic-bezier(.2,.8,.2,1),
+    background .45s ease,
+    border-color .45s ease,
+    box-shadow .45s ease;
+}
+
+.site-header.is-scrolled {
+  min-height: 66px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  border-color: rgba(224,189,125,.24);
+  box-shadow: 0 10px 30px rgba(0,0,0,.14);
+}
+
+.brand,
+.desktop-nav a,
+.header-actions a,
+.mode-button,
+.text-link,
+.button,
+.category-card,
+.product-card,
+.campaign-card {
+  will-change: transform;
+}
+
+.hero-full {
+  isolation: isolate;
+  border-color: rgba(224,189,125,.22);
+}
+
+.hero-full-media {
+  will-change: transform;
+  transform-origin: 50% 42%;
+}
+
+.hero-title {
+  overflow: visible;
+}
+
+.hero-title-line {
+  display: block;
+  overflow: hidden;
+  padding: .03em 0 .07em;
+}
+
+.hero-title-mask {
+  display: inline-block;
+  will-change: transform;
+}
+
+.hero-full-actions .button-primary {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform .4s cubic-bezier(.2,.8,.2,1),
+    background .35s ease,
+    color .35s ease;
+}
+
+.hero-full-actions .button-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent-soft);
+  transform: translateX(-101%);
+  transition: transform .45s cubic-bezier(.2,.8,.2,1);
+}
+
+.hero-full-actions .button-primary span,
+.hero-full-actions .button-primary {
+  isolation: isolate;
+}
+
+.hero-full-actions .button-primary > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-full-actions .button-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent-soft);
+  transform: translateX(-101%);
+  transition: transform .45s cubic-bezier(.2,.8,.2,1);
+  z-index: -1;
+}
+
+.hero-full-actions .button-primary:hover {
+  transform: translateY(-2px);
+}
+
+.hero-full-actions .button-primary:hover::before {
+  transform: translateX(0);
+}
+
+.desktop-nav a,
+.text-link,
+.mode-button,
+.header-link,
+.bag-link {
+  position: relative;
+}
+
+.desktop-nav a::after,
+.text-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: -6px;
+  height: 1px;
+  background: var(--accent-soft);
+  transition: right .35s cubic-bezier(.2,.8,.2,1);
+}
+
+.desktop-nav a:hover::after,
+.text-link:hover::after {
+  right: 0;
+}
+
+.utility-strip {
+  position: relative;
+  overflow: hidden;
+}
+
+.utility-strip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(226,194,127,.035), transparent);
+  transform: translateX(-100%);
+  animation: utilitySweep 9s ease-in-out infinite;
+}
+
+.category-card,
+.product-card,
+.campaign-card {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.category-card {
+  transition:
+    transform .55s cubic-bezier(.2,.8,.2,1),
+    background .55s ease;
+}
+
+.category-card:hover {
+  transform: translateY(-6px) scale(1.004);
+}
+
+.product-image {
+  isolation: isolate;
+}
+
+.product-image img {
+  will-change: transform;
+}
+
+.product-arrow {
+  transition:
+    transform .35s cubic-bezier(.2,.8,.2,1),
+    background .35s ease,
+    color .35s ease,
+    border-color .35s ease;
+}
+
+.product-card:hover .product-arrow {
+  transform: translate(3px,-3px);
+  background: rgba(8,7,6,.78);
+  border-color: rgba(224,189,125,.38);
+  color: var(--text);
+}
+
+.campaign-card {
+  transition: transform .55s cubic-bezier(.2,.8,.2,1);
+}
+
+.campaign-card:hover {
+  transform: translateY(-5px);
+}
+
+.campaign-card .campaign-visual {
+  will-change: transform;
+}
+
+.manifesto {
+  position: relative;
+  overflow: hidden;
+}
+
+.manifesto::after {
+  content: "GALEO";
+  position: absolute;
+  right: -2vw;
+  bottom: -6vw;
+  font-size: clamp(120px, 25vw, 380px);
+  line-height: .8;
+  letter-spacing: -.08em;
+  font-weight: 900;
+  color: rgba(224,189,125,.035);
+  pointer-events: none;
+  user-select: none;
+}
+
+.newsletter input::placeholder {
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+}
+
+@keyframes utilitySweep {
+  0%, 70%, 100% { transform: translateX(-110%); opacity: 0; }
+  78% { transform: translateX(110%); opacity: .9; }
+}
+
+[data-reveal] {
+  will-change: transform, opacity;
+}
+
+@media (max-width: 650px) {
+  .site-header.is-scrolled {
+    min-height: 60px;
+  }
+
+  .scroll-progress {
+    height: 1px;
+  }
+
+  .manifesto::after {
+    right: -4vw;
+    bottom: -2vw;
+    font-size: 34vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-progress,
+  .utility-strip::before {
+    display: none;
+  }
+
+  .category-card:hover,
+  .campaign-card:hover,
+  .hero-full-actions .button-primary:hover {
+    transform: none;
+  }
+
+  .desktop-nav a::after,
+  .text-link::after {
+    transition: none;
+  }
+}
