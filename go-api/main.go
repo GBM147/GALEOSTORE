@@ -24,14 +24,25 @@ type StoreResponse struct {
 }
 
 var allowedCategories = map[string]struct{}{
-	"camisetas": {},
-	"calcas":    {},
-	"camisas":   {},
-	"moletons":  {},
-	"bermudas":  {},
-	"casacos":   {},
-	"calcados":  {},
+	"camisetas":  {},
+	"calcas":     {},
+	"camisas":    {},
+	"moletons":   {},
+	"bermudas":   {},
+	"casacos":    {},
+	"calcados":   {},
 	"acessorios": {},
+}
+
+var categoryOrder = []string{
+	"Camisetas",
+	"Calças",
+	"Camisas",
+	"Moletons",
+	"Bermudas",
+	"Casacos",
+	"Calçados",
+	"Acessórios",
 }
 
 func normalize(value string) string {
@@ -127,16 +138,27 @@ func (e *upstreamStatusError) Error() string {
 }
 
 func filteredStore(store StoreResponse) StoreResponse {
-	categories := make([]Category, 0, len(store.Categories))
+	existing := make(map[string]Category, len(store.Categories))
 	for _, category := range store.Categories {
 		if isAllowedCategory(category.Name) {
-			categories = append(categories, category)
+			existing[normalize(category.Name)] = category
 		}
 	}
-	sort.SliceStable(categories, func(i, j int) bool {
-		if categories[i].SortOrder == categories[j].SortOrder {
-			return categories[i].ID < categories[j].ID
+
+	categories := make([]Category, 0, len(categoryOrder))
+	for index, name := range categoryOrder {
+		category, ok := existing[normalize(name)]
+		if !ok {
+			category = Category{
+				ID: 1000 + index,
+			}
 		}
+		category.Name = name
+		category.SortOrder = (index + 1) * 10
+		categories = append(categories, category)
+	}
+
+	sort.SliceStable(categories, func(i, j int) bool {
 		return categories[i].SortOrder < categories[j].SortOrder
 	})
 
