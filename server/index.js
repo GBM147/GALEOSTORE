@@ -344,12 +344,22 @@ async function init() {
   for (const statement of schema) await query(statement)
 
   const productCategories = [
-    ['Camisetas', 10], ['Calças', 20], ['Vestidos', 30],
-    ['Casacos', 40], ['Calçados', 50], ['Acessórios', 60], ['Outros', 99]
+    ['Camisetas', 10],
+    ['Calças', 20],
+    ['Camisas', 30],
+    ['Moletons', 40],
+    ['Bermudas', 50],
+    ['Casacos', 60],
+    ['Calçados', 70],
+    ['Acessórios', 80]
   ]
   for (const [name, sortOrder] of productCategories) {
     await query('INSERT IGNORE INTO categories(name,sort_order) VALUES(?,?)', [name, sortOrder])
   }
+
+  // A GALEO é uma loja de moda masculina. Esta categoria foi semeada
+  // por uma versão anterior e não deve continuar aparecendo no catálogo.
+  await query("DELETE FROM categories WHERE name='Vestidos'")
 
   const financialCategories = [
     ['Vendas', 'RECEITA'], ['Outras receitas', 'RECEITA'],
