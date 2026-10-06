@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-
+import MediaLibrary from './MediaLibrary'
 let csrfToken = ''
 
 const api = async (path, options = {}) => {
@@ -797,7 +797,8 @@ function Admin({ user, onLogout }) {
     sales: 'Vendas',
     finance: 'Financeiro',
     recurring: 'Contas recorrentes',
-    movements: 'Histórico de estoque'
+    movements: 'Histórico de estoque',
+    library: 'Biblioteca de mídia'
   }[tab]
 
   const cta = {
@@ -818,7 +819,8 @@ function Admin({ user, onLogout }) {
           ['sales', 'Vendas'],
           ['finance', 'Financeiro'],
           ['recurring', 'Contas recorrentes'],
-          ['movements', 'Histórico de estoque']
+          ['movements', 'Histórico de estoque'],
+          ['library', 'Biblioteca de mídia']
         ].map(([key, label]) => (
           <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => setTab(key)} key={key}>{label}</button>
         ))}
@@ -837,7 +839,7 @@ function Admin({ user, onLogout }) {
         </div>
 
         {loading ? <div className="admin-loading">Carregando dados reais…</div> : null}
-
+        {!loading && tab === 'library' && <MediaLibrary api={api} csrf={() => csrfToken} role={user?.role} />}
         {!loading && tab === 'dashboard' && (
           <>
             <div className="metric-grid metric-grid-extended">

@@ -11,6 +11,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import multer from 'multer'
 import { Readable } from 'node:stream'
 import cron from 'node-cron'
+import { registerMediaLibrary } from './media-library.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -1618,6 +1619,7 @@ app.get('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
 })
 
 const dist = path.join(__dirname, '..', 'dist')
+registerMediaLibrary(app, { query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary })
 app.use(express.static(dist, {
   setHeaders(res, filePath) {
     if (String(filePath).endsWith('/index.html')) {
