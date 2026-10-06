@@ -3,7 +3,7 @@ import { Link, Route, Routes } from 'react-router-dom'
 import AdminGate from './Admin'
 
 const fallbackProducts = [
-  { id: 1, name: 'Camiseta Galeo Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
+  { id: 1, name: 'Camiseta Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
   { id: 2, name: 'Moletom Galeo Core', category: 'Moletons', price: 219.9, image: '/images/product-placeholder.svg' },
   { id: 3, name: 'Camiseta Oversized', category: 'Camisetas', price: 149.9, image: '/images/product-placeholder.svg' },
   { id: 4, name: 'Shoulder Bag Galeo', category: 'Acessórios', price: 99.9, image: '/images/product-placeholder.svg' }
@@ -21,8 +21,10 @@ function Header({ theme, onToggle }) {
   return (
     <header className="site-header">
       <Link className="brand" to="/" aria-label="Galeo Store">
-        <span className="brand-mark">G</span>
-        <span>GALEO</span>
+        <span className="brand-logo-wrap">
+          <img className="brand-logo" src="/images/galeo-brand.svg" alt="GALEO" />
+        </span>
+        <span className="brand-wordmark">GALEO</span>
       </Link>
       <nav className="desktop-nav" aria-label="Navegação principal">
         <Link to="/shop">Shop</Link>
@@ -49,10 +51,24 @@ function Home({ products = fallbackProducts }) {
             <p>Uma experiência de moda construída para destacar a marca, o produto e quem usa.</p>
             <Link className="button button-primary" to="/shop">Explorar coleção <span>↗</span></Link>
           </div>
-          <div className="hero-art" aria-label="Área reservada para a campanha principal">
+          <div className="hero-art" aria-label="Campanha GALEO com movimento automático">
+            <div className="hero-campaign-glow" />
             <div className="hero-grid" />
-            <span className="hero-code">GALEO<br />STORE<br />2026</span>
-            <span className="hero-placeholder">IMAGEM<br />DA CAMPANHA</span>
+            <div className="hero-campaign-stage">
+              <img className="hero-campaign-logo hero-campaign-logo-a" src="/images/galeo-brand.svg" alt="Logo GALEO" />
+              <img className="hero-campaign-logo hero-campaign-logo-b" src="/images/galeo-brand.svg" alt="" aria-hidden="true" />
+            </div>
+            <div className="hero-campaign-vignette" />
+            <div className="hero-campaign-meta">
+              <span>GALEO / CAMPAIGN 001</span>
+              <span>AUTOPLAY VISUAL</span>
+            </div>
+            <div className="hero-campaign-copy">
+              <span>MULTIMARCA / SÃO PAULO</span>
+              <strong>Presença<br /><em>em movimento.</em></strong>
+              <p>Uma vitrine viva, com imagens que respiram, mudam de enquadramento e conduzem a coleção.</p>
+            </div>
+            <div className="hero-campaign-scroll">SCROLL / 001 ↘</div>
           </div>
         </section>
 
