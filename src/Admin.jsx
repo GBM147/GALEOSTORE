@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 
+let csrfToken = ''
+
 const api = async (path, options = {}) => {
   const headers = new Headers(options.headers || {})
   if (options.body && typeof options.body !== 'string') {
     headers.set('Content-Type', 'application/json')
     options = { ...options, body: JSON.stringify(options.body) }
+  }
+
+  const method = String(options.method || 'GET').toUpperCase()
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && path !== '/api/auth/login' && csrfToken) {
+    headers.set('X-CSRF-Token', csrfToken)
   }
 
   const response = await fetch(path, {
@@ -17,6 +24,7 @@ const api = async (path, options = {}) => {
   let data = null
   try { data = raw ? JSON.parse(raw) : null } catch {}
 
+  if (data?.csrfToken) csrfToken = data.csrfToken
   if (!response.ok) {
     throw new Error(data?.error || 'Erro na comunicação com o servidor.')
   }
@@ -45,10 +53,13 @@ const uploadMedia = async (productId, files, onProgress) => {
     const formData = new FormData()
     for (const file of batch) formData.append('media', file)
 
+    const headers = {}
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken
     const response = await fetch('/api/admin/products/' + productId + '/media', {
       method: 'POST',
       body: formData,
-      credentials: 'include'
+      credentials: 'include',
+      headers
     })
     const raw = await response.text()
     let data = null
@@ -568,6 +579,50 @@ function RecurringModal({ categories, accounts, onClose, onDone }) {
   )
 }
 
+
+function PasswordModal({ onClose, onDone }) {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    if (newPassword !== confirmPassword) return setError('As novas senhas não conferem.')
+    if (newPassword.length < 10) return setError('A nova senha deve ter pelo menos 10 caracteres.')
+    setSaving(true)
+    try {
+      await api('/api/auth/password', {
+        method: 'PATCH',
+        body: { currentPassword, newPassword }
+      })
+      alert('Senha alterada com sucesso.')
+      onDone()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="admin-modal" onSubmit={submit}>
+        <button type="button" className="modal-close" onClick={onClose}>×</button>
+        <span className="eyebrow">SEGURANÇA / SENHA</span>
+        <h2>Alterar senha</h2>
+        <input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Senha atual" required />
+        <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Nova senha (mínimo 10 caracteres)" required />
+        <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirme a nova senha" required />
+        {error && <p className="admin-error">{error}</p>}
+        <button className="button button-primary" disabled={saving}>{saving ? 'Alterando…' : 'Alterar senha'}</button>
+      </form>
+    </div>
+  )
+}
+
 function Admin({ user, onLogout }) {
   const [tab, setTab] = useState('dashboard')
   const [dash, setDash] = useState(null)
@@ -581,6 +636,7 @@ function Admin({ user, onLogout }) {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [editingProduct, setEditingProduct] = useState(null)
+  const [securityModal, setSecurityModal] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -700,6 +756,7 @@ function Admin({ user, onLogout }) {
           <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => setTab(key)} key={key}>{label}</button>
         ))}
         <div className="admin-user"><strong>{user?.email}</strong><small>{user?.role}</small></div>
+        <button className="admin-nav" onClick={() => setSecurityModal(true)}>Alterar senha</button>
         <button className="admin-nav logout" onClick={logout}>Sair</button>
       </aside>
 
@@ -846,6 +903,7 @@ function Admin({ user, onLogout }) {
       {modal === 'sale' && <SaleModal products={products} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
       {modal === 'finance' && <FinanceModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
       {modal === 'recurring' && <RecurringModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
+      {securityModal && <PasswordModal onClose={() => setSecurityModal(false)} onDone={() => setSecurityModal(false)} />}
     </div>
   )
 }
