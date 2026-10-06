@@ -82,7 +82,7 @@ function Home({ products = fallbackProducts }) {
 
         <section className="section-shell section-block" id="destaques">
           <div className="section-heading row-heading">
-            <div><span className="eyebrow">02 / DESTAQUES</span><h2>Seleção <em>multimarcas.</em></h2></div>
+            <div><h2>Seleção <em>multimarcas.</em></h2></div>
             <Link className="text-link" to="/shop">Ver todos ↗</Link>
           </div>
           <div className="product-grid">
