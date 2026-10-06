@@ -5,6 +5,10 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminGate from './Admin'
 
+const PUBLIC_API_BASE = 'https://galeo-api-go.onrender.com'
+
+const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
+
 const fallbackProducts = [
   { id: 1, name: 'Camiseta Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
   { id: 2, name: 'Moletom Galeo Core', category: 'Moletons', price: 219.9, image: '/images/product-placeholder.svg' },
@@ -185,10 +189,13 @@ function Header({ theme, onToggle, categories = [] }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
 
-  const preferredCategoryOrder = ['Camisetas', 'Calças', 'Camisas', 'Moletons']
-  const primaryCategories = preferredCategoryOrder
-    .map(name => categories.find(category => category.name === name))
-    .filter(Boolean)
+  const primaryCategories = MALE_CATEGORIES.slice(0, 4).map((name, index) => (
+    categories.find(category => category.name === name) || {
+      id: 'menu-' + index,
+      name,
+      sort_order: (index + 1) * 10
+    }
+  ))
 
   function goToCategory(category) {
     navigate('/shop?category=' + encodeURIComponent(category.name))
@@ -213,16 +220,9 @@ function Header({ theme, onToggle, categories = [] }) {
 
       <nav className="desktop-nav" aria-label="Categorias principais">
         {primaryCategories.map((category) => (
-          <a
-            key={category.id}
-            href={'/shop?category=' + encodeURIComponent(category.name)}
-            onClick={(event) => {
-              event.preventDefault()
-              goToCategory(category)
-            }}
-          >
+          <Link key={category.id} to={'/shop?category=' + encodeURIComponent(category.name)}>
             {category.name}
-          </a>
+          </Link>
         ))}
         <Link to="/shop">Catálogo</Link>
       </nav>
@@ -394,7 +394,7 @@ function ProductCard({ product, index = 0 }) {
 
 const normalizeSearchText = (value) => String(value || '')
   .normalize('NFD')
-  .replace(/[\\u0300-\\u036f]/g, '')
+  .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
   .trim()
 
@@ -409,20 +409,13 @@ function Shop({ products = fallbackProducts, categories = [] }) {
     setSearchInput(query)
   }, [query])
 
-  const availableCategories = useMemo(() => {
-    const byId = new Map()
-    categories.forEach((category) => byId.set(String(category.id), category))
-    products.forEach((product) => {
-      if (product?.category_id && product?.category && !byId.has(String(product.category_id))) {
-        byId.set(String(product.category_id), {
-          id: product.category_id,
-          name: product.category,
-          sort_order: 999
-        })
-      }
-    })
-    return [...byId.values()].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
-  }, [categories, products])
+  const availableCategories = useMemo(() => MALE_CATEGORIES.map((name, index) => (
+    categories.find(category => normalizeSearchText(category.name) === normalizeSearchText(name)) || {
+      id: 'catalog-' + index,
+      name,
+      sort_order: (index + 1) * 10
+    }
+  )), [categories])
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = normalizeSearchText(query)
@@ -565,17 +558,46 @@ function PlaceholderPage({ title, label }) {
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('galeo-theme') || 'dark')
-  const [catalog, setCatalog] = useState(fallbackProducts)
+  const [catalog, setCatalog] = useState([])
   const [categories, setCategories] = useState([])
+  const [catalogError, setCatalogError] = useState('')
 
   useEffect(() => {
-    fetch('/api/store')
-      .then(response => response.ok ? response.json() : null)
-      .then(data => {
-        if (data?.products?.length) setCatalog(data.products)
-        if (Array.isArray(data?.categories)) setCategories(data.categories)
-      })
-      .catch(() => {})
+    let active = true
+
+    async function loadCatalog() {
+      setCatalogError('')
+      const endpoints = [
+        PUBLIC_API_BASE + '/api/store?ts=' + Date.now(),
+        '/api/store?ts=' + Date.now()
+      ]
+
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint, {
+            cache: 'no-store',
+            headers: { Accept: 'application/json' }
+          })
+          if (!response.ok) continue
+
+          const data = await response.json()
+          if (!active) return
+
+          setCatalog(Array.isArray(data?.products) ? data.products : [])
+          setCategories(Array.isArray(data?.categories) ? data.categories : [])
+          return
+        } catch {}
+      }
+
+      if (active) {
+        setCatalog([])
+        setCategories([])
+        setCatalogError('Não foi possível carregar o catálogo agora.')
+      }
+    }
+
+    loadCatalog()
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -586,6 +608,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="scroll-progress" aria-hidden="true"><span /></div>
+      {catalogError && <div className="catalog-global-error" role="status">{catalogError}</div>}
       <StorefrontMotion />
       <Header
         theme={theme}
