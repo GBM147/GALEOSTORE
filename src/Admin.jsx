@@ -45,28 +45,40 @@ const dateBR = (v) => {
 
 
 const uploadMedia = async (productId, files, onProgress) => {
+  if (!productId) throw new Error('Salve o produto antes de enviar as imagens.')
+  if (!files.length) return { success: true, media: [] }
+
   const batchSize = 8
   const results = []
 
   for (let start = 0; start < files.length; start += batchSize) {
     const batch = files.slice(start, start + batchSize)
     const formData = new FormData()
-    for (const file of batch) formData.append('media', file)
+    batch.forEach((file) => formData.append('media', file))
 
     const headers = {}
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken
+
     const response = await fetch('/api/admin/products/' + productId + '/media', {
       method: 'POST',
       body: formData,
       credentials: 'include',
       headers
     })
+
     const raw = await response.text()
     let data = null
     try { data = raw ? JSON.parse(raw) : null } catch {}
-    if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar a mídia.')
 
-    if (Array.isArray(data?.media)) results.push(...data.media)
+    if (!response.ok) {
+      throw new Error(data?.error || 'Não foi possível enviar a mídia.')
+    }
+
+    if (!Array.isArray(data?.media)) {
+      throw new Error('O servidor não confirmou o envio das imagens.')
+    }
+
+    results.push(...data.media)
     onProgress?.(Math.min(start + batch.length, files.length), files.length)
   }
 
@@ -189,10 +201,34 @@ function ProductForm({ product, categories, onClose, onDone }) {
     }
   }
 
+  async function enviarMidiaAtual() {
+    const files = [...imageFiles, ...videoFiles]
+    if (!editing || !product?.id || !files.length) return
+
+    setUploading(true)
+    setMediaError('')
+    setUploadProgress({ done: 0, total: files.length })
+
+    try {
+      await uploadMedia(product.id, files, (done, total) => {
+        setUploadProgress({ done, total })
+      })
+      setImageFiles([])
+      setVideoFiles([])
+      await loadMedia(product.id)
+    } catch (error) {
+      setMediaError(error.message)
+    } finally {
+      setUploading(false)
+      setUploadProgress({ done: 0, total: 0 })
+    }
+  }
+
   async function submit(event) {
     event.preventDefault()
     setSaving(true)
     setMediaError('')
+
     try {
       const saved = await api(editing ? '/api/admin/products/' + product.id : '/api/admin/products', {
         method: editing ? 'PUT' : 'POST',
@@ -208,13 +244,21 @@ function ProductForm({ product, categories, onClose, onDone }) {
 
       const productId = saved?.id || product?.id
       const files = [...imageFiles, ...videoFiles]
-      if (productId && files.length) {
+
+      if (productId && files.length && !editing) {
         setUploading(true)
         setUploadProgress({ done: 0, total: files.length })
         try {
           await uploadMedia(productId, files, (done, total) => {
             setUploadProgress({ done, total })
           })
+          setImageFiles([])
+          setVideoFiles([])
+        } catch (error) {
+          setMediaError(error.message)
+          setSaving(false)
+          setUploading(false)
+          return
         } finally {
           setUploading(false)
           setUploadProgress({ done: 0, total: 0 })
@@ -223,7 +267,8 @@ function ProductForm({ product, categories, onClose, onDone }) {
 
       onDone()
     } catch (error) {
-      alert(error.message)
+      setMediaError(error.message)
+      setSaving(false)
     } finally {
       setSaving(false)
       setUploading(false)
@@ -306,6 +351,25 @@ function ProductForm({ product, categories, onClose, onDone }) {
             )}
           </div>
         </div>
+
+        {mediaError && (
+          <div className="admin-media-note admin-media-error">
+            {mediaError}
+          </div>
+        )}
+
+        {editing && [...imageFiles, ...videoFiles].length > 0 && (
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={enviarMidiaAtual}
+            disabled={saving || uploading}
+          >
+            {uploading
+              ? 'Enviando mídia…'
+              : `Enviar ${[...imageFiles, ...videoFiles].length} arquivo(s) agora ↗`}
+          </button>
+        )}
 
         {uploading && (
           <div className="admin-media-note">
