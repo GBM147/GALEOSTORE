@@ -304,10 +304,10 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <div>
             <span className="eyebrow">MÍDIA / UPLOAD</span>
             <h3>Fotos do produto</h3>
-            <p>Selecione várias fotos de uma vez (use Ctrl para escolher várias) ou clique novamente para adicionar mais. Todas ficam na fila até salvar.</p>
+            <p>Selecione várias fotos de uma vez ou adicione mais em novas seleções. JPG, PNG, WebP e AVIF. As fotos ficam na fila até o envio.</p>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,image/avif"
               multiple
               onChange={(e) => {
                 appendFiles(setImageFiles, e.target.files)
