@@ -185,7 +185,15 @@ function Header({ theme, onToggle, categories = [] }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
 
-  const primaryCategories = categories.slice(0, 4)
+  const preferredCategoryOrder = ['Camisetas', 'Calças', 'Camisas', 'Moletons']
+  const primaryCategories = preferredCategoryOrder
+    .map(name => categories.find(category => category.name === name))
+    .filter(Boolean)
+
+  function goToCategory(category) {
+    navigate('/shop?category=' + encodeURIComponent(category.name))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   function submitSearch(event) {
     event.preventDefault()
@@ -205,9 +213,16 @@ function Header({ theme, onToggle, categories = [] }) {
 
       <nav className="desktop-nav" aria-label="Categorias principais">
         {primaryCategories.map((category) => (
-          <Link key={category.id} to={'/shop?category=' + encodeURIComponent(category.name)}>
+          <a
+            key={category.id}
+            href={'/shop?category=' + encodeURIComponent(category.name)}
+            onClick={(event) => {
+              event.preventDefault()
+              goToCategory(category)
+            }}
+          >
             {category.name}
-          </Link>
+          </a>
         ))}
         <Link to="/shop">Catálogo</Link>
       </nav>
