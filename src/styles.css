@@ -874,7 +874,7 @@ body {
   background: var(--accent-soft);
   transform: translateX(-101%);
   transition: transform .45s cubic-bezier(.2,.8,.2,1);
-  z-index: -1;
+  z-index: 0;
 }
 
 .hero-full-actions .button-primary:hover {
