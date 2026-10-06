@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import AdminGate from './Admin'
-import Intro from './Intro'
 
 const fallbackProducts = [
-  { id: 1, name: 'Camiseta Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
+  { id: 1, name: 'Camiseta Galeo Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
   { id: 2, name: 'Moletom Galeo Core', category: 'Moletons', price: 219.9, image: '/images/product-placeholder.svg' },
   { id: 3, name: 'Camiseta Oversized', category: 'Camisetas', price: 149.9, image: '/images/product-placeholder.svg' },
   { id: 4, name: 'Shoulder Bag Galeo', category: 'Acessórios', price: 99.9, image: '/images/product-placeholder.svg' }
@@ -22,10 +21,8 @@ function Header({ theme, onToggle }) {
   return (
     <header className="site-header">
       <Link className="brand" to="/" aria-label="Galeo Store">
-        <span className="brand-logo-wrap">
-          <img className="brand-logo" src="https://res.cloudinary.com/ovbsocaw/image/upload/v1791245015/galeo-store/branding/galeo-logo-photo.webp" alt="GALEO" />
-        </span>
-        <span className="brand-wordmark">GALEO</span>
+        <span className="brand-mark">G</span>
+        <span>GALEO</span>
       </Link>
       <nav className="desktop-nav" aria-label="Navegação principal">
         <Link to="/shop">Shop</Link>
@@ -45,7 +42,6 @@ function Home({ products = fallbackProducts }) {
   return (
     <>
       <main>
-        <Intro />
         <section className="hero section-shell">
           <div className="hero-copy">
             <span className="eyebrow">GALEO / 001 — NEW STORE</span>
@@ -53,24 +49,10 @@ function Home({ products = fallbackProducts }) {
             <p>Uma experiência de moda construída para destacar a marca, o produto e quem usa.</p>
             <Link className="button button-primary" to="/shop">Explorar coleção <span>↗</span></Link>
           </div>
-          <div className="hero-art" aria-label="Campanha GALEO com movimento automático">
-            <div className="hero-campaign-glow" />
+          <div className="hero-art" aria-label="Área reservada para a campanha principal">
             <div className="hero-grid" />
-            <div className="hero-campaign-stage">
-              <img className="hero-campaign-logo hero-campaign-logo-a" src="https://res.cloudinary.com/ovbsocaw/image/upload/v1791245015/galeo-store/branding/galeo-logo-photo.webp" alt="Logo GALEO" />
-              <img className="hero-campaign-logo hero-campaign-logo-b" src="https://res.cloudinary.com/ovbsocaw/image/upload/v1791245015/galeo-store/branding/galeo-logo-photo.webp" alt="" aria-hidden="true" />
-            </div>
-            <div className="hero-campaign-vignette" />
-            <div className="hero-campaign-meta">
-              <span>GALEO / CAMPAIGN 001</span>
-              <span>AUTOPLAY VISUAL</span>
-            </div>
-            <div className="hero-campaign-copy">
-              <span>MULTIMARCA / SÃO PAULO</span>
-              <strong>Presença<br /><em>em movimento.</em></strong>
-              <p>Uma vitrine viva, com imagens que respiram, mudam de enquadramento e conduzem a coleção.</p>
-            </div>
-            <div className="hero-campaign-scroll">SCROLL / 001 ↘</div>
+            <span className="hero-code">GALEO<br />STORE<br />2026</span>
+            <span className="hero-placeholder">IMAGEM<br />DA CAMPANHA</span>
           </div>
         </section>
 
@@ -115,13 +97,10 @@ function Home({ products = fallbackProducts }) {
 }
 
 function ProductCard({ product }) {
-  const price = Number(product?.price || 0)
-  const image = product?.image || '/images/product-placeholder.svg'
-
   return (
     <Link className="product-card" to={`/produto/${product.id}`}>
-      <div className="product-image"><img src={image} alt="" loading="lazy" /><span>↗</span></div>
-      <div className="product-meta"><span>{product?.category || 'Sem categoria'}</span><strong>{product?.name || 'Produto'}</strong><b>R$ {price.toFixed(2).replace('.', ',')}</b></div>
+      <div className="product-image"><img src={product.image} alt="" loading="lazy" /><span>↗</span></div>
+      <div className="product-meta"><span>{product.category}</span><strong>{product.name}</strong><b>R$ {product.price.toFixed(2).replace('.', ',')}</b></div>
     </Link>
   )
 }
