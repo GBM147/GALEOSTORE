@@ -106,7 +106,7 @@ function StorefrontMotion() {
         }
       })
 
-      gsap.from('.hero-full .hero-title-line', {
+      gsap.from('.hero-full .hero-title-mask', {
         yPercent: 120,
         duration: 0.9,
         stagger: 0.08,
