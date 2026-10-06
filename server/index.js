@@ -36,11 +36,11 @@ const mediaUpload = multer({
   limits: { fileSize: 25 * 1024 * 1024, files: 8 },
   fileFilter(req, file, callback) {
     const allowed = [
-      'image/jpeg', 'image/png', 'image/webp',
+      'image/jpeg', 'image/png', 'image/webp', 'image/avif',
       'video/mp4', 'video/webm', 'video/quicktime'
     ]
     if (!allowed.includes(String(file.mimetype || '').toLowerCase())) {
-      const error = new Error('Arquivo não suportado. Use JPG, PNG, WebP, MP4, WebM ou MOV.')
+      const error = new Error('Arquivo não suportado. Use JPG, PNG, WebP ou AVIF para fotos; MP4, WebM ou MOV para vídeos.')
       error.status = 400
       return callback(error)
     }
