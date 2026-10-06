@@ -1220,3 +1220,34 @@ body {
   .catalog-sort { justify-self: start; }
   .catalog-summary { flex-wrap: wrap; }
 }
+
+
+/* Home: categorias agora vivem na navegação principal; destaque ganha protagonismo. */
+.featured-selection {
+  padding-top: 150px;
+  padding-bottom: 150px;
+}
+.featured-selection .section-heading h2 {
+  font-size: clamp(52px, 7vw, 96px);
+}
+.featured-selection .product-grid-editorial {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 28px 18px;
+  margin-top: 68px;
+}
+@media (max-width: 1120px) {
+  .featured-selection .product-grid-editorial {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .featured-selection {
+    padding-top: 108px;
+    padding-bottom: 108px;
+  }
+  .featured-selection .product-grid-editorial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 12px;
+    margin-top: 48px;
+  }
+}
