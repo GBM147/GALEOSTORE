@@ -90,7 +90,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      connectSrc: ["'self'"],
+      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
       mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
       objectSrc: ["'none'"],
