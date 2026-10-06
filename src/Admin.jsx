@@ -245,7 +245,10 @@ function ProductForm({ product, categories, onClose, onDone }) {
       const productId = saved?.id || product?.id
       const files = [...imageFiles, ...videoFiles]
 
-      if (productId && files.length && !editing) {
+      // O produto pode ser novo ou estar sendo editado. Em ambos os casos,
+      // qualquer mídia selecionada nesta tela precisa ser enviada antes
+      // de fechar o formulário.
+      if (productId && files.length) {
         setUploading(true)
         setUploadProgress({ done: 0, total: files.length })
         try {
@@ -254,10 +257,10 @@ function ProductForm({ product, categories, onClose, onDone }) {
           })
           setImageFiles([])
           setVideoFiles([])
+          await loadMedia(productId)
         } catch (error) {
           setMediaError(error.message)
           setSaving(false)
-          setUploading(false)
           return
         } finally {
           setUploading(false)
