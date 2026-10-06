@@ -899,6 +899,11 @@ app.post('/api/admin/products/:id/media', exigirLogin, mediaUpload.array('media'
     res.status(201).json({ success: true, media: inserted })
   } catch (error) {
     console.error('Erro no upload de mídia:', error)
+    if (Number(error?.http_code) === 401 || Number(error?.http_code) === 403) {
+      return res.status(502).json({
+        error: 'O Cloudinary recusou o upload (403). Verifique a API Key e principalmente o API Secret configurados no Render.'
+      })
+    }
     res.status(500).json({ error: 'Não foi possível enviar a mídia. Tente novamente.' })
   }
 })
@@ -1015,6 +1020,62 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
     await conn.rollback()
     console.error('Erro ao criar produto:', error)
     res.status(500).json({ error: 'Não foi possível criar o produto.' })
+  } finally {
+    conn.release()
+  }
+})
+
+app.delete('/api/admin/products/:id', exigirLogin, async (req, res) => {
+  const productId = Number(req.params.id)
+  if (!Number.isInteger(productId) || productId <= 0) {
+    return res.status(400).json({ error: 'Produto inválido.' })
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const [productRows] = await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE', [productId])
+    if (!productRows.length) {
+      await conn.rollback()
+      return res.status(404).json({ error: 'Produto não encontrado.' })
+    }
+
+    const product = productRows[0]
+    const [saleRows] = await conn.execute('SELECT COUNT(*) AS total FROM sale_items WHERE product_id=?', [productId])
+    const [movementRows] = await conn.execute('SELECT COUNT(*) AS total FROM stock_movements WHERE product_id=?', [productId])
+    const hasHistory = Number(saleRows[0]?.total || 0) > 0 || Number(movementRows[0]?.total || 0) > 0
+
+    if (hasHistory) {
+      await conn.execute('UPDATE products SET active=0 WHERE id=?', [productId])
+      await conn.commit()
+      await audit(req.admin.id, 'OCULTAR', 'produto', productId, { reason: 'possui_historico' })
+      return res.json({ success: true, mode: 'hidden' })
+    }
+
+    const [mediaRows] = await conn.execute('SELECT id,media_type,public_id FROM product_media WHERE product_id=?', [productId])
+    await conn.execute('DELETE FROM product_media WHERE product_id=?', [productId])
+    await conn.execute('DELETE FROM products WHERE id=?', [productId])
+    await conn.commit()
+
+    for (const media of mediaRows) {
+      if (!cloudinaryConfigurado()) continue
+      try {
+        await cloudinary.uploader.destroy(media.public_id, {
+          resource_type: media.media_type === 'video' ? 'video' : 'image',
+          type: 'upload'
+        })
+      } catch (cloudinaryError) {
+        console.error('Aviso ao remover mídia do produto no Cloudinary:', cloudinaryError)
+      }
+    }
+
+    await audit(req.admin.id, 'EXCLUIR', 'produto', productId, { name: product.name })
+    res.json({ success: true, mode: 'deleted' })
+  } catch (error) {
+    try { await conn.rollback() } catch {}
+    console.error('Erro ao excluir produto:', error)
+    res.status(400).json({ error: error.message || 'Não foi possível excluir o produto.' })
   } finally {
     conn.release()
   }
@@ -1219,6 +1280,33 @@ app.post('/api/admin/finance/entries', exigirLogin, async (req, res) => {
     [id]
   )
   res.status(201).json(inserted[0])
+})
+
+app.delete('/api/admin/finance/entries/:id', exigirLogin, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Lançamento inválido.' })
+
+  const rows = await query('SELECT * FROM financial_entries WHERE id=? LIMIT 1', [id])
+  if (!rows.length) return res.status(404).json({ error: 'Lançamento não encontrado.' })
+
+  const entry = rows[0]
+  if (entry.reference_type === 'VENDA') {
+    return res.status(400).json({ error: 'Esse lançamento pertence a uma venda. Cancele a venda pela aba Vendas.' })
+  }
+
+  const result = await query(
+    "UPDATE financial_entries SET status='CANCELADO', paid_at=NULL WHERE id=? AND status<>'CANCELADO'",
+    [id]
+  )
+  if (!result.affectedRows) return res.status(400).json({ error: 'O lançamento já está cancelado.' })
+
+  await audit(req.admin.id, 'EXCLUIR', 'lancamento_financeiro', id, {
+    type: entry.type,
+    amount: Number(entry.amount),
+    description: entry.description
+  })
+
+  res.json({ success: true, mode: 'cancelled' })
 })
 
 app.patch('/api/admin/finance/entries/:id/pay', exigirLogin, async (req, res) => {
