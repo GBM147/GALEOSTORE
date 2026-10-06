@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import Lenis from 'lenis'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { Link, Route, Routes } from 'react-router-dom'
+import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminGate from './Admin'
 
 const fallbackProducts = [
@@ -180,7 +180,20 @@ function ModeButton({ theme, onToggle }) {
   )
 }
 
-function Header({ theme, onToggle }) {
+function Header({ theme, onToggle, categories = [] }) {
+  const navigate = useNavigate()
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const primaryCategories = categories.slice(0, 4)
+
+  function submitSearch(event) {
+    event.preventDefault()
+    const value = search.trim()
+    navigate(value ? '/shop?q=' + encodeURIComponent(value) : '/shop')
+    setSearchOpen(false)
+  }
+
   return (
     <header className="site-header">
       <Link className="brand" to="/" aria-label="Galeo Store">
@@ -189,15 +202,50 @@ function Header({ theme, onToggle }) {
         </span>
         <span className="brand-wordmark">GALEO</span>
       </Link>
-      <nav className="desktop-nav" aria-label="Navegação principal">
-        <a href="#colecoes">Coleções</a>
-        <a href="#sobre">Sobre</a>
+
+      <nav className="desktop-nav" aria-label="Categorias principais">
+        {primaryCategories.map((category) => (
+          <Link key={category.id} to={'/shop?category=' + encodeURIComponent(category.name)}>
+            {category.name}
+          </Link>
+        ))}
+        <Link to="/shop">Catálogo</Link>
       </nav>
+
       <div className="header-actions">
+        <button
+          className={'search-trigger' + (searchOpen ? ' is-open' : '')}
+          type="button"
+          onClick={() => setSearchOpen(value => !value)}
+          aria-expanded={searchOpen}
+          aria-label={searchOpen ? 'Fechar busca' : 'Abrir busca'}
+          title={searchOpen ? 'Fechar busca' : 'Buscar produtos'}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="M16 16l5 5" />
+          </svg>
+        </button>
         <ModeButton theme={theme} onToggle={onToggle} />
         <Link className="bag-link" to="/carrinho">Carrinho <span>0</span></Link>
         <Link className="header-link" to="/conta">Conta</Link>
       </div>
+
+      {searchOpen && (
+        <form className="header-search" onSubmit={submitSearch}>
+          <span className="eyebrow">GALEO / BUSCA</span>
+          <div className="header-search-row">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar por produto, marca ou categoria"
+              autoFocus
+              aria-label="Buscar produtos"
+            />
+            <button type="submit">Buscar ↗</button>
+          </div>
+        </form>
+      )}
     </header>
   )
 }
@@ -348,21 +396,163 @@ function ProductCard({ product, index = 0 }) {
   )
 }
 
-function Shop({ products = fallbackProducts }) {
+const normalizeSearchText = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\\u0300-\\u036f]/g, '')
+  .toLowerCase()
+  .trim()
+
+function Shop({ products = fallbackProducts, categories = [] }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedCategory = searchParams.get('category') || 'Todos'
+  const query = searchParams.get('q') || ''
+  const [searchInput, setSearchInput] = useState(query)
+  const [sort, setSort] = useState('latest')
+
+  useEffect(() => {
+    setSearchInput(query)
+  }, [query])
+
+  const availableCategories = useMemo(() => {
+    const byId = new Map()
+    categories.forEach((category) => byId.set(String(category.id), category))
+    products.forEach((product) => {
+      if (product?.category_id && product?.category && !byId.has(String(product.category_id))) {
+        byId.set(String(product.category_id), {
+          id: product.category_id,
+          name: product.category,
+          sort_order: 999
+        })
+      }
+    })
+    return [...byId.values()].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+  }, [categories, products])
+
+  const filteredProducts = useMemo(() => {
+    const normalizedQuery = normalizeSearchText(query)
+
+    const result = products.filter((product) => {
+      const categoryMatch = selectedCategory === 'Todos' || normalizeSearchText(product?.category) === normalizeSearchText(selectedCategory)
+      if (!categoryMatch) return false
+      if (!normalizedQuery) return true
+
+      const haystack = [
+        product?.name,
+        product?.brand,
+        product?.category,
+        product?.description
+      ].map(normalizeSearchText).join(' ')
+
+      return haystack.includes(normalizedQuery)
+    })
+
+    return [...result].sort((a, b) => {
+      if (sort === 'price-asc') return Number(a.price || 0) - Number(b.price || 0)
+      if (sort === 'price-desc') return Number(b.price || 0) - Number(a.price || 0)
+      if (sort === 'name') return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR')
+      return Number(b.id || 0) - Number(a.id || 0)
+    })
+  }, [products, selectedCategory, query, sort])
+
+  function selectCategory(category) {
+    const next = new URLSearchParams(searchParams)
+    if (category === 'Todos') next.delete('category')
+    else next.set('category', category)
+    setSearchParams(next)
+  }
+
+  function submitSearch(event) {
+    event.preventDefault()
+    const value = searchInput.trim()
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set('q', value)
+    else next.delete('q')
+    setSearchParams(next)
+  }
+
+  function clearSearch() {
+    const next = new URLSearchParams(searchParams)
+    next.delete('q')
+    setSearchInput('')
+    setSearchParams(next)
+  }
+
   return (
     <main className="section-shell page-space">
       <div className="page-heading" data-reveal>
         <span className="eyebrow">GALEO / SHOP</span>
         <h1>Descubra<br /><em>seu próximo kit.</em></h1>
       </div>
+
+      <form className="catalog-search" onSubmit={submitSearch} data-reveal>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="M16 16l5 5" />
+        </svg>
+        <input
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
+          placeholder="Buscar produto, marca ou categoria"
+          aria-label="Buscar produto, marca ou categoria"
+        />
+        {searchInput && (
+          <button type="button" className="catalog-search-clear" onClick={clearSearch} aria-label="Limpar busca">×</button>
+        )}
+        <button type="submit">Buscar ↗</button>
+      </form>
+
+      <div className="catalog-summary" aria-live="polite">
+        <span>{filteredProducts.length} produto(s)</span>
+        {query && <strong>Busca: “{query}”</strong>}
+      </div>
+
       <div className="filters" data-reveal>
-        {['Todos', 'Camisetas', 'Calças', 'Moletons', 'Tênis', 'Acessórios'].map((item, index) => (
-          <button key={item} className={index === 0 ? 'filter-active' : ''}>{item}</button>
+        <button
+          type="button"
+          className={selectedCategory === 'Todos' ? 'filter-active' : ''}
+          onClick={() => selectCategory('Todos')}
+        >
+          Todos
+        </button>
+        {availableCategories.map((category) => (
+          <button
+            type="button"
+            key={category.id}
+            className={normalizeSearchText(selectedCategory) === normalizeSearchText(category.name) ? 'filter-active' : ''}
+            onClick={() => selectCategory(category.name)}
+          >
+            {category.name}
+          </button>
         ))}
         <span />
-        <button>Ordenar ↕</button>
+        <label className="catalog-sort">
+          <span>Ordenar</span>
+          <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Ordenar produtos">
+            <option value="latest">Mais recentes</option>
+            <option value="name">Nome</option>
+            <option value="price-asc">Menor preço</option>
+            <option value="price-desc">Maior preço</option>
+          </select>
+        </label>
       </div>
-      <div className="product-grid" data-reveal>{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
+
+      {filteredProducts.length > 0 ? (
+        <div className="product-grid" data-reveal>
+          {filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)}
+        </div>
+      ) : (
+        <div className="empty-catalog" data-reveal>
+          <span className="eyebrow">GALEO / SEM RESULTADOS</span>
+          <h2>Nada encontrado.</h2>
+          <p>Tente outra busca ou escolha uma categoria diferente.</p>
+          <button type="button" className="button button-primary" onClick={() => {
+            setSearchInput('')
+            setSearchParams({})
+          }}>
+            Limpar filtros ↗
+          </button>
+        </div>
+      )}
     </main>
   )
 }
@@ -380,12 +570,14 @@ function PlaceholderPage({ title, label }) {
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('galeo-theme') || 'dark')
   const [catalog, setCatalog] = useState(fallbackProducts)
+  const [categories, setCategories] = useState([])
 
   useEffect(() => {
     fetch('/api/store')
       .then(response => response.ok ? response.json() : null)
       .then(data => {
         if (data?.products?.length) setCatalog(data.products)
+        if (Array.isArray(data?.categories)) setCategories(data.categories)
       })
       .catch(() => {})
   }, [])
@@ -399,11 +591,15 @@ export default function App() {
     <div className="app">
       <div className="scroll-progress" aria-hidden="true"><span /></div>
       <StorefrontMotion />
-      <Header theme={theme} onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')} />
+      <Header
+        theme={theme}
+        categories={categories}
+        onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
+      />
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
         <Route path="/" element={<Home products={catalog} />} />
-        <Route path="/shop" element={<Shop products={catalog} />} />
+        <Route path="/shop" element={<Shop products={catalog} categories={categories} />} />
         <Route path="/produto/:id" element={<PlaceholderPage title="Produto" label="GALEO / PRODUTO" />} />
         <Route path="/conta" element={<PlaceholderPage title="Minha conta" label="GALEO / CONTA" />} />
         <Route path="/carrinho" element={<PlaceholderPage title="Carrinho" label="GALEO / CARRINHO" />} />
