@@ -263,7 +263,7 @@ function CampaignVisual({ variant = 0 }) {
 }
 
 function Home({ products = fallbackProducts }) {
-  const shownProducts = products.length >= 6 ? products.slice(0, 6) : [...products, ...fallbackProducts].slice(0, 6)
+  const shownProducts = products.slice(0, 8)
 
   return (
     <main>
@@ -297,29 +297,10 @@ function Home({ products = fallbackProducts }) {
         <span>Novas peças toda semana</span>
       </section>
 
-      <section className="section-shell section-block" id="colecoes">
+      <section className="section-shell section-block featured-selection" id="destaques">
         <div className="section-heading row-heading" data-reveal>
           <div>
-            <span className="eyebrow">01 / CATEGORIAS</span>
-            <h2>Escolha seu<br /><em>movimento.</em></h2>
-          </div>
-          <Link className="text-link" to="/shop">Ver catálogo ↗</Link>
-        </div>
-        <div className="category-grid">
-          {['Camisetas', 'Calças', 'Blusas'].map((item, index) => (
-            <Link className={'category-card category-card-' + index} to="/shop" key={item}>
-              <span>0{index + 1}</span>
-              <strong>{item}</strong>
-              <small>Explorar coleção ↗</small>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="section-shell section-block" id="destaques">
-        <div className="section-heading row-heading">
-          <div>
-            <span className="eyebrow">02 / TRENDING NOW</span>
+            <span className="eyebrow">01 / SELEÇÃO GALEO</span>
             <h2>Seleção <em>multimarcas.</em></h2>
           </div>
           <Link className="text-link" to="/shop">Ver todos ↗</Link>
