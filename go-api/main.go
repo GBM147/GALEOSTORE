@@ -200,10 +200,28 @@ func storeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 7*time.Second)
+	defer cancel()
+
+	store, err := fetchStore(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":   "degraded",
+			"service":  "galeo-api-go",
+			"language": "go",
+			"upstream": "error",
+			"error":    "Catálogo de origem indisponível.",
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":   "ok",
-		"service":  "galeo-api-go",
-		"language": "go",
+		"status":      "ok",
+		"service":     "galeo-api-go",
+		"language":    "go",
+		"upstream":    "ok",
+		"products":    len(store.Products),
+		"categories":  len(filteredStore(store).Categories),
 	})
 }
 
@@ -228,6 +246,22 @@ func main() {
 
 	log.Printf("GALEO Go API running on port %s", port)
 	log.Printf("Upstream: %s", upstreamURL())
+
+	// Smoke test no próprio processo: confirma que a API Go consegue
+	// acessar o catálogo de origem antes de atender o frontend.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		store, err := fetchStore(ctx)
+		if err != nil {
+			log.Printf("SMOKE TEST /api/store: FAIL: %v", err)
+			return
+		}
+
+		filtered := filteredStore(store)
+		log.Printf("SMOKE TEST /api/store: OK: %d produtos, %d categorias masculinas", len(filtered.Products), len(filtered.Categories))
+	}()
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
