@@ -13,6 +13,7 @@ import { Readable } from 'node:stream'
 import cron from 'node-cron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import {
   configurarPersistenciaSessao,
   normalizarManterConectado
@@ -144,6 +145,12 @@ const limitarAutenticacao = criarLimitador({
   prefixo: 'admin-auth'
 })
 
+const limitarAlteracaoSenha = criarLimitador({
+  janelaMs: 15 * 60 * 1000,
+  maximo: 5,
+  prefixo: 'admin-password'
+})
+
 const Store = MySQLStoreFactory(session)
 const sessionStore = new Store({
   host: dbConfig.host,
@@ -166,6 +173,8 @@ app.use(session({
     sameSite: 'lax'
   }
 }))
+
+app.use(validarCsrf)
 
 async function query(sql, params = [], executor = db) {
   const [rows] = await executor.execute(sql, params)
@@ -339,19 +348,22 @@ async function init() {
     "INSERT INTO financial_accounts(name) VALUES('Caixa da loja') ON DUPLICATE KEY UPDATE name=name"
   )
 
-  if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+  await query("UPDATE admin_users SET role='staff' WHERE role='manager'")
+  await query("ALTER TABLE admin_users MODIFY role ENUM('owner','staff') NOT NULL DEFAULT 'owner'")
+
+  if (process.env.ADMIN_EMAIL) {
     const existing = await query(
       'SELECT id FROM admin_users WHERE email=? LIMIT 1',
       [process.env.ADMIN_EMAIL]
     )
-    const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12)
 
     if (existing.length) {
       await query(
-        'UPDATE admin_users SET password_hash=?, active=1 WHERE id=?',
-        [passwordHash, existing[0].id]
+        'UPDATE admin_users SET active=1 WHERE id=?',
+        [existing[0].id]
       )
-    } else {
+    } else if (process.env.ADMIN_PASSWORD) {
+      const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12)
       await query(
         "INSERT INTO admin_users(email,password_hash,role,active) VALUES(?,?, 'owner', 1)",
         [process.env.ADMIN_EMAIL, passwordHash]
@@ -399,6 +411,55 @@ function salvarSessao(req) {
     req.session.save((error) => error ? reject(error) : resolve())
   })
 }
+
+function normalizarPapel(role) {
+  return role === 'owner' ? 'owner' : 'staff'
+}
+
+function permissoesDoPapel(role) {
+  const papel = normalizarPapel(role)
+  return {
+    role: papel,
+    content: papel === 'owner',
+    users: false,
+    operations: true
+  }
+}
+
+function gerarCsrfToken(req) {
+  if (!req.session.csrfToken) req.session.csrfToken = randomBytes(32).toString('hex')
+  return req.session.csrfToken
+}
+
+function validarCsrf(req, res, next) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
+  if (req.path === '/api/auth/login') return next()
+
+  const expected = String(req.session.csrfToken || '')
+  const provided = String(req.get('X-CSRF-Token') || '')
+  if (!expected || !provided) {
+    return res.status(403).json({ success: false, error: 'Proteção CSRF: token ausente.' })
+  }
+
+  const expectedBuffer = Buffer.from(expected, 'utf8')
+  const providedBuffer = Buffer.from(provided, 'utf8')
+  if (expectedBuffer.length !== providedBuffer.length || !timingSafeEqual(expectedBuffer, providedBuffer)) {
+    return res.status(403).json({ success: false, error: 'Proteção CSRF: token inválido.' })
+  }
+  next()
+}
+
+function exigirPapel(...papeisPermitidos) {
+  return (req, res, next) => {
+    const papel = normalizarPapel(req.admin?.role)
+    if (papeisPermitidos.includes(papel)) return next()
+    return res.status(403).json({ success: false, error: 'Você não tem permissão para esta ação.' })
+  }
+}
+
+const exigirOwner = exigirPapel('owner')
+const exigirOperacao = exigirPapel('owner', 'staff')
+
 
 app.get('/health', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
@@ -463,7 +524,8 @@ app.post('/api/auth/login', limitarAutenticacao, async (req, res) => {
       }
 
       req.session.userId = rows[0].id
-      req.session.role = rows[0].role
+      req.session.role = normalizarPapel(rows[0].role)
+      req.session.csrfToken = randomBytes(32).toString('hex')
       configurarPersistenciaSessao(req.session, manterConectado)
 
       try {
@@ -476,8 +538,9 @@ app.post('/api/auth/login', limitarAutenticacao, async (req, res) => {
           user: {
             id: rows[0].id,
             email: rows[0].email,
-            role: rows[0].role
-          }
+            role: normalizarPapel(rows[0].role)
+          },
+          csrfToken: req.session.csrfToken
         })
       } catch (saveError) {
         console.error('Erro ao salvar login:', saveError)
@@ -516,15 +579,74 @@ app.post('/api/auth/logout', async (req, res) => {
   })
 })
 
-app.get('/api/auth/me', exigirLogin, (req, res) => {
-  res.json({
-    success: true,
-    user: {
-      id: req.admin.id,
-      email: req.admin.email,
-      role: req.admin.role
+app.get('/api/auth/me', exigirLogin, async (req, res) => {
+  try {
+    const csrfToken = gerarCsrfToken(req)
+    await salvarSessao(req)
+    res.json({
+      success: true,
+      user: {
+        id: req.admin.id,
+        email: req.admin.email,
+        role: normalizarPapel(req.admin.role)
+      },
+      permissions: permissoesDoPapel(req.admin.role),
+      csrfToken
+    })
+  } catch (error) {
+    console.error('Erro ao carregar sessão administrativa:', error)
+    res.status(500).json({ success: false, error: 'Não foi possível carregar a sessão.' })
+  }
+})
+
+app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || '')
+  const newPassword = String(req.body?.newPassword || '')
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, error: 'Informe a senha atual e a nova senha.' })
+  }
+  if (newPassword.length < 10 || newPassword.length > 128) {
+    return res.status(400).json({ success: false, error: 'A nova senha deve ter entre 10 e 128 caracteres.' })
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ success: false, error: 'A nova senha deve ser diferente da atual.' })
+  }
+
+  try {
+    const rows = await query('SELECT id,password_hash FROM admin_users WHERE id=? AND active=1 LIMIT 1', [req.admin.id])
+    if (!rows.length || !(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
+      return res.status(401).json({ success: false, error: 'A senha atual está incorreta.' })
     }
-  })
+
+    const passwordHash = await bcrypt.hash(newPassword, 12)
+    await query('UPDATE admin_users SET password_hash=? WHERE id=?', [passwordHash, req.admin.id])
+
+    await audit(req.admin.id, 'ALTERAR_SENHA', 'admin_user', req.admin.id)
+
+    req.session.regenerate(async (regenerateError) => {
+      if (regenerateError) {
+        console.error('Erro ao renovar sessão após alteração de senha:', regenerateError)
+        return res.status(500).json({ success: false, error: 'Senha alterada, mas não foi possível renovar a sessão.' })
+      }
+
+      req.session.userId = req.admin.id
+      req.session.role = normalizarPapel(req.admin.role)
+      req.session.csrfToken = randomBytes(32).toString('hex')
+      configurarPersistenciaSessao(req.session, true)
+
+      try {
+        await salvarSessao(req)
+        res.json({ success: true, csrfToken: req.session.csrfToken })
+      } catch (saveError) {
+        console.error('Erro ao salvar sessão após alteração de senha:', saveError)
+        res.status(500).json({ success: false, error: 'Senha alterada, mas não foi possível salvar a sessão.' })
+      }
+    })
+  } catch (error) {
+    console.error('Erro ao alterar senha:', error)
+    res.status(500).json({ success: false, error: 'Não foi possível alterar a senha.' })
+  }
 })
 
 app.get('/api/store', async (req, res) => {
@@ -578,6 +700,8 @@ async function seedAndScheduleRecurring() {
 }
 
 cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' })
+
+app.use('/api/admin', exigirLogin, exigirOperacao)
 
 app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
   try {
