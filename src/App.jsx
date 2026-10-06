@@ -67,8 +67,7 @@ function Home({ products = fallbackProducts }) {
 
         <section className="section-shell section-block" id="colecoes">
           <div className="section-heading">
-            <span className="eyebrow">CATEGORIAS</span>
-            <h2>Encontre seu<br /><em>movimento.</em></h2>
+            <h2>Encontre seu<br /><em>Kit</em></h2>
           </div>
           <div className="category-grid">
             {['Camisetas', 'Calças', 'Lupas', 'Blusas', 'Tênis', 'Cuecas'].slice(0, 3).map((item, index) => (
