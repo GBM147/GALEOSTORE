@@ -33,8 +33,8 @@ function Header({ theme, onToggle }) {
       </nav>
       <div className="header-actions">
         <ThemeToggle theme={theme} onToggle={onToggle} />
+        <Link className="bag-link" to="/carrinho">Carrinho <span>0</span></Link>
         <Link className="header-link" to="/conta">Conta</Link>
-        <Link className="bag-link" to="/carrinho">Bag <span>0</span></Link>
       </div>
     </header>
   )
