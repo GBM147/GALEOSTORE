@@ -652,8 +652,16 @@ export default function App() {
     const palette = siteSettings.storefront_visual_defaults?.palette || {}
     const root = document.documentElement
     const vars = { background:'--bg', surface:'--surface', surface_alt:'--surface-2', text:'--text', muted:'--muted', accent:'--accent', accent_soft:'--accent-soft', accent_deep:'--accent-deep', line:'--line' }
-    Object.entries(vars).forEach(([key, cssVar]) => { if (palette[key]) root.style.setProperty(cssVar, palette[key]) })
-  }, [siteSettings])
+
+    if (theme === 'light') {
+      Object.values(vars).forEach((cssVar) => root.style.removeProperty(cssVar))
+      return
+    }
+
+    Object.entries(vars).forEach(([key, cssVar]) => {
+      if (palette[key]) root.style.setProperty(cssVar, palette[key])
+    })
+  }, [siteSettings, theme])
 
   return (
     <div className="app">
