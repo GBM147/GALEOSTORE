@@ -4,6 +4,10 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminGate from './Admin'
+import ProductPage from './ProductPage'
+import CartPage from './CartPage'
+import AccountPage from './AccountPage'
+import { cartCount, readCart } from './storeApi'
 
 const PUBLIC_API_BASE = 'https://galeo-api-go.onrender.com'
 
@@ -184,7 +188,7 @@ function ModeButton({ theme, onToggle }) {
   )
 }
 
-function Header({ theme, onToggle, categories = [], navigation = null }) {
+function Header({ theme, onToggle, categories = [], navigation = null, cartItemsCount = 0 }) {
   const navigate = useNavigate()
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -236,7 +240,7 @@ function Header({ theme, onToggle, categories = [], navigation = null }) {
           </svg>
         </button>
         <ModeButton theme={theme} onToggle={onToggle} />
-        <Link className="bag-link" to="/carrinho">Carrinho <span>0</span></Link>
+        <Link className="bag-link" to="/carrinho">Carrinho <span>{cartItemsCount}</span></Link>
         <Link className="header-link" to="/conta">Conta</Link>
       </div>
 
@@ -570,6 +574,13 @@ export default function App() {
   const [catalogError, setCatalogError] = useState('')
   const [homeSections, setHomeSections] = useState([])
   const [siteSettings, setSiteSettings] = useState({})
+  const [cartItemsCount, setCartItemsCount] = useState(() => cartCount(readCart()))
+
+  useEffect(() => {
+    const syncCart = () => setCartItemsCount(cartCount(readCart()))
+    window.addEventListener('galeo-cart-updated', syncCart)
+    return () => window.removeEventListener('galeo-cart-updated', syncCart)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -666,15 +677,16 @@ export default function App() {
         theme={theme}
         categories={categories}
         navigation={siteSettings.navigation}
+        cartItemsCount={cartItemsCount}
         onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
       />
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
         <Route path="/" element={<Home products={catalog} homeSections={homeSections} />} />
         <Route path="/shop" element={<Shop products={catalog} categories={categories} />} />
-        <Route path="/produto/:id" element={<PlaceholderPage title="Produto" label="GALEO / PRODUTO" />} />
-        <Route path="/conta" element={<PlaceholderPage title="Minha conta" label="GALEO / CONTA" />} />
-        <Route path="/carrinho" element={<PlaceholderPage title="Carrinho" label="GALEO / CARRINHO" />} />
+        <Route path="/produto/:id" element={<ProductPage />} />
+        <Route path="/conta" element={<AccountPage />} />
+        <Route path="/carrinho" element={<CartPage />} />
       </Routes>
       <footer className="site-footer">
         <span>{siteSettings.footer?.brand || 'GALEO STORE'}</span>
