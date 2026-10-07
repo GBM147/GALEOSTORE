@@ -335,9 +335,20 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
         ))}
       </section>}
 
-      {manifesto.__visible !== false && <section className="manifesto section-shell" id="sobre" data-reveal><span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span><p>{splitEditorialText(manifesto.text || 'Não seguimos o padrão\nCriamos o nosso').map((line,index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p></section>
+      {manifesto.__visible !== false && (
+        <section className="manifesto section-shell" id="sobre" data-reveal>
+          <span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span>
+          <p>{splitEditorialText(manifesto.text || 'Não seguimos o padrão\nCriamos o nosso').map((line,index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p>
+        </section>
+      )}
 
-      <section className="newsletter section-shell" data-reveal><div><span className="eyebrow">{newsletter.eyebrow || 'GALEO / INSIDER'}</span><h2>{newsletter.title || 'Entre para a próxima fase'}</h2></div><form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" /><button type="submit">{newsletter.button_label || 'Entrar'} ↗</button></form></section>
+      {newsletter.__visible !== false && (
+        <section className="newsletter section-shell" data-reveal>
+          <div><span className="eyebrow">{newsletter.eyebrow || 'GALEO / INSIDER'}</span><h2>{newsletter.title || 'Entre para a próxima fase'}</h2></div>
+          <form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" /><button type="submit">{newsletter.button_label || 'Entrar'} ↗</button></form>
+        </section>
+      )}
+
     </main>
   )
 }
