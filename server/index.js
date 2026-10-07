@@ -1157,6 +1157,7 @@ app.get('/api/customer/orders', exigirCliente, async (req,res) => {
 })
 
 app.post('/api/store/orders', exigirCliente, async (req,res) => {
+  if (!mercadoPagoOnlineConfigured()) return res.status(503).json({error:'Pagamento online ainda não está configurado no GALEO.'})
   const itemsInput=Array.isArray(req.body?.items)?req.body.items:[]
   if(!itemsInput.length||itemsInput.length>50) return res.status(400).json({error:'Seu carrinho está vazio.'})
   const shipping=req.body?.shipping&&typeof req.body.shipping==='object'?req.body.shipping:{}
@@ -1213,12 +1214,44 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
     void sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
     if(storeNotificationEmail) void sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
-    res.json({success:true,order:{id:orderResult.insertId,code,status:'RECEIVED',subtotal,shipping_fee:shippingFee,total}})
+    await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' })
+    res.json({success:true,order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
   } catch(error) {
     await conn.rollback().catch(()=>{})
     console.error('Erro ao criar pedido:',error)
     res.status(400).json({error:error.message||'Não foi possível registrar seu pedido.'})
   } finally { conn.release() }
+})
+
+app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
+  if (!mercadoPagoOnlineConfigured()) return res.status(503).json({error:'Pagamento online ainda não está configurado no GALEO.'})
+  const orderId=Number(req.params.id)
+  if(!Number.isInteger(orderId)||orderId<=0) return res.status(400).json({error:'Pedido inválido.'})
+  try {
+    const orders=await query('SELECT * FROM store_orders WHERE id=? AND customer_id=? LIMIT 1',[orderId,req.customer.id])
+    if(!orders.length) return res.status(404).json({error:'Pedido não encontrado.'})
+    const order=orders[0]
+    if(order.sale_id || order.payment_status==='APPROVED') return res.json({success:true,paid:true,order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
+    if(order.status==='CANCELLED') return res.status(409).json({error:'Este pedido está cancelado.'})
+    const existing=await query("SELECT provider_reference,payment_url FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' AND status='PENDING' ORDER BY id DESC LIMIT 1",[orderId])
+    if(existing.length && existing[0].payment_url) return res.json({success:true,checkout_url:existing[0].payment_url,payment_reference:existing[0].provider_reference})
+    const items=await query('SELECT product_id,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
+    const mpOrder=await createMercadoPagoOnlineOrder({order,items,idempotencyKey:'galeo-order-'+orderId})
+    const conn=await db.getConnection()
+    try {
+      await conn.beginTransaction()
+      await conn.execute(
+        "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload) VALUES('ONLINE',?,'CHECKOUT_PRO','MERCADO_PAGO',?,'PENDING',?,?,?) ON DUPLICATE KEY UPDATE provider_reference=VALUES(provider_reference),raw_payload=VALUES(raw_payload)",
+        [orderId,String(mpOrder.id||''),Number(order.total),'galeo-order-'+orderId,JSON.stringify(mpOrder)]
+      )
+      await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO',payment_method='CHECKOUT_PRO',payment_reference=?,payment_url=?,payment_status='PENDING' WHERE id=?",[String(mpOrder.id||''),String(mpOrder.checkout_url||''),orderId])
+      await conn.commit()
+    }catch(error){ await conn.rollback().catch(()=>{}); throw error } finally { conn.release() }
+    res.json({success:true,checkout_url:String(mpOrder.checkout_url||''),payment_reference:String(mpOrder.id||''),order:{id:order.id,code:order.code,payment_status:'PENDING'}})
+  } catch(error) {
+    console.error('Erro ao iniciar pagamento Mercado Pago:',error)
+    res.status(400).json({error:error.message||'Não foi possível iniciar o pagamento.'})
+  }
 })
 
 app.use('/api/admin', exigirLogin, exigirOperacao)
