@@ -1204,7 +1204,6 @@ app.get('/api/customer/orders', exigirCliente, async (req,res) => {
 })
 
 app.post('/api/store/orders', exigirCliente, async (req,res) => {
-  if (!mercadoPagoOnlineConfigured()) return res.status(503).json({error:'Pagamento online ainda não está configurado no GALEO.'})
   const itemsInput=Array.isArray(req.body?.items)?req.body.items:[]
   if(!itemsInput.length||itemsInput.length>50) return res.status(400).json({error:'Seu carrinho está vazio.'})
   const shipping=req.body?.shipping&&typeof req.body.shipping==='object'?req.body.shipping:{}
@@ -1262,7 +1261,7 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     void sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
     if(storeNotificationEmail) void sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
     await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' })
-    res.json({success:true,order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
+    res.json({success:true,payment_configured:mercadoPagoOnlineConfigured(),order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
   } catch(error) {
     await conn.rollback().catch(()=>{})
     console.error('Erro ao criar pedido:',error)
@@ -1271,10 +1270,10 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
 })
 
 app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
-  if (!mercadoPagoOnlineConfigured()) return res.status(503).json({error:'Pagamento online ainda não está configurado no GALEO.'})
   const orderId=Number(req.params.id)
   if(!Number.isInteger(orderId)||orderId<=0) return res.status(400).json({error:'Pedido inválido.'})
   try {
+    if (!mercadoPagoOnlineConfigured()) return res.json({success:true,payment_configured:false,checkout_url:'',order:{id:orderId,payment_status:'PENDING'}})
     const orders=await query('SELECT * FROM store_orders WHERE id=? AND customer_id=? LIMIT 1',[orderId,req.customer.id])
     if(!orders.length) return res.status(404).json({error:'Pedido não encontrado.'})
     const order=orders[0]
