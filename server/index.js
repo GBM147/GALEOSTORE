@@ -667,6 +667,102 @@ function exigirPapel(...papeisPermitidos) {
 const exigirOwner = exigirPapel('owner')
 const exigirOperacao = exigirPapel('owner', 'staff')
 
+function mapMercadoPagoStatus(status, statusDetail = '') {
+  const value = String(status || '').toLowerCase()
+  const detail = String(statusDetail || '').toLowerCase()
+  if (value === 'processed' || value === 'approved' || detail === 'accredited') return 'APPROVED'
+  if (value === 'refunded' || value === 'refund') return 'REFUNDED'
+  if (value === 'cancelled' || value === 'canceled') return 'CANCELLED'
+  if (value === 'failed' || value === 'rejected') return 'REJECTED'
+  return 'PENDING'
+}
+
+function mapPaymentMethod(paymentMethod) {
+  const value = String(paymentMethod || '').toLowerCase()
+  if (value === 'pix') return 'PIX'
+  if (value === 'debit_card') return 'CARTAO_DEBITO'
+  if (value === 'credit_card') return 'CARTAO_CREDITO'
+  return 'OUTRO'
+}
+
+async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
+  const [orderRows] = await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE', [orderId])
+  if (!orderRows.length) throw new Error('Pedido online não encontrado.')
+  const order = orderRows[0]
+  if (order.sale_id) return { saleId: Number(order.sale_id), created: false, code: order.code }
+  if (String(order.payment_status) !== 'APPROVED') throw new Error('O pagamento do pedido ainda não foi aprovado.')
+
+  const [items] = await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id', [orderId])
+  if (!items.length) throw new Error('O pedido online não possui itens.')
+  const paymentMethod = mapPaymentMethod(paymentData.payment_method_type || order.payment_method)
+  const [saleResult] = await conn.execute(
+    "INSERT INTO sales(code,customer_name,payment_method,total,status,notes,user_id) VALUES(?,?,?,?, 'PAGA',?,NULL)",
+    ['PENDING', order.customer_name, paymentMethod, Number(order.total), 'Origem: pedido online ' + order.code]
+  )
+  const saleId = saleResult.insertId
+  const saleCode = 'VDA-' + String(saleId).padStart(6, '0')
+
+  for (const item of items) {
+    const [productRows] = await conn.execute('SELECT id,cost FROM products WHERE id=? FOR UPDATE', [item.product_id])
+    if (!productRows.length) throw new Error('Produto do pedido não encontrado.')
+    await conn.execute(
+      'INSERT INTO sale_items(sale_id,product_id,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?)',
+      [saleId, item.product_id, item.quantity, Number(item.unit_price), Number(productRows[0].cost || 0), Number(item.line_total)]
+    )
+  }
+
+  await conn.execute('UPDATE sales SET code=?, total=? WHERE id=?', [saleCode, Number(order.total), saleId])
+  const [categoryRows] = await conn.execute("SELECT id FROM financial_categories WHERE name='Vendas' AND type='RECEITA' LIMIT 1")
+  const [accountRows] = await conn.execute("SELECT id FROM financial_accounts WHERE name='Caixa da loja' LIMIT 1")
+  if (!categoryRows.length || !accountRows.length) throw new Error('Categoria ou conta financeira da venda não encontrada.')
+  await conn.execute(
+    "INSERT INTO financial_entries(account_id,category_id,type,description,amount,due_date,paid_at,status,recurring,reference_type,reference_id,user_id) VALUES(?,?,?,?,?,CURDATE(),NOW(),'PAGO',0,'VENDA',?,NULL)",
+    [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, Number(order.total), 'sale:' + saleId]
+  )
+  await conn.execute("UPDATE payments SET sale_id=?,status='APPROVED',paid_at=COALESCE(paid_at,NOW()) WHERE store_order_id=? AND provider='MERCADO_PAGO'", [saleId, orderId])
+  await conn.execute("UPDATE store_orders SET status='CONFIRMED',payment_status='APPROVED',paid_at=COALESCE(paid_at,NOW()),sale_id=? WHERE id=?", [saleId, orderId])
+  return { saleId, saleCode, code: order.code, total: Number(order.total), customerEmail: order.customer_email, customerName: order.customer_name, created: true }
+}
+
+async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) {
+  const externalReference = String(mpOrder?.external_reference || '').trim()
+  if (!externalReference) return { ignored: true, reason: 'sem_external_reference' }
+  const orderRows = await query('SELECT id FROM store_orders WHERE code=? LIMIT 1', [externalReference])
+  if (!orderRows.length) return { ignored: true, reason: 'pedido_nao_encontrado' }
+  const orderId = Number(orderRows[0].id)
+  const payment = mpOrder?.transactions?.payments?.[0] || {}
+  const status = mapMercadoPagoStatus(mpOrder?.status || payment.status, mpOrder?.status_detail || payment.status_detail)
+  const providerReference = String(mpOrder?.id || '')
+  const method = String(payment?.payment_method?.type || payment?.payment_method?.id || '')
+  const amount = Number(mpOrder?.total_amount || payment?.amount || 0)
+  const conn = await db.getConnection()
+  let promoted = null
+  try {
+    await conn.beginTransaction()
+    await conn.execute(
+      "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,raw_payload,paid_at) VALUES('ONLINE',?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),method=VALUES(method),amount=VALUES(amount),raw_payload=VALUES(raw_payload),paid_at=VALUES(paid_at)",
+      [orderId, method, 'MERCADO_PAGO', providerReference, status, amount, JSON.stringify(mpOrder), status === 'APPROVED' ? new Date() : null]
+    )
+    await conn.execute("UPDATE store_orders SET payment_status=?,payment_provider='MERCADO_PAGO',payment_method=?,payment_reference=?,paid_at=? WHERE id=?", [status, method, providerReference || null, status === 'APPROVED' ? new Date() : null, orderId])
+    if (status === 'APPROVED') promoted = await promoverPedidoPagoParaVenda(conn, orderId, { payment_method_type: method })
+    else if (status === 'REFUNDED') await conn.execute("UPDATE store_orders SET status='CANCELLED' WHERE id=?", [orderId])
+    if (eventId) await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?', ['MERCADO_PAGO', eventId])
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(()=>{})
+    throw error
+  } finally {
+    conn.release()
+  }
+  if (promoted?.created && promoted.customerEmail) void sendEmailSafely({
+    to: promoted.customerEmail,
+    subject: 'Pagamento aprovado — pedido ' + promoted.code,
+    idempotencyKey: 'payment-approved-customer-' + promoted.saleId,
+    html: '<div style="font-family:Arial,sans-serif"><h1>Pagamento aprovado</h1><p>Olá, ' + escapeHtml(promoted.customerName) + '</p><p>O pagamento do pedido <strong>' + escapeHtml(promoted.code) + '</strong> foi aprovado</p><p>Seu pedido está confirmado e aguardando preparação</p><p><strong>Total: ' + escapeHtml(moneyBR(promoted.total)) + '</strong></p></div>'
+  })
+  return { ignored: false, status, promoted }
+}
+
 async function exigirCliente(req,res,next) {
   if (!req.session.customerId) return res.status(401).json({ success:false,authenticated:false,error:'Faça login para continuar.' })
   try {
