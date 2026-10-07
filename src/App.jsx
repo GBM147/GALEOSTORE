@@ -184,21 +184,15 @@ function ModeButton({ theme, onToggle }) {
   )
 }
 
-function Header({ theme, onToggle, categories = [] }) {
+function Header({ theme, onToggle, categories = [], navigation = null }) {
   const navigate = useNavigate()
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
 
-  const primaryCategories = MALE_CATEGORIES.slice(0, 4).map((name, index) => (
-    categories.find(category => category.name === name) || {
-      id: 'menu-' + index,
-      name,
-      sort_order: (index + 1) * 10
-    }
-  ))
+  const primaryCategories = Array.isArray(navigation?.items) && navigation.items.length ? navigation.items.slice(0, 8).map((item, index) => ({ id: 'cms-menu-' + index, name: item.label, url: item.url || '/shop' })) : MALE_CATEGORIES.slice(0, 4).map((name, index) => ({ id: 'menu-' + index, name, url: '/shop?category=' + encodeURIComponent(name) }))
 
   function goToCategory(category) {
-    navigate('/shop?category=' + encodeURIComponent(category.name))
+    navigate(category.url || '/shop')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -220,7 +214,7 @@ function Header({ theme, onToggle, categories = [] }) {
 
       <nav className="desktop-nav" aria-label="Categorias principais">
         {primaryCategories.map((category) => (
-          <Link key={category.id} to={'/shop?category=' + encodeURIComponent(category.name)}>
+          <Link key={category.id} to={category.url}>
             {category.name}
           </Link>
         ))}
@@ -277,98 +271,86 @@ function CampaignVisual({ variant = 0 }) {
   )
 }
 
-function Home({ products = fallbackProducts }) {
-  const shownProducts = products.slice(0, 8)
 
+function homeSectionContent(sections, key) {
+  const section = Array.isArray(sections) ? sections.find((item) => item.key === key && item.visible !== false) : null
+  return section?.content || {}
+}
+
+function splitEditorialText(text) {
+  return String(text || '').split(/\n+/).filter(Boolean)
+}
+
+function CampaignVisual({ variant = 0, mediaUrl = '', videoUrl = '', alt = '' }) {
+  return (
+    <div className={'campaign-visual campaign-visual-' + variant} aria-hidden={alt ? undefined : 'true'}>
+      <div className="campaign-orb" />
+      <div className="campaign-line campaign-line-a" />
+      <div className="campaign-line campaign-line-b" />
+      {videoUrl ? <video className="campaign-media campaign-video" src={videoUrl} autoPlay muted loop playsInline /> : mediaUrl ? <img src={mediaUrl} alt={alt} className="campaign-media campaign-brand-image" loading="lazy" /> : <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />}
+      <div className="campaign-scan" />
+    </div>
+  )
+}
+
+function Home({ products = fallbackProducts, homeSections = [] }) {
+  const hero = homeSectionContent(homeSections, 'hero')
+  const utility = homeSectionContent(homeSections, 'utility')
+  const featured = homeSectionContent(homeSections, 'featured_products')
+  const campaigns = homeSectionContent(homeSections, 'campaigns')
+  const manifesto = homeSectionContent(homeSections, 'manifesto')
+  const newsletter = homeSectionContent(homeSections, 'newsletter')
+
+  const shownProducts = featured?.source === 'manual' && Array.isArray(featured.product_ids) && featured.product_ids.length
+    ? featured.product_ids.map((id) => products.find((product) => Number(product.id) === Number(id))).filter(Boolean).slice(0, 8)
+    : products.slice(0, 8)
+
+  const campaignItems = Array.isArray(campaigns.items) && campaigns.items.length ? campaigns.items : [
+    { eyebrow:'NEW DROPS', title:'Peças que marcam presença', button_label:'Descobrir agora', button_url:'/shop', media_url:'' },
+    { eyebrow:'PREMIUM SELECTION', title:'Seu estilo, sem rótulo', button_label:'Ver seleção', button_url:'/shop', media_url:'' },
+    { eyebrow:'LIMITED EDITION', title:'Feito para ser notado', button_label:'Explorar', button_url:'/shop', media_url:'' }
+  ]
+
+  const heroTitle = hero.title || 'Vista o que representa você'
+  const heroDescription = hero.description || 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho'
   return (
     <main>
       <section className="hero-full section-shell">
-        <div className="hero-full-media">
-          <CampaignVisual variant={0} />
-          <div className="hero-full-shade" />
-        </div>
+        <div className="hero-full-media"><CampaignVisual mediaUrl={hero.desktop_media_url || ''} videoUrl={hero.video_media_url || ''} /><div className="hero-full-shade" /></div>
         <div className="hero-full-content">
-          <span className="eyebrow">GALEO / MULTIBRAND STORE</span>
-          <h1 className="hero-title">
-            <span className="hero-title-line"><span className="hero-title-mask">Vista o que</span></span>
-            <span className="hero-title-line"><span className="hero-title-mask"><em>representa você</em></span></span>
-          </h1>
-          <p>Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho</p>
-          <div className="hero-full-actions">
-            <Link className="button button-primary" to="/shop">Explorar coleção <span>↗</span></Link>
-            <span className="hero-scroll">SCROLL ↓</span>
-          </div>
+          <span className="eyebrow">{hero.eyebrow || 'GALEO / MULTIBRAND STORE'}</span>
+          <h1 className="hero-title"><span className="hero-title-line"><span className="hero-title-mask">{heroTitle}</span></span></h1>
+          <p>{heroDescription}</p>
+          <div className="hero-full-actions"><Link className="button button-primary" to={hero.button_url || '/shop'}>{hero.button_label || 'Explorar coleção'} <span>↗</span></Link><span className="hero-scroll">SCROLL ↓</span></div>
         </div>
-        <div className="hero-full-meta">
-          <span>01 / 03</span>
-          <span>São Paulo / BR</span>
-        </div>
+        <div className="hero-full-meta"><span>01 / 03</span><span>São Paulo / BR</span></div>
       </section>
 
       <section className="utility-strip section-shell" aria-label="Diferenciais">
-        <span>Curadoria multimarcas</span>
-        <span>Compra segura</span>
-        <span>Envio para todo o Brasil</span>
-        <span>Novas peças toda semana</span>
+        {(Array.isArray(utility.items) && utility.items.length ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}>{item}</span>)}
       </section>
 
       <section className="section-shell section-block featured-selection" id="destaques">
-        <div className="section-heading row-heading" data-reveal>
-          <div>
-            <span className="eyebrow">01 / SELEÇÃO GALEO</span>
-            <h2>Seleção <em>multimarcas.</em></h2>
-          </div>
-          <Link className="text-link" to="/shop">Ver todos ↗</Link>
-        </div>
-        <div className="product-grid product-grid-editorial">
-          {shownProducts.map((product, index) => (
-            <ProductCard key={product.id || index} product={product} index={index} />
-          ))}
-        </div>
+        <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{featured.eyebrow || '01 / SELEÇÃO GALEO'}</span><h2>{featured.title || 'Seleção multimarcas'}</h2></div><Link className="text-link" to={featured.button_url || '/shop'}>{featured.button_label || 'Ver todos'} ↗</Link></div>
+        <div className="product-grid product-grid-editorial">{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</div>
       </section>
 
       <section className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
-        <Link className="campaign-card campaign-card-wide" to="/shop">
-          <CampaignVisual variant={1} />
-          <div className="campaign-card-copy">
-            <span>NEW DROPS</span>
-            <strong>Peças que<br /><em>marcam presença</em></strong>
-            <small>Descobrir agora ↗</small>
-          </div>
-        </Link>
-        <Link className="campaign-card" to="/shop">
-          <CampaignVisual variant={2} />
-          <div className="campaign-card-copy">
-            <span>PREMIUM SELECTION</span>
-            <strong>Seu estilo,<br /><em>sem rótulo</em></strong>
-            <small>Ver seleção ↗</small>
-          </div>
-        </Link>
-        <Link className="campaign-card" to="/shop">
-          <CampaignVisual variant={3} />
-          <div className="campaign-card-copy">
-            <span>LIMITED EDITION</span>
-            <strong>Feito para<br /><em>ser notado</em></strong>
-            <small>Explorar ↗</small>
-          </div>
-        </Link>
+        {campaignItems.slice(0,3).map((item,index) => (
+          <Link className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} to={item.button_url || '/shop'} key={index}>
+            <CampaignVisual variant={index + 1} mediaUrl={item.media_url || ''} />
+            <div className="campaign-card-copy">
+              <span>{item.eyebrow || 'GALEO / CAMPANHA'}</span>
+              <strong>{splitEditorialText(item.title || 'Nova campanha').map((line,lineIndex) => <span key={lineIndex}>{lineIndex > 0 && <br />}{line}</span>)}</strong>
+              <small>{item.button_label || 'Explorar'} ↗</small>
+            </div>
+          </Link>
+        ))}
       </section>
 
-      <section className="manifesto section-shell" id="sobre" data-reveal>
-        <span className="eyebrow">03 / SOBRE A GALEO</span>
-        <p>Não seguimos o padrão.<br /><em>Criamos o nosso</em></p>
-      </section>
+      <section className="manifesto section-shell" id="sobre" data-reveal><span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span><p>{splitEditorialText(manifesto.text || 'Não seguimos o padrão\nCriamos o nosso').map((line,index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p></section>
 
-      <section className="newsletter section-shell" data-reveal>
-        <div>
-          <span className="eyebrow">GALEO / INSIDER</span>
-          <h2>Entre para a próxima fase</h2>
-        </div>
-        <form onSubmit={event => event.preventDefault()}>
-          <input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" />
-          <button type="submit">Entrar ↗</button>
-        </form>
-      </section>
+      <section className="newsletter section-shell" data-reveal><div><span className="eyebrow">{newsletter.eyebrow || 'GALEO / INSIDER'}</span><h2>{newsletter.title || 'Entre para a próxima fase'}</h2></div><form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" /><button type="submit">{newsletter.button_label || 'Entrar'} ↗</button></form></section>
     </main>
   )
 }
@@ -561,39 +543,50 @@ export default function App() {
   const [catalog, setCatalog] = useState([])
   const [categories, setCategories] = useState([])
   const [catalogError, setCatalogError] = useState('')
+  const [homeSections, setHomeSections] = useState([])
+  const [siteSettings, setSiteSettings] = useState({})
 
   useEffect(() => {
     let active = true
 
     async function loadCatalog() {
       setCatalogError('')
-      const endpoints = [
-        PUBLIC_API_BASE + '/api/store?ts=' + Date.now(),
-        '/api/store?ts=' + Date.now()
-      ]
+      const endpoints = [PUBLIC_API_BASE + '/api/store?ts=' + Date.now(), '/api/store?ts=' + Date.now()]
+      let catalogLoaded = false
 
       for (const endpoint of endpoints) {
         try {
-          const response = await fetch(endpoint, {
-            cache: 'no-store',
-            headers: { Accept: 'application/json' }
-          })
+          const response = await fetch(endpoint, { cache:'no-store', headers:{ Accept:'application/json' } })
           if (!response.ok) continue
-
           const data = await response.json()
           if (!active) return
-
           setCatalog(Array.isArray(data?.products) ? data.products : [])
           setCategories(Array.isArray(data?.categories) ? data.categories : [])
-          return
+          catalogLoaded = true
+          break
         } catch {}
       }
 
-      if (active) {
+      if (!catalogLoaded && active) {
         setCatalog([])
         setCategories([])
         setCatalogError('Não foi possível carregar o catálogo agora.')
       }
+
+      try {
+        const [homeResponse, settingsResponse] = await Promise.all([
+          fetch('/api/store/home?ts=' + Date.now(), { cache:'no-store', headers:{ Accept:'application/json' } }),
+          fetch('/api/store/home/settings?ts=' + Date.now(), { cache:'no-store', headers:{ Accept:'application/json' } })
+        ])
+        if (homeResponse.ok) {
+          const homeData = await homeResponse.json()
+          if (active) setHomeSections(Array.isArray(homeData?.sections) ? homeData.sections : [])
+        }
+        if (settingsResponse.ok) {
+          const settingsData = await settingsResponse.json()
+          if (active) setSiteSettings(Object.fromEntries((settingsData?.settings || []).map((item) => [item.key, item.value])))
+        }
+      } catch {}
     }
 
     loadCatalog()
@@ -605,6 +598,13 @@ export default function App() {
     localStorage.setItem('galeo-theme', theme)
   }, [theme])
 
+  useEffect(() => {
+    const palette = siteSettings.storefront_visual_defaults?.palette || {}
+    const root = document.documentElement
+    const vars = { background:'--bg', surface:'--surface', surface_alt:'--surface-2', text:'--text', muted:'--muted', accent:'--accent', accent_soft:'--accent-soft', accent_deep:'--accent-deep', line:'--line' }
+    Object.entries(vars).forEach(([key, cssVar]) => { if (palette[key]) root.style.setProperty(cssVar, palette[key]) })
+  }, [siteSettings])
+
   return (
     <div className="app">
       <div className="scroll-progress" aria-hidden="true"><span /></div>
@@ -613,20 +613,21 @@ export default function App() {
       <Header
         theme={theme}
         categories={categories}
+        navigation={siteSettings.navigation}
         onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
       />
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
-        <Route path="/" element={<Home products={catalog} />} />
+        <Route path="/" element={<Home products={catalog} homeSections={homeSections} />} />
         <Route path="/shop" element={<Shop products={catalog} categories={categories} />} />
         <Route path="/produto/:id" element={<PlaceholderPage title="Produto" label="GALEO / PRODUTO" />} />
         <Route path="/conta" element={<PlaceholderPage title="Minha conta" label="GALEO / CONTA" />} />
         <Route path="/carrinho" element={<PlaceholderPage title="Carrinho" label="GALEO / CARRINHO" />} />
       </Routes>
       <footer className="site-footer">
-        <span>GALEO STORE</span>
-        <span>São Paulo / BR</span>
-        <span>© 2026</span>
+        <span>{siteSettings.footer?.brand || 'GALEO STORE'}</span>
+        <span>{siteSettings.footer?.location || 'São Paulo / BR'}</span>
+        <span>© {siteSettings.footer?.year || '2026'}</span>
       </footer>
     </div>
   )

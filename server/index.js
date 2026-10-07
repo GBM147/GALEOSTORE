@@ -409,6 +409,19 @@ async function init() {
     "INSERT INTO home_settings(setting_key,setting_value) VALUES('storefront_visual_defaults',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
     [JSON.stringify({"visual_direction":"editorial_multibrand","theme":"dark","palette":{"background":"#050505","surface":"#0d0c0b","surface_alt":"#15120f","text":"#f2eadb","muted":"#978b78","accent":"#c4934c","accent_soft":"#e2c27f","accent_deep":"#72501f","line":"rgba(224,189,125,.19)"},"typography":{"display":{"family":"Inter","weight":850,"tracking":"-0.075em","line_height":0.88},"editorial":{"family":"Georgia","weight":400,"style":"italic"},"ui":{"family":"Inter","weight":700,"tracking":"0.11em","transform":"uppercase"}},"layout":{"max_width":1440,"side_gutter":28,"section_spacing":128,"borders":"hairline","corners":"minimal","shadows":"restrained"},"interaction":{"smooth_scroll":{"enabled":true,"library":"Lenis","duration":1.05,"wheel_multiplier":0.95,"sync_with_scroll_animations":true},"scroll_reveal":{"enabled":true,"library":"GSAP ScrollTrigger","duration":0.8,"stagger":0.06,"distance":24,"once":true},"hero_text_reveal":{"enabled":true,"duration":0.9,"stagger":0.08,"style":"line-rise"},"image_hover":{"enabled":true,"duration":0.45,"scale":1.035,"directional_overlay":true},"product_hover":{"enabled":true,"image_scale":1.04,"lift_px":6}},"accessibility":{"respect_reduced_motion":true,"preserve_native_scroll":true,"no_motion_only_information":true},"guardrails":{"no_neon":true,"no_heavy_glassmorphism":true,"no_excessive_gradients":true,"no_permanent_cursor_effects":true,"no_animation_on_every_element":true,"prioritize_content_and_product_images":true},"inspiration":{"component_language":"Inspira UI","smooth_scroll":"Lenis","animation_system":"GSAP"}})]
   )
+  await query(
+    "INSERT INTO home_settings(setting_key,setting_value) VALUES('navigation',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
+    [JSON.stringify({ items: [
+      { label: 'Camisetas', url: '/shop?category=Camisetas' },
+      { label: 'Calças', url: '/shop?category=Cal%C3%A7as' },
+      { label: 'Camisas', url: '/shop?category=Camisas' },
+      { label: 'Moletons', url: '/shop?category=Moletons' }
+    ] })]
+  )
+  await query(
+    "INSERT INTO home_settings(setting_key,setting_value) VALUES('footer',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
+    [JSON.stringify({ brand: 'GALEO STORE', location: 'São Paulo / BR', year: '2026' })]
+  )
 
   await query("UPDATE admin_users SET role='staff' WHERE role='manager'")
   await query("ALTER TABLE admin_users MODIFY role ENUM('owner','staff') NOT NULL DEFAULT 'owner'")
@@ -814,11 +827,48 @@ app.put('/api/admin/home/:key', exigirLogin, exigirOwner, async (req, res) => {
   try {
     const rows = await query('SELECT id FROM home_sections WHERE section_key=? LIMIT 1', [key])
     if (!rows.length) return res.status(404).json({ error: 'Seção de home não encontrada.' })
-    await query('UPDATE home_sections SET draft_content=?, updated_by=? WHERE section_key=?', [payload, req.admin.id, key])
+    const nextVisible = req.body?.visible === undefined ? null : (req.body.visible ? 1 : 0)
+    const nextOrderRaw = req.body?.order
+    const nextOrder = nextOrderRaw === undefined ? null : Number(nextOrderRaw)
+    if (nextOrder !== null && (!Number.isInteger(nextOrder) || nextOrder < 0 || nextOrder > 999)) return res.status(400).json({ error: 'A ordem da seção deve ficar entre 0 e 999.' })
+    if (nextVisible === null && nextOrder === null) {
+      await query('UPDATE home_sections SET draft_content=?, updated_by=? WHERE section_key=?', [payload, req.admin.id, key])
+    } else {
+      await query(
+        \`UPDATE home_sections
+         SET draft_content=?,
+             visible=COALESCE(?, visible),
+             sort_order=COALESCE(?, sort_order),
+             updated_by=?
+         WHERE section_key=?\`,
+        [payload, nextVisible, nextOrder, req.admin.id, key]
+      )
+    }
     res.json({ success: true, key, saved_as: 'draft' })
   } catch (error) {
     console.error('Erro ao salvar rascunho da home:', error)
     res.status(500).json({ error: 'Não foi possível salvar o conteúdo da home.' })
+  }
+})
+
+
+app.post('/api/admin/home/publish', exigirLogin, exigirOwner, async (req, res) => {
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.execute(
+      'UPDATE home_sections SET published_content=draft_content, published_by=?, published_at=NOW() WHERE id IS NOT NULL',
+      [req.admin.id]
+    )
+    await conn.commit()
+    await audit(req.admin.id, 'PUBLICAR', 'home', null, { sections:'all' })
+    res.json({ success:true, published_at:new Date().toISOString() })
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao publicar Home:', error)
+    res.status(500).json({ error: 'Não foi possível publicar a Home.' })
+  } finally {
+    conn.release()
   }
 })
 
@@ -834,26 +884,56 @@ app.get('/api/admin/home/settings', exigirLogin, exigirOwner, async (req, res) =
 
 app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, res) => {
   const key = String(req.params.key || '').trim()
-  if (key !== 'campaign_defaults') return res.status(400).json({ error: 'Configuração inválida.' })
   const value = req.body?.value
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return res.status(400).json({ error: 'A configuração deve ser um objeto JSON válido.' })
-  const allowedEffects = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns']
-  const allowedTransitions = ['fade','slide','crossfade']
-  const allowedSpeeds = ['slow','normal','fast']
-  const effect = allowedEffects.includes(String(value.effect)) ? String(value.effect) : 'zoom'
-  const transition = allowedTransitions.includes(String(value.transition)) ? String(value.transition) : 'crossfade'
-  const speed = allowedSpeeds.includes(String(value.speed)) ? String(value.speed) : 'slow'
-  const duration = Number(value.duration_seconds)
-  if (!Number.isFinite(duration) || duration < 2 || duration > 30) return res.status(400).json({ error: 'A duração da campanha deve ficar entre 2 e 30 segundos.' })
-  const setting = { effect, transition, speed, duration_seconds: duration }
+  const allowedKeys = ['campaign_defaults','storefront_visual_defaults','navigation','footer']
+  if (!allowedKeys.includes(key)) return res.status(400).json({ error:'Configuração inválida.' })
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return res.status(400).json({ error:'A configuração deve ser um objeto JSON válido.' })
+
+  let setting = value
+
+  if (key === 'campaign_defaults') {
+    const effects = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns']
+    const transitions = ['fade','slide','crossfade']
+    const speeds = ['slow','normal','fast']
+    const effect = effects.includes(String(value.effect)) ? String(value.effect) : 'zoom'
+    const transition = transitions.includes(String(value.transition)) ? String(value.transition) : 'crossfade'
+    const speed = speeds.includes(String(value.speed)) ? String(value.speed) : 'slow'
+    const duration = Number(value.duration_seconds)
+    if (!Number.isFinite(duration) || duration < 2 || duration > 30) return res.status(400).json({ error:'A duração da campanha deve ficar entre 2 e 30 segundos.' })
+    setting = { effect, transition, speed, duration_seconds: duration }
+  }
+
+  if (key === 'storefront_visual_defaults') {
+    const palette = value.palette && typeof value.palette === 'object' ? value.palette : {}
+    const validColor = (color) => typeof color === 'string' && /^(#[0-9a-f]{3,8}|rgba?\\([^)]{1,80}\\)|hsla?\\([^)]{1,80}\\))$/i.test(color.trim())
+    const safe = {}
+    for (const paletteKey of ['background','surface','surface_alt','text','muted','accent','accent_soft','accent_deep','line']) {
+      if (palette[paletteKey] !== undefined) {
+        if (!validColor(palette[paletteKey])) return res.status(400).json({ error:'Cor inválida em ' + paletteKey + '.' })
+        safe[paletteKey] = String(palette[paletteKey]).trim()
+      }
+    }
+    setting = { ...value, visual_direction:'editorial_multibrand', theme:['dark','light'].includes(String(value.theme)) ? String(value.theme) : 'dark', palette:safe }
+  }
+
+  if (key === 'navigation') {
+    const items = Array.isArray(value.items) ? value.items.slice(0,8).map((item) => ({ label:String(item?.label || '').trim().slice(0,80), url:String(item?.url || '/shop').trim().slice(0,300) })).filter((item) => item.label) : []
+    setting = { items }
+  }
+
+  if (key === 'footer') {
+    setting = { brand:String(value.brand || 'GALEO STORE').trim().slice(0,120), location:String(value.location || 'São Paulo / BR').trim().slice(0,120), year:String(value.year || '2026').trim().slice(0,12) }
+  }
+
   try {
     await query("INSERT INTO home_settings(setting_key,setting_value,updated_by) VALUES(?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)", [key, JSON.stringify(setting), req.admin.id])
-    res.json({ success: true, key, value: setting })
+    res.json({ success:true, key, value:setting })
   } catch (error) {
     console.error('Erro ao salvar configuração do CMS:', error)
-    res.status(500).json({ error: 'Não foi possível salvar a configuração do CMS.' })
+    res.status(500).json({ error:'Não foi possível salvar a configuração do CMS.' })
   }
 })
+
 app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
   try {
     await generateCurrentRecurring()

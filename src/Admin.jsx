@@ -690,8 +690,310 @@ function PasswordModal({ onClose, onDone }) {
   )
 }
 
+
+const HOME_EDITOR_META = {
+  hero: ['Hero', 'Hero principal da página inicial'],
+  utility: ['Faixa informativa', 'Benefícios e mensagens curtas'],
+  categories: ['Categorias', 'Blocos de categorias da vitrine'],
+  featured_products: ['Produtos destaque', 'Seleção de produtos em evidência'],
+  campaigns: ['Campanhas', 'Banners editoriais da Home'],
+  manifesto: ['Manifesto', 'Mensagem institucional'],
+  newsletter: ['Newsletter', 'Captação de e-mails']
+}
+
+function HomeEditor({ user }) {
+  const [sections, setSections] = useState([])
+  const [settings, setSettings] = useState({})
+  const [mediaItems, setMediaItems] = useState([])
+  const [products, setProducts] = useState([])
+  const [selectedKey, setSelectedKey] = useState('hero')
+  const [area, setArea] = useState('content')
+  const [draft, setDraft] = useState(null)
+  const [visible, setVisible] = useState(true)
+  const [order, setOrder] = useState(10)
+  const [visual, setVisual] = useState(null)
+  const [navigation, setNavigation] = useState(null)
+  const [footer, setFooter] = useState(null)
+  const [campaignDefaults, setCampaignDefaults] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState('')
+
+  async function loadHome() {
+    const [homeData, settingsData, mediaData, productData] = await Promise.all([
+      api('/api/admin/home'),
+      api('/api/admin/home/settings'),
+      api('/api/admin/media-library?limit=100'),
+      api('/api/admin/products')
+    ])
+    const nextSections = Array.isArray(homeData?.sections) ? homeData.sections : []
+    setSections(nextSections)
+    const selected = nextSections.find((section) => section.key === selectedKey) || nextSections[0]
+    if (selected) {
+      setDraft(selected.draft || {})
+      setVisible(Boolean(selected.visible))
+      setOrder(Number(selected.order || 0))
+      setSelectedKey(selected.key)
+    }
+    const nextSettings = Object.fromEntries((settingsData?.settings || []).map((item) => [item.key, item.value]))
+    setSettings(nextSettings)
+    setVisual(nextSettings.storefront_visual_defaults || null)
+    setNavigation(nextSettings.navigation || { items: [] })
+    setFooter(nextSettings.footer || { brand: 'GALEO STORE', location: 'São Paulo / BR', year: '2026' })
+    setCampaignDefaults(nextSettings.campaign_defaults || { effect: 'zoom', transition: 'crossfade', speed: 'slow', duration_seconds: 6 })
+    setMediaItems(Array.isArray(mediaData?.items) ? mediaData.items : [])
+    setProducts(Array.isArray(productData) ? productData : [])
+  }
+
+  useEffect(() => {
+    if (user?.role === 'owner') loadHome().catch((error) => setStatus(error.message))
+  }, [user?.role])
+
+  useEffect(() => {
+    const section = sections.find((item) => item.key === selectedKey)
+    if (section) {
+      setDraft(section.draft || {})
+      setVisible(Boolean(section.visible))
+      setOrder(Number(section.order || 0))
+    }
+  }, [selectedKey, sections])
+
+  function setField(key, value) {
+    setDraft((current) => ({ ...(current || {}), [key]: value }))
+  }
+  function setArrayItem(key, index, value) {
+    setDraft((current) => ({ ...(current || {}), [key]: (current?.[key] || []).map((item, itemIndex) => itemIndex === index ? value : item) }))
+  }
+  function addArrayItem(key, value) {
+    setDraft((current) => ({ ...(current || {}), [key]: [...(current?.[key] || []), value] }))
+  }
+  function removeArrayItem(key, index) {
+    setDraft((current) => ({ ...(current || {}), [key]: (current?.[key] || []).filter((_, itemIndex) => itemIndex !== index) }))
+  }
+  function moveArrayItem(key, index, direction) {
+    setDraft((current) => {
+      const items = [...(current?.[key] || [])]
+      const next = index + direction
+      if (next < 0 || next >= items.length) return current
+      ;[items[index], items[next]] = [items[next], items[index]]
+      return { ...(current || {}), [key]: items }
+    })
+  }
+
+  async function saveSection() {
+    if (!draft) return
+    setSaving(true)
+    setStatus('')
+    try {
+      await api('/api/admin/home/' + selectedKey, { method: 'PUT', body: { content: draft, visible, order } })
+      await loadHome()
+      setStatus('Rascunho salvo')
+    } catch (error) {
+      setStatus(error.message)
+    } finally { setSaving(false) }
+  }
+
+  async function publishAll() {
+    setSaving(true)
+    setStatus('')
+    try {
+      await api('/api/admin/home/publish', { method: 'POST' })
+      await loadHome()
+      setStatus('Home publicada')
+    } catch (error) {
+      setStatus(error.message)
+    } finally { setSaving(false) }
+  }
+
+  async function saveSetting(key, value) {
+    setSaving(true)
+    setStatus('')
+    try {
+      await api('/api/admin/home/settings/' + key, { method: 'PUT', body: { value } })
+      await loadHome()
+      setStatus('Configuração salva')
+    } catch (error) {
+      setStatus(error.message)
+    } finally { setSaving(false) }
+  }
+
+  function mediaOptions(type) { return mediaItems.filter((item) => !type || item.media_type === type) }
+  function applyMedia(prefix, item) {
+    setDraft((current) => ({ ...(current || {}), [prefix + '_media_id']: item ? Number(item.id) : null, [prefix + '_media_url']: item?.url || '' }))
+  }
+
+  const selected = sections.find((section) => section.key === selectedKey)
+  const selectedMeta = HOME_EDITOR_META[selectedKey] || [selectedKey, 'Conteúdo da seção']
+  const featuredIds = Array.isArray(draft?.product_ids) ? draft.product_ids.map(Number) : []
+
+  if (user?.role !== 'owner') return <div className="admin-panel empty-state">O editor da loja é exclusivo do proprietário</div>
+
+  return (
+    <div className="home-editor">
+      <div className="home-editor-main">
+        <aside className="home-editor-sidebar">
+          <div className="home-editor-sidebar-title"><span className="eyebrow">EDITOR DA LOJA</span><strong>Conteúdo</strong></div>
+          {sections.map((section) => {
+            const meta = HOME_EDITOR_META[section.key] || [section.key, 'Seção']
+            return (
+              <button type="button" key={section.key} className={area === 'content' && selectedKey === section.key ? 'home-editor-nav active' : 'home-editor-nav'} onClick={() => { setArea('content'); setSelectedKey(section.key) }}>
+                <span>{meta[0]}</span><small>{section.visible ? 'Visível' : 'Oculta'}</small>
+              </button>
+            )
+          })}
+          <div className="home-editor-divider" />
+          <span className="eyebrow home-editor-nav-label">CONFIGURAÇÕES</span>
+          {[['visual','Visual'],['navigation','Menu principal'],['footer','Rodapé'],['campaign','Animações']].map(([key,label]) => (
+            <button type="button" key={key} className={area === key ? 'home-editor-nav active' : 'home-editor-nav'} onClick={() => setArea(key)}>
+              <span>{label}</span><small>Editar</small>
+            </button>
+          ))}
+        </aside>
+
+        <section className="home-editor-workspace">
+          <div className="home-editor-heading">
+            <div>
+              <span className="eyebrow">GALEO / {area === 'content' ? selectedKey.toUpperCase() : area.toUpperCase()}</span>
+              <h2>{area === 'content' ? selectedMeta[0] : ({ visual: 'Visual da loja', navigation: 'Menu principal', footer: 'Rodapé', campaign: 'Animações das campanhas' }[area] || 'Editor')}</h2>
+              <p>{area === 'content' ? selectedMeta[1] : 'Configurações aplicadas à experiência pública da GALEO'}</p>
+            </div>
+            {status && <span className="home-editor-status">{status}</span>}
+          </div>
+
+          {area === 'content' && draft && (
+            <>
+              <div className="home-editor-section-toolbar">
+                <label>Visibilidade<select value={visible ? '1' : '0'} onChange={(event) => setVisible(event.target.value === '1')}><option value="1">Visível</option><option value="0">Oculta</option></select></label>
+                <label>Ordem<input type="number" min="0" max="999" value={order} onChange={(event) => setOrder(Number(event.target.value))} /></label>
+              </div>
+
+              {selectedKey === 'hero' && (
+                <div className="home-editor-form">
+                  <label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
+                  <label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label>
+                  <label className="home-editor-full">Descrição<textarea rows="4" value={draft.description || ''} onChange={(e) => setField('description', e.target.value)} /></label>
+                  <label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label>
+                  <label>Link do botão<input value={draft.button_url || ''} onChange={(e) => setField('button_url', e.target.value)} /></label>
+                  <label>Imagem desktop<select value={draft.desktop_media_id || ''} onChange={(e) => applyMedia('desktop', mediaItems.find((item) => Number(item.id) === Number(e.target.value)) || null)}><option value="">Sem imagem</option>{mediaOptions('image').map((item) => <option key={item.id} value={item.id}>{item.title || ('Mídia #' + item.id)}</option>)}</select><input value={draft.desktop_media_url || ''} onChange={(e) => setField('desktop_media_url', e.target.value)} placeholder="URL manual ou Cloudinary" /></label>
+                  <label>Imagem mobile<select value={draft.mobile_media_id || ''} onChange={(e) => applyMedia('mobile', mediaItems.find((item) => Number(item.id) === Number(e.target.value)) || null)}><option value="">Sem imagem</option>{mediaOptions('image').map((item) => <option key={item.id} value={item.id}>{item.title || ('Mídia #' + item.id)}</option>)}</select><input value={draft.mobile_media_url || ''} onChange={(e) => setField('mobile_media_url', e.target.value)} placeholder="URL manual ou Cloudinary" /></label>
+                  <label>Vídeo<select value={draft.video_media_id || ''} onChange={(e) => applyMedia('video', mediaItems.find((item) => Number(item.id) === Number(e.target.value)) || null)}><option value="">Sem vídeo</option>{mediaOptions('video').map((item) => <option key={item.id} value={item.id}>{item.title || ('Mídia #' + item.id)}</option>)}</select><input value={draft.video_media_url || ''} onChange={(e) => setField('video_media_url', e.target.value)} placeholder="URL manual ou Cloudinary" /></label>
+                </div>
+              )}
+
+              {selectedKey === 'utility' && (
+                <div className="home-editor-list">
+                  {(draft.items || []).map((item, index) => (
+                    <div className="home-editor-list-row" key={index}>
+                      <input value={item || ''} onChange={(e) => { const items = [...(draft.items || [])]; items[index] = e.target.value; setField('items', items) }} />
+                      <button type="button" onClick={() => moveArrayItem('items', index, -1)}>↑</button><button type="button" onClick={() => moveArrayItem('items', index, 1)}>↓</button><button type="button" onClick={() => removeArrayItem('items', index)}>Excluir</button>
+                    </div>
+                  ))}
+                  <button className="text-button" type="button" onClick={() => addArrayItem('items','Nova mensagem')}>+ adicionar mensagem</button>
+                </div>
+              )}
+
+              {selectedKey === 'categories' && (
+                <div className="home-editor-list">
+                  {(draft.items || []).map((item, index) => (
+                    <div className="home-editor-card-row" key={index}>
+                      <div className="home-editor-card-grid">
+                        <label>Nome<input value={item.title || ''} onChange={(e) => setArrayItem('items', index, { ...item, title: e.target.value })} /></label>
+                        <label>Link<input value={item.url || ''} onChange={(e) => setArrayItem('items', index, { ...item, url: e.target.value })} /></label>
+                        <label>Mídia<input value={item.media_url || ''} onChange={(e) => setArrayItem('items', index, { ...item, media_url: e.target.value })} placeholder="URL opcional" /></label>
+                      </div>
+                      <div className="home-editor-row-actions"><button type="button" onClick={() => moveArrayItem('items', index, -1)}>↑</button><button type="button" onClick={() => moveArrayItem('items', index, 1)}>↓</button><button type="button" onClick={() => removeArrayItem('items', index)}>Excluir</button></div>
+                    </div>
+                  ))}
+                  <button className="text-button" type="button" onClick={() => addArrayItem('items',{ title:'Nova categoria', url:'/shop', media_url:'' })}>+ adicionar categoria</button>
+                </div>
+              )}
+
+              {selectedKey === 'featured_products' && (
+                <div className="home-editor-form">
+                  <label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
+                  <label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label>
+                  <label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label>
+                  <label>Link do botão<input value={draft.button_url || ''} onChange={(e) => setField('button_url', e.target.value)} /></label>
+                  <label>Fonte<select value={draft.source || 'latest'} onChange={(e) => setField('source', e.target.value)}><option value="latest">Mais recentes</option><option value="manual">Seleção manual</option></select></label>
+                  <div className="home-editor-full home-editor-product-picker"><span className="home-editor-field-title">Produtos selecionados</span><div className="home-editor-product-grid">
+                    {products.map((product) => {
+                      const checked = featuredIds.includes(Number(product.id))
+                      return <label key={product.id} className={checked ? 'home-editor-product-pick checked' : 'home-editor-product-pick'}><input type="checkbox" checked={checked} onChange={(e) => { const next = e.target.checked ? [...featuredIds, Number(product.id)] : featuredIds.filter((id) => id !== Number(product.id)); setField('product_ids', next) }} /><span>{product.name}</span><small>{product.brand || 'Sem marca'} · {product.category || 'Sem categoria'}</small></label>
+                    })}
+                  </div></div>
+                </div>
+              )}
+
+              {selectedKey === 'campaigns' && (
+                <div className="home-editor-list">
+                  <div className="home-editor-inline-settings">Os efeitos são configurados em Animações</div>
+                  {(draft.items || []).map((item, index) => (
+                    <div className="home-editor-card-row" key={index}>
+                      <div className="home-editor-card-grid">
+                        <label>Eyebrow<input value={item.eyebrow || ''} onChange={(e) => setArrayItem('items', index, { ...item, eyebrow: e.target.value })} /></label>
+                        <label>Título<input value={item.title || ''} onChange={(e) => setArrayItem('items', index, { ...item, title: e.target.value })} /></label>
+                        <label>Botão<input value={item.button_label || ''} onChange={(e) => setArrayItem('items', index, { ...item, button_label: e.target.value })} /></label>
+                        <label>Link<input value={item.button_url || ''} onChange={(e) => setArrayItem('items', index, { ...item, button_url: e.target.value })} /></label>
+                        <label className="home-editor-full">Imagem / vídeo<input value={item.media_url || ''} onChange={(e) => setArrayItem('items', index, { ...item, media_url: e.target.value })} placeholder="URL da mídia" /></label>
+                      </div>
+                      <div className="home-editor-row-actions"><button type="button" onClick={() => moveArrayItem('items', index, -1)}>↑</button><button type="button" onClick={() => moveArrayItem('items', index, 1)}>↓</button><button type="button" onClick={() => removeArrayItem('items', index)}>Excluir</button></div>
+                    </div>
+                  ))}
+                  <button className="text-button" type="button" onClick={() => addArrayItem('items',{ eyebrow:'NOVA CAMPANHA', title:'Nova campanha', button_label:'Explorar', button_url:'/shop', media_url:'' })}>+ adicionar campanha</button>
+                </div>
+              )}
+
+              {selectedKey === 'manifesto' && <div className="home-editor-form single"><label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Texto<textarea rows="6" value={draft.text || ''} onChange={(e) => setField('text', e.target.value)} /></label></div>}
+              {selectedKey === 'newsletter' && <div className="home-editor-form single"><label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label><label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label></div>}
+
+              <div className="home-editor-savebar"><small>{selected?.published_at ? 'Publicado em ' + new Date(selected.published_at).toLocaleString('pt-BR') : 'Ainda não publicado'}</small><button className="button button-primary" type="button" onClick={saveSection} disabled={saving}>{saving ? 'Salvando…' : 'Salvar rascunho ↗'}</button></div>
+            </>
+          )}
+
+          {area === 'visual' && visual && (
+            <div className="home-editor-form visual-grid">
+              <label>Tema<select value={visual.theme || 'dark'} onChange={(e) => setVisual((current) => ({ ...current, theme: e.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
+              {[
+                ['background','Fundo'],['surface','Superfície'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave'],['accent_deep','Destaque profundo']
+              ].map(([key,label]) => <label key={key}>{label}<input type="text" value={visual.palette?.[key] || ''} onChange={(e) => setVisual((current) => ({ ...current, palette: { ...(current.palette || {}), [key]: e.target.value } }))} placeholder="#000000" /></label>)}
+              <div className="home-editor-inline-settings home-editor-full">Os campos visuais ficam salvos no CMS e aplicados na vitrine publicada</div>
+              <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('storefront_visual_defaults', visual)} disabled={saving}>Salvar visual ↗</button></div>
+            </div>
+          )}
+
+          {area === 'navigation' && navigation && (
+            <div className="home-editor-list">
+              {(navigation.items || []).map((item,index) => <div className="home-editor-card-row" key={index}><div className="home-editor-card-grid"><label>Nome<input value={item.label || ''} onChange={(e) => setNavigation((current) => ({ ...current, items: current.items.map((x,i) => i === index ? { ...x, label: e.target.value } : x) }))} /></label><label>Link<input value={item.url || ''} onChange={(e) => setNavigation((current) => ({ ...current, items: current.items.map((x,i) => i === index ? { ...x, url: e.target.value } : x) }))} /></label></div><div className="home-editor-row-actions"><button type="button" onClick={() => setNavigation((current) => ({ ...current, items: current.items.filter((_,i) => i !== index) }))}>Excluir</button></div></div>)}
+              <button className="text-button" type="button" onClick={() => setNavigation((current) => ({ ...current, items: [...(current.items || []), { label:'Novo item', url:'/shop' }] }))}>+ adicionar item</button>
+              <div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('navigation', navigation)} disabled={saving}>Salvar menu ↗</button></div>
+            </div>
+          )}
+
+          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Localização<input value={footer.location || ''} onChange={(e) => setFooter((current) => ({ ...current, location: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé ↗</button></div></div>}
+
+          {area === 'campaign' && campaignDefaults && (
+            <div className="home-editor-form">
+              <label>Efeito<select value={campaignDefaults.effect} onChange={(e) => setCampaignDefaults((current) => ({ ...current, effect: e.target.value }))}><option value="static">Estático</option><option value="zoom">Zoom</option><option value="pan-horizontal">Pan horizontal</option><option value="pan-vertical">Pan vertical</option><option value="parallax">Parallax</option><option value="ken-burns">Ken Burns</option></select></label>
+              <label>Transição<select value={campaignDefaults.transition} onChange={(e) => setCampaignDefaults((current) => ({ ...current, transition: e.target.value }))}><option value="fade">Fade</option><option value="slide">Slide</option><option value="crossfade">Crossfade</option></select></label>
+              <label>Velocidade<select value={campaignDefaults.speed} onChange={(e) => setCampaignDefaults((current) => ({ ...current, speed: e.target.value }))}><option value="slow">Lenta</option><option value="normal">Normal</option><option value="fast">Rápida</option></select></label>
+              <label>Duração (segundos)<input type="number" min="2" max="30" value={campaignDefaults.duration_seconds} onChange={(e) => setCampaignDefaults((current) => ({ ...current, duration_seconds: Number(e.target.value) }))} /></label>
+              <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('campaign_defaults', campaignDefaults)} disabled={saving}>Salvar animações ↗</button></div>
+            </div>
+          )}
+        </section>
+
+        <aside className="home-editor-publish">
+          <div className="home-editor-publish-card"><span className="eyebrow">PUBLICAÇÃO</span><h3>Controle da Home</h3><p>Edite em rascunho, confira e publique quando estiver pronto</p><button className="button button-primary home-editor-publish-button" type="button" onClick={publishAll} disabled={saving}>{saving ? 'Publicando…' : 'Publicar Home ↗'}</button></div>
+          {selected && <div className="home-editor-publish-card"><span className="eyebrow">SEÇÃO ATUAL</span><strong>{selectedMeta[0]}</strong><small>{selected.visible ? 'Visível na vitrine' : 'Oculta na vitrine'}</small><small>Ordem {selected.order}</small><small>Atualizado {selected.updated_at ? new Date(selected.updated_at).toLocaleString('pt-BR') : '—'}</small></div>}
+          <div className="home-editor-publish-card"><span className="eyebrow">MÍDIA</span><strong>{mediaItems.length}</strong><small>arquivos disponíveis na biblioteca</small></div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
 function Admin({ user, onLogout }) {
-  const [tab, setTab] = useState('dashboard')
+  const initialTab = (() => { try { const requested = new URLSearchParams(window.location.search).get('tab'); return ['dashboard','editor','products','sales','finance','recurring','movements','library'].includes(requested) ? requested : 'dashboard' } catch { return 'dashboard' } })()
+  const [tab, setTab] = useState(initialTab)
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
   const [entries, setEntries] = useState([])
@@ -793,6 +1095,7 @@ function Admin({ user, onLogout }) {
 
   const title = {
     dashboard: 'Visão geral',
+    editor: 'Editor da loja',
     products: 'Produtos e estoque',
     sales: 'Vendas',
     finance: 'Financeiro',
@@ -815,6 +1118,7 @@ function Admin({ user, onLogout }) {
         <div className="brand"><span className="brand-mark">G</span><span>GALEO</span></div>
         {[
           ['dashboard', 'Visão geral'],
+          ...(user?.role === 'owner' ? [['editor', 'Editor da loja']] : []),
           ['products', 'Produtos e estoque'],
           ['sales', 'Vendas'],
           ['finance', 'Financeiro'],
@@ -839,6 +1143,7 @@ function Admin({ user, onLogout }) {
         </div>
 
         {loading ? <div className="admin-loading">Carregando dados reais…</div> : null}
+        {!loading && tab === 'editor' && user?.role === 'owner' && <HomeEditor user={user} />}
         {!loading && tab === 'library' && <MediaLibrary api={api} csrf={() => csrfToken} role={user?.role} />}
         {!loading && tab === 'dashboard' && (
           <>
