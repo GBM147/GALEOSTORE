@@ -260,8 +260,8 @@ function Header({ theme, onToggle, categories = [], navigation = null }) {
 }
 
 function homeSectionContent(sections, key) {
-  const section = Array.isArray(sections) ? sections.find((item) => item.key === key && item.visible !== false) : null
-  return section?.content || {}
+  const section = Array.isArray(sections) ? sections.find((item) => item.key === key) : null
+  return { ...(section?.content || {}), __visible: section ? section.visible !== false : true }
 }
 
 function splitEditorialText(text) {
@@ -302,7 +302,7 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
   const heroDescription = hero.description || 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho'
   return (
     <main>
-      <section className="hero-full section-shell">
+      {hero.__visible !== false && <section className="hero-full section-shell">
         <div className="hero-full-media"><CampaignVisual mediaUrl={hero.desktop_media_url || ''} videoUrl={hero.video_media_url || ''} /><div className="hero-full-shade" /></div>
         <div className="hero-full-content">
           <span className="eyebrow">{hero.eyebrow || 'GALEO / MULTIBRAND STORE'}</span>
@@ -311,18 +311,18 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
           <div className="hero-full-actions"><Link className="button button-primary" to={hero.button_url || '/shop'}>{hero.button_label || 'Explorar coleção'} <span>↗</span></Link><span className="hero-scroll">SCROLL ↓</span></div>
         </div>
         <div className="hero-full-meta"><span>01 / 03</span><span>São Paulo / BR</span></div>
-      </section>
+      </section>}
 
-      <section className="utility-strip section-shell" aria-label="Diferenciais">
+      {utility.__visible !== false && <section className="utility-strip section-shell" aria-label="Diferenciais">
         {(Array.isArray(utility.items) && utility.items.length ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}>{item}</span>)}
-      </section>
+      </section>}
 
-      <section className="section-shell section-block featured-selection" id="destaques">
+      {featured.__visible !== false && <section className="section-shell section-block featured-selection" id="destaques">
         <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{featured.eyebrow || '01 / SELEÇÃO GALEO'}</span><h2>{featured.title || 'Seleção multimarcas'}</h2></div><Link className="text-link" to={featured.button_url || '/shop'}>{featured.button_label || 'Ver todos'} ↗</Link></div>
         <div className="product-grid product-grid-editorial">{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</div>
-      </section>
+      </section>}
 
-      <section className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
+      {campaigns.__visible !== false && <section className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
         {campaignItems.slice(0,3).map((item,index) => (
           <Link className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} to={item.button_url || '/shop'} key={index}>
             <CampaignVisual variant={index + 1} mediaUrl={item.media_url || ''} />
@@ -333,9 +333,9 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
             </div>
           </Link>
         ))}
-      </section>
+      </section>}
 
-      <section className="manifesto section-shell" id="sobre" data-reveal><span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span><p>{splitEditorialText(manifesto.text || 'Não seguimos o padrão\nCriamos o nosso').map((line,index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p></section>
+      {manifesto.__visible !== false && <section className="manifesto section-shell" id="sobre" data-reveal><span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span><p>{splitEditorialText(manifesto.text || 'Não seguimos o padrão\nCriamos o nosso').map((line,index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p></section>
 
       <section className="newsletter section-shell" data-reveal><div><span className="eyebrow">{newsletter.eyebrow || 'GALEO / INSIDER'}</span><h2>{newsletter.title || 'Entre para a próxima fase'}</h2></div><form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" /><button type="submit">{newsletter.button_label || 'Entrar'} ↗</button></form></section>
     </main>
