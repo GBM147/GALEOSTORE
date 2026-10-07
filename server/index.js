@@ -1254,10 +1254,83 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
   }
 })
 
+app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
+  const secret=String(process.env.MERCADO_PAGO_WEBHOOK_SECRET||'').trim()
+  if(!secret) return res.status(503).json({error:'Webhook Mercado Pago ainda não está configurado.'})
+  const signature=req.get('x-signature')||''
+  const requestId=req.get('x-request-id')||''
+  const dataId=String(req.query['data.id']||req.body?.data?.id||'')
+  const valid=validateMercadoPagoWebhookSignature({signature,requestId,dataId,secret})
+  if(!valid) return res.status(401).json({error:'Assinatura de webhook inválida.'})
+  const eventId=String(req.body?.id||req.get('x-request-id')||('mp-'+dataId+'-'+String(req.body?.date_created||Date.now())))
+  const eventType=String(req.body?.type||req.query.type||'order')
+  const existing=await query('SELECT id FROM integration_events WHERE provider=? AND event_id=? LIMIT 1',['MERCADO_PAGO',eventId])
+  if(existing.length) return res.status(200).json({received:true,duplicate:true})
+  await query('INSERT INTO integration_events(provider,event_id,event_type,payload) VALUES(?,?,?,?)',['MERCADO_PAGO',eventId,eventType,JSON.stringify(req.body||{})])
+  try {
+    if(!dataId) return res.status(200).json({received:true,ignored:true})
+    const mpOrder=await getMercadoPagoOrder(dataId)
+    const result=await processarNotificacaoMercadoPago({eventId,eventType,mpOrder})
+    return res.status(200).json({received:true,...result})
+  } catch(error) {
+    console.error('Erro no webhook Mercado Pago:',error)
+    await query('DELETE FROM integration_events WHERE provider=? AND event_id=?',['MERCADO_PAGO',eventId]).catch(()=>{})
+    return res.status(500).json({error:'Não foi possível processar o webhook.'})
+  }
+})
+
+app.post('/api/integrations/distributor/webhook', async (req,res) => {
+  const secret=String(process.env.DISTRIBUTOR_WEBHOOK_SECRET||'').trim()
+  if(!secret) return res.status(503).json({error:'Integração da distribuidora ainda não está configurada.'})
+  const provided=String(req.get('x-distributor-webhook-secret')||req.get('authorization')||'').replace(/^Bearer\s+/i,'').trim()
+  if(!provided || provided!==secret) return res.status(401).json({error:'Credencial de webhook da distribuidora inválida.'})
+  const eventId=String(req.body?.event_id||req.body?.id||req.get('x-event-id')||'')
+  const orderCode=String(req.body?.order_code||req.body?.external_reference||req.body?.reference||'').trim()
+  const nextStatus=String(req.body?.status||req.body?.event||'').trim().toUpperCase()
+  const statusMap={RECEIVED:'RECEIVED',CONFIRMED:'CONFIRMED',PREPARING:'PREPARING',READY:'PREPARING',SHIPPED:'SHIPPED',IN_TRANSIT:'SHIPPED',DELIVERED:'DELIVERED',CANCELLED:'CANCELLED'}
+  const mapped=statusMap[nextStatus]
+  if(!orderCode || !mapped) return res.status(400).json({error:'Evento da distribuidora incompleto.'})
+  const uniqueEventId=eventId||('dist-'+orderCode+'-'+mapped+'-'+String(Date.now()))
+  const existing=await query('SELECT id FROM integration_events WHERE provider=? AND event_id=? LIMIT 1',['DISTRIBUTOR',uniqueEventId])
+  if(existing.length) return res.status(200).json({received:true,duplicate:true})
+  await query('INSERT INTO integration_events(provider,event_id,event_type,payload) VALUES(?,?,?,?)',['DISTRIBUTOR',uniqueEventId,nextStatus,JSON.stringify(req.body||{})])
+  const rank={RECEIVED:1,CONFIRMED:2,PREPARING:3,SHIPPED:4,DELIVERED:5,CANCELLED:99}
+  try {
+    const conn=await db.getConnection()
+    let customer=null
+    try {
+      await conn.beginTransaction()
+      const [rows]=await conn.execute('SELECT * FROM store_orders WHERE code=? FOR UPDATE',[orderCode])
+      if(!rows.length) throw new Error('Pedido não encontrado.')
+      const order=rows[0]
+      if(order.status!=='CANCELLED' && mapped!=='CANCELLED' && rank[mapped] < rank[order.status]) {
+        await conn.rollback()
+        await query('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
+        return res.status(200).json({received:true,ignored:true,reason:'status_regressivo'})
+      }
+      await conn.execute("UPDATE store_orders SET status=? WHERE id=?",[mapped,order.id])
+      customer={email:order.customer_email,name:order.customer_name}
+      await conn.commit()
+    }catch(error){await conn.rollback().catch(()=>{});throw error}finally{conn.release()}
+    await query('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
+    if(customer?.email && ['PREPARING','SHIPPED','DELIVERED'].includes(mapped)) void sendEmailSafely({
+      to:customer.email,
+      subject:'Pedido '+orderCode+' — '+({PREPARING:'em preparação',SHIPPED:'enviado',DELIVERED:'entregue'})[mapped],
+      idempotencyKey:'distributor-'+uniqueEventId,
+      html:'<div style="font-family:Arial,sans-serif"><h1>Atualização do pedido</h1><p>Olá, '+escapeHtml(customer.name)+'</p><p>Seu pedido <strong>'+escapeHtml(orderCode)+'</strong> está '+escapeHtml(({PREPARING:'em preparação',SHIPPED:'a caminho',DELIVERED:'entregue'})[mapped])+'</p></div>'
+    })
+    return res.status(200).json({received:true,status:mapped})
+  } catch(error) {
+    console.error('Erro no webhook da distribuidora:',error)
+    await query('DELETE FROM integration_events WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId]).catch(()=>{})
+    return res.status(500).json({error:'Não foi possível processar o webhook da distribuidora.'})
+  }
+})
+
 app.use('/api/admin', exigirLogin, exigirOperacao)
 app.get('/api/admin/store-orders', async (req,res) => {
   try {
-    const orders=await query('SELECT id,code,customer_id,customer_name,customer_email,customer_phone,status,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
+    const orders=await query('SELECT id,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
     for(const order of orders){
       order.items=await query('SELECT product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
