@@ -291,9 +291,9 @@ function Home({ products = fallbackProducts }) {
           <span className="eyebrow">GALEO / MULTIBRAND STORE</span>
           <h1 className="hero-title">
             <span className="hero-title-line"><span className="hero-title-mask">Vista o que</span></span>
-            <span className="hero-title-line"><span className="hero-title-mask"><em>representa você.</em></span></span>
+            <span className="hero-title-line"><span className="hero-title-mask"><em>representa você</em></span></span>
           </h1>
-          <p>Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho.</p>
+          <p>Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho</p>
           <div className="hero-full-actions">
             <Link className="button button-primary" to="/shop">Explorar coleção <span>↗</span></Link>
             <span className="hero-scroll">SCROLL ↓</span>
@@ -332,7 +332,7 @@ function Home({ products = fallbackProducts }) {
           <CampaignVisual variant={1} />
           <div className="campaign-card-copy">
             <span>NEW DROPS</span>
-            <strong>Peças que<br /><em>marcam presença.</em></strong>
+            <strong>Peças que<br /><em>marcam presença</em></strong>
             <small>Descobrir agora ↗</small>
           </div>
         </Link>
@@ -340,7 +340,7 @@ function Home({ products = fallbackProducts }) {
           <CampaignVisual variant={2} />
           <div className="campaign-card-copy">
             <span>PREMIUM SELECTION</span>
-            <strong>Seu estilo,<br /><em>sem rótulo.</em></strong>
+            <strong>Seu estilo,<br /><em>sem rótulo</em></strong>
             <small>Ver seleção ↗</small>
           </div>
         </Link>
@@ -348,7 +348,7 @@ function Home({ products = fallbackProducts }) {
           <CampaignVisual variant={3} />
           <div className="campaign-card-copy">
             <span>LIMITED EDITION</span>
-            <strong>Feito para<br /><em>ser notado.</em></strong>
+            <strong>Feito para<br /><em>ser notado</em></strong>
             <small>Explorar ↗</small>
           </div>
         </Link>
@@ -356,13 +356,13 @@ function Home({ products = fallbackProducts }) {
 
       <section className="manifesto section-shell" id="sobre" data-reveal>
         <span className="eyebrow">03 / SOBRE A GALEO</span>
-        <p>Não seguimos o padrão.<br /><em>Criamos o nosso.</em></p>
+        <p>Não seguimos o padrão.<br /><em>Criamos o nosso</em></p>
       </section>
 
       <section className="newsletter section-shell" data-reveal>
         <div>
           <span className="eyebrow">GALEO / INSIDER</span>
-          <h2>Entre para a próxima fase.</h2>
+          <h2>Entre para a próxima fase</h2>
         </div>
         <form onSubmit={event => event.preventDefault()}>
           <input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" />
@@ -470,7 +470,7 @@ function Shop({ products = fallbackProducts, categories = [] }) {
     <main className="section-shell page-space">
       <div className="page-heading" data-reveal>
         <span className="eyebrow">GALEO / SHOP</span>
-        <h1>Descubra<br /><em>seu próximo kit.</em></h1>
+        <h1>Descubra<br /><em>seu próximo kit</em></h1>
       </div>
 
       <form className="catalog-search" onSubmit={submitSearch} data-reveal>
