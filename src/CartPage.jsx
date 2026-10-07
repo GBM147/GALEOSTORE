@@ -61,7 +61,9 @@ export default function CartPage() {
         body:{ items:items.map((item) => ({ product_id:Number(item.id), quantity:item.quantity })), shipping:form }
       })
       const orderId = Number(data.order?.id || 0)
-      const payment = await customerApi('/api/store/orders/' + orderId + '/payment', { method:'POST' })
+      const payment = data.payment_configured
+        ? await customerApi('/api/store/orders/' + orderId + '/payment', { method:'POST' })
+        : { checkout_url:'', payment_configured:false }
       if (payment.checkout_url) {
         writeCart([])
         window.location.assign(payment.checkout_url)
