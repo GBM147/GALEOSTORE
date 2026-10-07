@@ -15,6 +15,8 @@ import { registerMediaLibrary } from './media-library.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createServer } from 'node:http'
+import { WebSocketServer } from 'ws'
 import { mercadoPagoOnlineConfigured, mercadoPagoPointConfigured, createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, getMercadoPagoOrder, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
 import {
   configurarPersistenciaSessao,
@@ -23,6 +25,33 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
+const httpServer = createServer(app)
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
+
+wss.on('connection', (socket) => {
+  socket.isAlive = true
+  socket.on('pong', () => { socket.isAlive = true })
+  socket.on('message', (message) => {
+    socket.isAlive = true
+    try {
+      const payload = JSON.parse(String(message || '{}'))
+      if (payload?.type === 'keepalive') socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() }))
+    } catch {
+      socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() }))
+    }
+  })
+  socket.on('error', () => {})
+})
+
+const websocketHeartbeat = setInterval(() => {
+  wss.clients.forEach((socket) => {
+    if (socket.isAlive === false) return socket.terminate()
+    socket.isAlive = false
+    socket.ping()
+  })
+}, 30000)
+
+wss.on('close', () => clearInterval(websocketHeartbeat))
 
 if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
   cloudinary.config({
@@ -2407,8 +2436,9 @@ async function bootstrap() {
     })
   )
 
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     console.log(`GALEO API running on port ${PORT}`)
+    console.log('GALEO WebSocket keepalive ativo em /ws')
   })
 }
 
