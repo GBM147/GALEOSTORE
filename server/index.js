@@ -1077,7 +1077,18 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     const code='GALEO-'+Date.now().toString(36).toUpperCase().slice(-7)+'-'+randomBytes(2).toString('hex').toUpperCase()
     const insertSql="INSERT INTO store_orders(code,customer_id,customer_name,customer_email,customer_phone,status,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state) VALUES(?,?,?,?,?,'RECEIVED',?,?,?,?,?,?,?,?,?,?)"
     const [orderResult]=await conn.execute(insertSql,[code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state])
-    for(const line of lines) await conn.execute('INSERT INTO store_order_items(order_id,product_id,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
+    for(const line of lines){
+      await conn.execute('INSERT INTO store_order_items(order_id,product_id,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
+      const [currentRows]=await conn.execute('SELECT stock,cost FROM products WHERE id=? FOR UPDATE',[line.product_id])
+      const currentStock=Number(currentRows[0]?.stock || 0)
+      const nextStock=currentStock-line.quantity
+      if(nextStock<0) throw new Error('Estoque insuficiente para '+line.product_name+'.')
+      await conn.execute('UPDATE products SET stock=? WHERE id=?',[nextStock,line.product_id])
+      await conn.execute(
+        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,?)",
+        [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0),req.customer.id]
+      )
+    }
     await conn.commit()
     const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
     void sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
@@ -1091,6 +1102,75 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
 })
 
 app.use('/api/admin', exigirLogin, exigirOperacao)
+app.get('/api/admin/store-orders', async (req,res) => {
+  try {
+    const orders=await query('SELECT id,code,customer_id,customer_name,customer_email,customer_phone,status,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
+    for(const order of orders){
+      order.items=await query('SELECT product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
+      order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
+    }
+    res.json(orders)
+  } catch(error){
+    console.error('Erro ao listar pedidos online:',error)
+    res.status(500).json({error:'Não foi possível carregar os pedidos online.'})
+  }
+})
+
+app.get('/api/admin/store-orders/:id', async (req,res) => {
+  try {
+    const id=Number(req.params.id)
+    const rows=await query('SELECT * FROM store_orders WHERE id=? LIMIT 1',[id])
+    if(!rows.length) return res.status(404).json({error:'Pedido não encontrado.'})
+    const items=await query('SELECT product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[id])
+    res.json({...rows[0],items})
+  } catch(error){
+    console.error('Erro ao detalhar pedido online:',error)
+    res.status(500).json({error:'Não foi possível carregar o pedido.'})
+  }
+})
+
+app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
+  const id=Number(req.params.id)
+  const status=String(req.body?.status || '').trim().toUpperCase()
+  const allowed=['RECEIVED','CONFIRMED','PREPARING','SHIPPED','DELIVERED','CANCELLED']
+  if(!allowed.includes(status)) return res.status(400).json({error:'Status de pedido inválido.'})
+
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction()
+    const [orderRows]=await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE',[id])
+    if(!orderRows.length) throw new Error('Pedido não encontrado.')
+    const order=orderRows[0]
+    if(order.status==='CANCELLED' && status!=='CANCELLED') throw new Error('Pedido cancelado não pode voltar ao fluxo.')
+    if(order.status==='DELIVERED' && status!=='DELIVERED') throw new Error('Pedido entregue não pode voltar ao fluxo.')
+
+    if(status==='CANCELLED' && order.status!=='CANCELLED'){
+      const [items]=await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id',[id])
+      for(const item of items){
+        const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
+        if(!productRows.length) throw new Error('Produto do pedido não encontrado.')
+        const product=productRows[0]
+        const stockBefore=Number(product.stock)
+        const stockAfter=stockBefore+Number(item.quantity)
+        await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
+        await conn.execute(
+          "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
+          [item.product_id,item.quantity,stockBefore,stockAfter,'Cancelamento do pedido '+order.code,'store-order:'+id,Number(product.cost||0),req.admin.id]
+        )
+      }
+    }
+
+    await conn.execute('UPDATE store_orders SET status=? WHERE id=?',[status,id])
+    await conn.commit()
+    await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status})
+    res.json({success:true,id,status})
+  }catch(error){
+    await conn.rollback().catch(()=>{})
+    console.error('Erro ao atualizar pedido online:',error)
+    res.status(400).json({error:error.message||'Não foi possível atualizar o pedido.'})
+  }finally{conn.release()}
+})
+
 
 app.get('/api/admin/home', exigirLogin, exigirOwner, async (req, res) => {
   try {
