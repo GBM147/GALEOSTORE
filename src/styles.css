@@ -1489,3 +1489,11 @@ body {
 
 .online-order-payment{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 0;border-bottom:1px solid var(--line)}.online-order-payment>div{display:grid;gap:6px;padding:14px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.online-order-payment span,.online-order-payment small{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em}.online-order-payment strong{font-size:13px;color:var(--text)}
 @media(max-width:700px){.online-order-payment{grid-template-columns:1fr}}
+
+
+/* Modo claro: imagens da home sem transparência */
+:root[data-theme="light"] .campaign-brand-image,
+:root[data-theme="light"] .campaign-video {
+  opacity: 1 !important;
+  mix-blend-mode: normal;
+}
