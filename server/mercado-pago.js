@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 const MERCADO_PAGO_BASE_URL = 'https://api.mercadopago.com'
 
@@ -70,8 +70,7 @@ export async function createMercadoPagoOnlineOrder({ order, items, idempotencyKe
         street_name: String(order.street || ''),
         street_number: String(order.number || ''),
         neighborhood: String(order.neighborhood || ''),
-        city: String(order.city || ''),
-        state: String(order.state || '')
+        city: String(order.city || '')
       }
     },
     config: {
@@ -87,7 +86,9 @@ export async function createMercadoPagoOnlineOrder({ order, items, idempotencyKe
       external_code: 'P' + String(item.product_id),
       title: String(item.product_name),
       quantity: Number(item.quantity),
-      unit_price: Number(item.unit_price).toFixed(2)
+      unit_price: Number(item.unit_price).toFixed(2),
+      unit_measure: 'unit',
+      total_amount: Number(item.line_total).toFixed(2)
     })),
     description: 'Pedido ' + String(order.code) + ' — GALEO Store'
   }
@@ -150,5 +151,24 @@ export function validateMercadoPagoWebhookSignature({ signature, requestId, data
 
   const received = Buffer.from(receivedHash, 'utf8')
   const expected = Buffer.from(expectedHash, 'utf8')
-  return received.length === expected.length && received.length > 0 && received.equals(expected)
+  if (received.length !== expected.length || received.length === 0) return false
+  return timingSafeEqual(received, expected)
+}
+
+
+export async function listMercadoPagoTerminals({ storeId = '', posId = '' } = {}) {
+  const params = new URLSearchParams({ limit: '50', offset: '0' })
+  if (storeId) params.set('store_id', String(storeId))
+  if (posId) params.set('pos_id', String(posId))
+  return mercadoPagoRequest('/terminals/v1/list?' + params.toString())
+}
+
+export async function configureMercadoPagoTerminal(terminalId, operatingMode = 'PDV') {
+  if (!mercadoPagoOnlineConfigured()) throw new Error('Mercado Pago ainda não está configurado no servidor.')
+  return mercadoPagoRequest('/terminals/v1/setup', {
+    method: 'PATCH',
+    body: {
+      terminals: [{ id: String(terminalId), operating_mode: String(operatingMode).toUpperCase() }]
+    }
+  })
 }
