@@ -418,7 +418,7 @@ async function init() {
     ['Peças que marcam presença.', 'Peças que marcam presença'],
     ['Seu estilo, sem rótulo.', 'Seu estilo, sem rótulo'],
     ['Feito para ser notado.', 'Feito para ser notado'],
-    ['Não seguimos o padrão. Criamos o nosso.', 'Não seguimos o padrão\nCriamos o nosso'],
+    ['Não seguimos o padrão. Criamos o nosso.', 'Não seguimos o padrão Criamos o nosso'],
     ['Entre para a próxima fase.', 'Entre para a próxima fase']
   ]
   for (const [legacyText, cleanText] of legacyTextMigrations) {
