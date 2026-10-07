@@ -259,19 +259,6 @@ function Header({ theme, onToggle, categories = [], navigation = null }) {
   )
 }
 
-function CampaignVisual({ variant = 0 }) {
-  return (
-    <div className={'campaign-visual campaign-visual-' + variant} aria-hidden="true">
-      <div className="campaign-orb" />
-      <div className="campaign-line campaign-line-a" />
-      <div className="campaign-line campaign-line-b" />
-      <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />
-      <div className="campaign-scan" />
-    </div>
-  )
-}
-
-
 function homeSectionContent(sections, key) {
   const section = Array.isArray(sections) ? sections.find((item) => item.key === key && item.visible !== false) : null
   return section?.content || {}
