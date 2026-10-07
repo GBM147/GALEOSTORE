@@ -568,7 +568,12 @@ function PlaceholderPage({ title, label }) {
 export default function App() {
   const previewMode = new URLSearchParams(window.location.search).get('preview') === 'draft'
   const [previewDenied, setPreviewDenied] = useState(false)
-  const [theme, setTheme] = useState(() => localStorage.getItem('galeo-theme') || 'dark')
+  const [theme, setTheme] = useState(() => {
+    const requestedTheme = new URLSearchParams(window.location.search).get('theme')
+    return requestedTheme === 'light' || requestedTheme === 'dark'
+      ? requestedTheme
+      : (localStorage.getItem('galeo-theme') || 'dark')
+  })
   const [catalog, setCatalog] = useState([])
   const [categories, setCategories] = useState([])
   const [catalogError, setCatalogError] = useState('')
