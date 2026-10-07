@@ -835,12 +835,12 @@ app.put('/api/admin/home/:key', exigirLogin, exigirOwner, async (req, res) => {
       await query('UPDATE home_sections SET draft_content=?, updated_by=? WHERE section_key=?', [payload, req.admin.id, key])
     } else {
       await query(
-        \`UPDATE home_sections
+        `UPDATE home_sections
          SET draft_content=?,
              visible=COALESCE(?, visible),
              sort_order=COALESCE(?, sort_order),
              updated_by=?
-         WHERE section_key=?\`,
+         WHERE section_key=?`,
         [payload, nextVisible, nextOrder, req.admin.id, key]
       )
     }
