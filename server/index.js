@@ -15,6 +15,7 @@ import { registerMediaLibrary } from './media-library.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { mercadoPagoOnlineConfigured, mercadoPagoPointConfigured, createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, getMercadoPagoOrder, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
 import {
   configurarPersistenciaSessao,
   normalizarManterConectado
