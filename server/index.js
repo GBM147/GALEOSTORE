@@ -752,8 +752,47 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
       [orderId, method, 'MERCADO_PAGO', providerReference, status, amount, JSON.stringify(mpOrder), status === 'APPROVED' ? new Date() : null]
     )
     await conn.execute("UPDATE store_orders SET payment_status=?,payment_provider='MERCADO_PAGO',payment_method=?,payment_reference=?,paid_at=? WHERE id=?", [status, method, providerReference || null, status === 'APPROVED' ? new Date() : null, orderId])
-    if (status === 'APPROVED') promoted = await promoverPedidoPagoParaVenda(conn, orderId, { payment_method_type: method })
-    else if (status === 'REFUNDED') await conn.execute("UPDATE store_orders SET status='CANCELLED' WHERE id=?", [orderId])
+    if (status === 'APPROVED') {
+      promoted = await promoverPedidoPagoParaVenda(conn, orderId, { payment_method_type: method })
+    } else if (status === 'REFUNDED') {
+      const [refundOrderRows]=await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE',[orderId])
+      const refundOrder=refundOrderRows[0]
+      if(refundOrder?.sale_id){
+        const [saleRows]=await conn.execute('SELECT * FROM sales WHERE id=? FOR UPDATE',[refundOrder.sale_id])
+        if(saleRows.length && saleRows[0].status!=='CANCELADA'){
+          const [saleItems]=await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id',[refundOrder.sale_id])
+          for(const item of saleItems){
+            const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
+            if(!productRows.length) throw new Error('Produto da venda não encontrado.')
+            const product=productRows[0]
+            const stockBefore=Number(product.stock)
+            const stockAfter=stockBefore+Number(item.quantity)
+            await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
+            await conn.execute(
+              "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,NULL)",
+              [item.product_id,item.quantity,stockBefore,stockAfter,'Estorno do pedido online '+refundOrder.code,'store-order:'+orderId,Number(item.unit_cost||0)]
+            )
+          }
+          await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?",[refundOrder.sale_id])
+          await conn.execute("UPDATE financial_entries SET status='CANCELADO',paid_at=NULL WHERE reference_type='VENDA' AND reference_id=?",['sale:'+refundOrder.sale_id])
+        }
+      } else {
+        const [items]=await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
+        for(const item of items){
+          const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
+          if(!productRows.length) throw new Error('Produto do pedido não encontrado.')
+          const product=productRows[0]
+          const stockBefore=Number(product.stock)
+          const stockAfter=stockBefore+Number(item.quantity)
+          await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
+          await conn.execute(
+            "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,NULL)",
+            [item.product_id,item.quantity,stockBefore,stockAfter,'Estorno do pedido online '+refundOrder.code,'store-order:'+orderId,Number(product.cost||0)]
+          )
+        }
+      }
+      await conn.execute("UPDATE store_orders SET status='CANCELLED',payment_status='REFUNDED' WHERE id=?",[orderId])
+    }
     if (eventId) await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?', ['MERCADO_PAGO', eventId])
     await conn.commit()
   } catch (error) {
@@ -1379,6 +1418,7 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
     if(order.status==='DELIVERED' && status!=='DELIVERED') throw new Error('Pedido entregue não pode voltar ao fluxo.')
 
     if(status==='CANCELLED' && order.status!=='CANCELLED'){
+      if(order.payment_status==='APPROVED' || order.sale_id) throw new Error('Pagamento aprovado não pode ser cancelado por este painel. O estorno deve ser processado no Mercado Pago.')
       const [items]=await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id',[id])
       for(const item of items){
         const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
@@ -1394,7 +1434,7 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
       }
     }
 
-    await conn.execute('UPDATE store_orders SET status=? WHERE id=?',[status,id])
+    await conn.execute("UPDATE store_orders SET status=?,payment_status=CASE WHEN ?='CANCELLED' THEN 'CANCELLED' ELSE payment_status END WHERE id=?",[status,status,id])
     await conn.commit()
     await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status})
     res.json({success:true,id,status})
