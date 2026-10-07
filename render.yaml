@@ -41,3 +41,11 @@ services:
         sync: false
       - key: STORE_NOTIFICATION_EMAIL
         sync: false
+      - key: MERCADO_PAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADO_PAGO_WEBHOOK_SECRET
+        sync: false
+      - key: MERCADO_PAGO_POINT_TERMINAL_ID
+        sync: false
+      - key: DISTRIBUTOR_WEBHOOK_SECRET
+        sync: false
