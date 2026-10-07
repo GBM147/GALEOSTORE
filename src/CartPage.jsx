@@ -60,12 +60,22 @@ export default function CartPage() {
         method:'POST',
         body:{ items:items.map((item) => ({ product_id:Number(item.id), quantity:item.quantity })), shipping:form }
       })
+      const orderId = Number(data.order?.id || 0)
+      const payment = await customerApi('/api/store/orders/' + orderId + '/payment', { method:'POST' })
+      if (payment.checkout_url) {
+        writeCart([])
+        window.location.assign(payment.checkout_url)
+        return
+      }
       writeCart([])
       setOrderCode(data.order?.code || '')
     } catch (err) { setError(err.message) } finally { setSubmitting(false) }
   }
 
   if (loading) return <main className="section-shell page-space product-page-state"><span className="eyebrow">GALEO / CARRINHO</span><h1>Carregando carrinho</h1></main>
+  const paymentQuery = new URLSearchParams(window.location.search).get('pagamento')
+  const returnedOrder = new URLSearchParams(window.location.search).get('pedido')
+  if (paymentQuery) { const labels = { sucesso:'Pagamento enviado com sucesso', pendente:'Pagamento aguardando confirmação', falha:'Pagamento não concluído' }; return <main className="section-shell page-space cart-success"><span className="eyebrow">GALEO / PAGAMENTO</span><h1>{labels[paymentQuery] || 'Pagamento'}</h1>{returnedOrder && <p>Pedido <strong>{returnedOrder}</strong> — o status será atualizado automaticamente quando o Mercado Pago confirmar o pagamento</p>}<Link className="button button-primary" to="/conta">Acompanhar pedido ↗</Link></main> }
   if (orderCode) return <main className="section-shell page-space cart-success"><span className="eyebrow">GALEO / PEDIDO</span><h1>Pedido recebido</h1><p>Seu pedido <strong>{orderCode}</strong> foi registrado e está aguardando confirmação</p><Link className="button button-primary" to="/conta">Ver meus pedidos ↗</Link></main>
 
   return (
