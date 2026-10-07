@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -177,6 +178,42 @@ func filteredStore(store StoreResponse) StoreResponse {
 	}
 }
 
+func fetchProduct(ctx context.Context, id string) (map[string]any, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL()+"/api/store/products/"+url.PathEscape(id), nil)
+	if err != nil { return nil, err }
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "GALEO-Go-API/1.0")
+	response, err := (&http.Client{Timeout:8*time.Second}).Do(request)
+	if err != nil { return nil, err }
+	defer response.Body.Close()
+	var payload map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil { return nil, err }
+	if response.StatusCode < 200 || response.StatusCode >= 300 { return payload, &upstreamStatusError{status:response.StatusCode} }
+	return payload,nil
+}
+
+func productHandler(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.URL.Path,"/api/store/products/") { http.NotFound(w,r); return }
+	id:=strings.TrimPrefix(r.URL.Path,"/api/store/products/")
+	if id=="" || strings.Contains(id,"/") { http.NotFound(w,r); return }
+	ctx,cancel:=context.WithTimeout(r.Context(),9*time.Second)
+	defer cancel()
+	payload,err:=fetchProduct(ctx,id)
+	if err!=nil {
+		if statusErr,ok:=err.(*upstreamStatusError); ok && statusErr.status==http.StatusNotFound {
+			writeJSON(w,http.StatusNotFound,payload); return
+		}
+		log.Printf("product upstream error: %v",err)
+		writeJSON(w,http.StatusBadGateway,map[string]any{"success":false,"error":"Não foi possível carregar o produto agora."})
+		return
+	}
+	if product,ok:=payload["product"].(map[string]any); ok {
+		category,_:=product["category"].(string)
+		if category!="" && !isAllowedCategory(category) { writeJSON(w,http.StatusNotFound,map[string]any{"success":false,"error":"Produto não encontrado."}); return }
+	}
+	writeJSON(w,http.StatusOK,payload)
+}
+
 func storeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/store" {
 		http.NotFound(w, r)
@@ -233,6 +270,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/api/store/products/", productHandler)
 	mux.HandleFunc("/api/store", storeHandler)
 
 	server := &http.Server{
