@@ -170,7 +170,7 @@ function StorefrontMotion() {
       lenis.destroy()
       ctx.revert()
     }
-  }, [previewMode])
+  }, [])
 
   return null
 }
@@ -630,7 +630,7 @@ export default function App() {
 
     loadCatalog()
     return () => { active = false }
-  }, [])
+  }, [previewMode])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
