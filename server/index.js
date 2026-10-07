@@ -82,6 +82,45 @@ const allowedOrigins = String(process.env.ALLOWED_ORIGINS || appUrl)
   .split(',')
   .map((x) => x.trim())
   .filter(Boolean)
+const emailFrom = String(process.env.EMAIL_FROM || '').trim()
+const storeNotificationEmail = String(process.env.STORE_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL || '').trim()
+
+async function sendTransactionalEmail({ to, subject, html, text = '', idempotencyKey = '' }) {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim()
+  if (!apiKey || !emailFrom) {
+    console.log('EMAIL: provider not configured, skipped:', subject)
+    return { skipped: true }
+  }
+  const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean)
+  if (!recipients.length) return { skipped: true }
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+    },
+    body: JSON.stringify({ from: emailFrom, to: recipients, subject, html, ...(text ? { text } : {}) })
+  })
+  const raw = await response.text()
+  let data = null
+  try { data = raw ? JSON.parse(raw) : null } catch {}
+  if (!response.ok) throw new Error(data?.message || data?.error || ('Resend HTTP ' + response.status))
+  return data || { success: true }
+}
+
+async function sendEmailSafely(payload) {
+  try { return await sendTransactionalEmail(payload) }
+  catch (error) { console.error('EMAIL ERROR:', error.message); return { error: error.message } }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[char]))
+}
+function moneyBR(value) {
+  return Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
+}
+
 
 app.use(express.json({ limit: '1mb' }))
 app.use(express.urlencoded({ extended: true, limit: '256kb' }))
@@ -315,6 +354,56 @@ async function init() {
       CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE SET NULL,
       INDEX idx_audit_entity_created (entity, entity_id, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS customers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(180) NOT NULL,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      phone VARCHAR(40) NOT NULL DEFAULT '',
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_customer_active_email (active,email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS store_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(32) NOT NULL UNIQUE,
+      customer_id INT NOT NULL,
+      customer_name VARCHAR(180) NOT NULL,
+      customer_email VARCHAR(255) NOT NULL,
+      customer_phone VARCHAR(40) NOT NULL DEFAULT '',
+      status ENUM('RECEIVED','CONFIRMED','PREPARING','SHIPPED','DELIVERED','CANCELLED') NOT NULL DEFAULT 'RECEIVED',
+      subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+      shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0,
+      total DECIMAL(12,2) NOT NULL DEFAULT 0,
+      postal_code VARCHAR(20) NOT NULL DEFAULT '',
+      street VARCHAR(180) NOT NULL DEFAULT '',
+      number VARCHAR(40) NOT NULL DEFAULT '',
+      complement VARCHAR(120) NOT NULL DEFAULT '',
+      neighborhood VARCHAR(120) NOT NULL DEFAULT '',
+      city VARCHAR(120) NOT NULL DEFAULT '',
+      state CHAR(2) NOT NULL DEFAULT '',
+      notes TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_order_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+      INDEX idx_order_customer_created (customer_id,created_at),
+      INDEX idx_order_status_created (status,created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS store_order_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id INT NOT NULL,
+      product_id INT NOT NULL,
+      product_name VARCHAR(180) NOT NULL,
+      brand VARCHAR(120) NOT NULL DEFAULT '',
+      quantity INT NOT NULL,
+      unit_price DECIMAL(12,2) NOT NULL,
+      line_total DECIMAL(12,2) NOT NULL,
+      CONSTRAINT fk_order_item_order FOREIGN KEY (order_id) REFERENCES store_orders(id) ON DELETE CASCADE,
+      CONSTRAINT fk_order_item_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,
+      INDEX idx_order_item_order (order_id),
+      INDEX idx_order_item_product (product_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS home_sections (
       id INT AUTO_INCREMENT PRIMARY KEY,
       section_key VARCHAR(80) NOT NULL UNIQUE,
@@ -527,7 +616,7 @@ function gerarCsrfToken(req) {
 
 function validarCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
-  if (req.path === '/api/auth/login') return next()
+  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register') return next()
 
   const expected = String(req.session.csrfToken || '')
   const provided = String(req.get('X-CSRF-Token') || '')
@@ -553,6 +642,22 @@ function exigirPapel(...papeisPermitidos) {
 
 const exigirOwner = exigirPapel('owner')
 const exigirOperacao = exigirPapel('owner', 'staff')
+
+async function exigirCliente(req,res,next) {
+  if (!req.session.customerId) return res.status(401).json({ success:false,authenticated:false,error:'Faça login para continuar.' })
+  try {
+    const rows=await query('SELECT id,name,email,phone,active,created_at FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
+    if (!rows.length || !rows[0].active) {
+      delete req.session.customerId
+      return res.status(401).json({ success:false,authenticated:false,error:'Esta conta não está disponível.' })
+    }
+    req.customer=rows[0]
+    next()
+  } catch(error) {
+    console.error('Erro ao validar cliente:',error)
+    res.status(500).json({ success:false,error:'Não foi possível validar sua conta.' })
+  }
+}
 
 
 app.get('/health', async (req, res) => {
@@ -743,6 +848,21 @@ app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, 
   }
 })
 
+app.get('/api/store/products/:id', async (req,res) => {
+  const productId=Number(req.params.id)
+  if(!Number.isInteger(productId)||productId<=0) return res.status(400).json({error:'Produto inválido.'})
+  try {
+    const products=await query('SELECT p.*,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=? AND p.active=1 LIMIT 1',[productId])
+    if(!products.length) return res.status(404).json({error:'Produto não encontrado.'})
+    const media=await query('SELECT id,media_type,url,width,height,duration,sort_order FROM product_media WHERE product_id=? ORDER BY sort_order,id',[productId])
+    const related=await query('SELECT p.id,p.name,p.brand,p.price,p.stock,p.image,p.video,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.active=1 AND p.category_id <=> ? AND p.id<>? ORDER BY p.id DESC LIMIT 8',[products[0].category_id,productId])
+    res.json({product:{...products[0],media},related})
+  } catch(error) {
+    console.error('Erro ao carregar produto público:',error)
+    res.status(500).json({error:'Não foi possível carregar este produto.'})
+  }
+})
+
 app.get('/api/store/home', async (req, res) => {
   try {
     const rows = await query('SELECT section_key,section_type,sort_order,visible,published_content,published_at FROM home_sections WHERE visible=1 ORDER BY sort_order,id')
@@ -822,6 +942,153 @@ async function seedAndScheduleRecurring() {
 }
 
 cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' })
+
+app.post('/api/customer/register', limitarAutenticacao, async (req,res) => {
+  const name=String(req.body?.name || '').trim()
+  const email=String(req.body?.email || '').trim().toLowerCase()
+  const phone=String(req.body?.phone || '').trim()
+  const password=String(req.body?.password || '')
+  if(name.length<2||name.length>180) return res.status(400).json({error:'Informe um nome válido.'})
+  if(!/^\S+@\S+\.\S+$/.test(email)||email.length>255) return res.status(400).json({error:'Informe um e-mail válido.'})
+  if(password.length<10||password.length>128) return res.status(400).json({error:'A senha deve ter entre 10 e 128 caracteres.'})
+  try {
+    const exists=await query('SELECT id FROM customers WHERE email=? LIMIT 1',[email])
+    if(exists.length) return res.status(409).json({error:'Já existe uma conta com este e-mail.'})
+    const passwordHash=await bcrypt.hash(password,12)
+    const result=await query('INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',[name,email,passwordHash,phone])
+    req.session.customerId=result.insertId
+    req.session.csrfToken=randomBytes(32).toString('hex')
+    await salvarSessao(req)
+    void sendEmailSafely({
+      to:email,
+      subject:'Bem-vindo à GALEO',
+      idempotencyKey:'welcome-customer-'+result.insertId,
+      html:'<div style="font-family:Arial,sans-serif"><h1>Bem-vindo à GALEO</h1><p>Olá, '+escapeHtml(name)+'</p><p>Sua conta foi criada com sucesso</p><p><a href="'+escapeHtml(appUrl || '/')+'">Visitar a GALEO</a></p></div>'
+    })
+    res.json({success:true,user:{id:result.insertId,name,email,phone},csrfToken:req.session.csrfToken})
+  } catch(error) {
+    console.error('Erro ao criar cliente:',error)
+    res.status(500).json({error:'Não foi possível criar sua conta.'})
+  }
+})
+
+app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
+  const email=String(req.body?.email || '').trim().toLowerCase()
+  const password=String(req.body?.password || '')
+  try {
+    const rows=await query('SELECT id,name,email,password_hash,phone,active FROM customers WHERE email=? LIMIT 1',[email])
+    if(!rows.length||!rows[0].active||!(await bcrypt.compare(password,rows[0].password_hash))) return res.status(401).json({error:'E-mail ou senha inválidos.'})
+    req.session.customerId=rows[0].id
+    req.session.csrfToken=randomBytes(32).toString('hex')
+    await salvarSessao(req)
+    res.json({success:true,user:{id:rows[0].id,name:rows[0].name,email:rows[0].email,phone:rows[0].phone},csrfToken:req.session.csrfToken})
+  } catch(error) {
+    console.error('Erro no login do cliente:',error)
+    res.status(500).json({error:'Não foi possível entrar na sua conta.'})
+  }
+})
+
+app.get('/api/customer/me', async (req,res) => {
+  if(!req.session.customerId) return res.status(401).json({success:false,authenticated:false,error:'Não autenticado.'})
+  try {
+    const rows=await query('SELECT id,name,email,phone,created_at,active FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
+    if(!rows.length||!rows[0].active) return res.status(401).json({success:false,authenticated:false,error:'Não autenticado.'})
+    const csrfToken=gerarCsrfToken(req)
+    await salvarSessao(req)
+    res.json({success:true,authenticated:true,user:{id:rows[0].id,name:rows[0].name,email:rows[0].email,phone:rows[0].phone,created_at:rows[0].created_at},csrfToken})
+  } catch(error) {
+    console.error('Erro ao carregar conta do cliente:',error)
+    res.status(500).json({error:'Não foi possível carregar sua conta.'})
+  }
+})
+
+app.post('/api/customer/logout', exigirCliente, async (req,res) => {
+  delete req.session.customerId
+  req.session.csrfToken=randomBytes(32).toString('hex')
+  await salvarSessao(req)
+  res.json({success:true})
+})
+
+app.put('/api/customer/profile', exigirCliente, async (req,res) => {
+  const name=String(req.body?.name || '').trim()
+  const phone=String(req.body?.phone || '').trim()
+  if(name.length<2||name.length>180) return res.status(400).json({error:'Informe um nome válido.'})
+  try {
+    await query('UPDATE customers SET name=?,phone=? WHERE id=?',[name,phone,req.customer.id])
+    res.json({success:true,user:{...req.customer,name,phone}})
+  } catch(error) {
+    console.error('Erro ao atualizar cliente:',error)
+    res.status(500).json({error:'Não foi possível atualizar seus dados.'})
+  }
+})
+
+app.get('/api/customer/orders', exigirCliente, async (req,res) => {
+  try {
+    const orders=await query('SELECT id,code,status,subtotal,shipping_fee,total,created_at,updated_at FROM store_orders WHERE customer_id=? ORDER BY id DESC',[req.customer.id])
+    for(const order of orders) {
+      order.items=await query('SELECT product_id,product_name AS name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
+      order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
+    }
+    res.json({success:true,orders})
+  } catch(error) {
+    console.error('Erro ao carregar pedidos:',error)
+    res.status(500).json({error:'Não foi possível carregar seus pedidos.'})
+  }
+})
+
+app.post('/api/store/orders', exigirCliente, async (req,res) => {
+  const itemsInput=Array.isArray(req.body?.items)?req.body.items:[]
+  if(!itemsInput.length||itemsInput.length>50) return res.status(400).json({error:'Seu carrinho está vazio.'})
+  const shipping=req.body?.shipping&&typeof req.body.shipping==='object'?req.body.shipping:{}
+  const fields={
+    name:String(shipping.name||req.customer.name||'').trim().slice(0,180),
+    phone:String(shipping.phone||req.customer.phone||'').trim().slice(0,40),
+    postal_code:String(shipping.postal_code||'').trim().slice(0,20),
+    street:String(shipping.street||'').trim().slice(0,180),
+    number:String(shipping.number||'').trim().slice(0,40),
+    complement:String(shipping.complement||'').trim().slice(0,120),
+    neighborhood:String(shipping.neighborhood||'').trim().slice(0,120),
+    city:String(shipping.city||'').trim().slice(0,120),
+    state:String(shipping.state||'').trim().toUpperCase().slice(0,2)
+  }
+  for(const key of ['name','phone','postal_code','street','number','neighborhood','city','state']) if(!fields[key]) return res.status(400).json({error:'Preencha todos os dados de entrega.'})
+  const ids=[...new Set(itemsInput.map(item=>Number(item.product_id)).filter(id=>Number.isInteger(id)&&id>0))]
+  if(!ids.length||ids.length!==itemsInput.length) return res.status(400).json({error:'Há itens inválidos ou duplicados no carrinho.'})
+  const conn=await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const placeholders=ids.map(()=>'?').join(',')
+    const [products]=await conn.execute('SELECT p.id,p.name,p.brand,p.price,p.stock,p.active,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id IN ('+placeholders+') AND p.active=1 FOR UPDATE',ids)
+    const byId=new Map(products.map(item=>[Number(item.id),item]))
+    let subtotal=0
+    const lines=[]
+    for(const input of itemsInput){
+      const product=byId.get(Number(input.product_id))
+      const quantity=Number(input.quantity)
+      if(!product) throw new Error('Um dos produtos não está mais disponível.')
+      if(!Number.isInteger(quantity)||quantity<1||quantity>50) throw new Error('Quantidade inválida para '+product.name+'.')
+      if(quantity>Number(product.stock)) throw new Error('Estoque insuficiente para '+product.name+'.')
+      const lineTotal=Number(product.price)*quantity
+      subtotal+=lineTotal
+      lines.push({product_id:Number(product.id),product_name:product.name,brand:product.brand,quantity,unit_price:Number(product.price),line_total:lineTotal})
+    }
+    const shippingFee=0
+    const total=subtotal+shippingFee
+    const code='GALEO-'+Date.now().toString(36).toUpperCase().slice(-7)+'-'+randomBytes(2).toString('hex').toUpperCase()
+    const insertSql="INSERT INTO store_orders(code,customer_id,customer_name,customer_email,customer_phone,status,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state) VALUES(?,?,?,?,?,'RECEIVED',?,?,?,?,?,?,?,?,?,?)"
+    const [orderResult]=await conn.execute(insertSql,[code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state])
+    for(const line of lines) await conn.execute('INSERT INTO store_order_items(order_id,product_id,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
+    await conn.commit()
+    const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
+    void sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
+    if(storeNotificationEmail) void sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
+    res.json({success:true,order:{id:orderResult.insertId,code,status:'RECEIVED',subtotal,shipping_fee:shippingFee,total}})
+  } catch(error) {
+    await conn.rollback().catch(()=>{})
+    console.error('Erro ao criar pedido:',error)
+    res.status(400).json({error:error.message||'Não foi possível registrar seu pedido.'})
+  } finally { conn.release() }
+})
 
 app.use('/api/admin', exigirLogin, exigirOperacao)
 
