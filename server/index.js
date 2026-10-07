@@ -237,6 +237,14 @@ async function ensureColumn(table, column, definition) {
   if (!rows.length) await query('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + definition)
 }
 
+async function ensureIndex(table, indexName, createSql) {
+  const rows = await query(
+    'SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=? LIMIT 1',
+    [table, indexName]
+  )
+  if (!rows.length) await query(createSql)
+}
+
 async function init() {
   const schema = [
     `CREATE TABLE IF NOT EXISTS admin_users (
@@ -454,7 +462,7 @@ async function init() {
   await ensureColumn('store_orders', 'payment_url', "VARCHAR(1200) NULL")
   await ensureColumn('store_orders', 'paid_at', "DATETIME NULL")
   await ensureColumn('store_orders', 'sale_id', "INT NULL")
-  await query("CREATE UNIQUE INDEX IF NOT EXISTS uq_store_order_sale ON store_orders(sale_id)")
+  await ensureIndex('store_orders', 'uq_store_order_sale', 'CREATE UNIQUE INDEX uq_store_order_sale ON store_orders(sale_id)')
 
   const productCategories = [
     ['Camisetas', 10],
