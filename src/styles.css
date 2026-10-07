@@ -1392,8 +1392,8 @@ body {
 
 :root[data-theme="light"] .hero-full-shade {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--surface) 92%, transparent) 0%, color-mix(in srgb, var(--surface) 58%, transparent) 45%, color-mix(in srgb, var(--surface) 10%, transparent) 72%, color-mix(in srgb, var(--surface) 44%, transparent) 100%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 4%, transparent) 0%, transparent 55%, color-mix(in srgb, var(--surface) 38%, transparent) 100%);
+    linear-gradient(90deg, color-mix(in srgb, var(--surface) 94%, transparent) 0%, color-mix(in srgb, var(--surface) 68%, transparent) 40%, color-mix(in srgb, var(--surface) 10%, transparent) 67%, transparent 82%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, transparent 56%, color-mix(in srgb, var(--bg) 12%, transparent) 100%);
 }
 
 :root[data-theme="light"] .hero-scroll {
