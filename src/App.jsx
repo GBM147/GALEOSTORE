@@ -170,7 +170,7 @@ function StorefrontMotion() {
       lenis.destroy()
       ctx.revert()
     }
-  }, [])
+  }, [previewMode])
 
   return null
 }
@@ -562,6 +562,8 @@ function PlaceholderPage({ title, label }) {
 }
 
 export default function App() {
+  const previewMode = new URLSearchParams(window.location.search).get('preview') === 'draft'
+  const [previewDenied, setPreviewDenied] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('galeo-theme') || 'dark')
   const [catalog, setCatalog] = useState([])
   const [categories, setCategories] = useState([])
@@ -597,19 +599,33 @@ export default function App() {
       }
 
       try {
+        const homeEndpoint = previewMode ? '/api/admin/home' : '/api/store/home'
+        const settingsEndpoint = previewMode ? '/api/admin/home/settings' : '/api/store/home/settings'
         const [homeResponse, settingsResponse] = await Promise.all([
-          fetch('/api/store/home?ts=' + Date.now(), { cache:'no-store', headers:{ Accept:'application/json' } }),
-          fetch('/api/store/home/settings?ts=' + Date.now(), { cache:'no-store', headers:{ Accept:'application/json' } })
+          fetch(homeEndpoint + '?ts=' + Date.now(), { cache:'no-store', credentials:'include', headers:{ Accept:'application/json' } }),
+          fetch(settingsEndpoint + '?ts=' + Date.now(), { cache:'no-store', credentials:'include', headers:{ Accept:'application/json' } })
         ])
+
+        if (previewMode && (!homeResponse.ok || !settingsResponse.ok)) {
+          if (active) setPreviewDenied(true)
+          return
+        }
+
         if (homeResponse.ok) {
           const homeData = await homeResponse.json()
-          if (active) setHomeSections(Array.isArray(homeData?.sections) ? homeData.sections : [])
+          const sections = previewMode
+            ? (Array.isArray(homeData?.sections) ? homeData.sections.map((section) => ({ ...section, content: section.draft })) : [])
+            : (Array.isArray(homeData?.sections) ? homeData.sections : [])
+          if (active) setHomeSections(sections)
         }
+
         if (settingsResponse.ok) {
           const settingsData = await settingsResponse.json()
           if (active) setSiteSettings(Object.fromEntries((settingsData?.settings || []).map((item) => [item.key, item.value])))
         }
-      } catch {}
+      } catch {
+        if (previewMode && active) setPreviewDenied(true)
+      }
     }
 
     loadCatalog()
@@ -632,6 +648,19 @@ export default function App() {
     <div className="app">
       <div className="scroll-progress" aria-hidden="true"><span /></div>
       {catalogError && <div className="catalog-global-error" role="status">{catalogError}</div>}
+      {previewDenied && previewMode && (
+        <div className="draft-preview-denied" role="alert">
+          <strong>Pré-visualização indisponível</strong>
+          <span>Abra esta visualização enquanto estiver conectado ao painel administrativo como proprietário</span>
+        </div>
+      )}
+      {previewMode && !previewDenied && (
+        <div className="draft-preview-bar" role="status">
+          <span><strong>RASCUNHO</strong> esta versão ainda não está publicada</span>
+          <a href="/admin?tab=editor">Voltar ao editor</a>
+        </div>
+      )}
+
       <StorefrontMotion />
       <Header
         theme={theme}

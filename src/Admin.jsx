@@ -831,7 +831,7 @@ function HomeEditor({ user }) {
     <div className="home-editor">
       <div className="home-editor-main">
         <aside className="home-editor-sidebar">
-          <div className="home-editor-sidebar-title"><span className="eyebrow">EDITOR DA LOJA</span><strong>Conteúdo</strong></div>
+          <div className="home-editor-sidebar-title"><span className="eyebrow">EDITOR DA LOJA</span><strong>Conteúdo da Home</strong><small>Você está editando um rascunho</small></div>
           {sections.map((section) => {
             const meta = HOME_EDITOR_META[section.key] || [section.key, 'Seção']
             return (
@@ -945,7 +945,17 @@ function HomeEditor({ user }) {
               {selectedKey === 'manifesto' && <div className="home-editor-form single"><label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Texto<textarea rows="6" value={draft.text || ''} onChange={(e) => setField('text', e.target.value)} /></label></div>}
               {selectedKey === 'newsletter' && <div className="home-editor-form single"><label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label><label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label></div>}
 
-              <div className="home-editor-savebar"><small>{selected?.published_at ? 'Publicado em ' + new Date(selected.published_at).toLocaleString('pt-BR') : 'Ainda não publicado'}</small><button className="button button-primary" type="button" onClick={saveSection} disabled={saving}>{saving ? 'Salvando…' : 'Salvar rascunho ↗'}</button></div>
+              <div className="home-editor-savebar">
+                <div className="home-editor-save-status">
+                  <strong>Rascunho</strong>
+                  <small>{selected?.updated_at ? 'Salvo em ' + new Date(selected.updated_at).toLocaleString('pt-BR') : 'Ainda não salvo'}</small>
+                  <small>{selected?.published_at ? 'Publicado em ' + new Date(selected.published_at).toLocaleString('pt-BR') : 'Ainda não publicado'}</small>
+                </div>
+                <div className="home-editor-save-actions">
+                  <button className="button button-ghost" type="button" onClick={() => window.open('/?preview=draft&ts=' + Date.now(), '_blank', 'noopener,noreferrer')}>Visualizar rascunho ↗</button>
+                  <button className="button button-primary" type="button" onClick={saveSection} disabled={saving}>{saving ? 'Salvando…' : 'Salvar rascunho'}</button>
+                </div>
+              </div>
             </>
           )}
 
@@ -982,7 +992,18 @@ function HomeEditor({ user }) {
         </section>
 
         <aside className="home-editor-publish">
-          <div className="home-editor-publish-card"><span className="eyebrow">PUBLICAÇÃO</span><h3>Controle da Home</h3><p>Edite em rascunho, confira e publique quando estiver pronto</p><button className="button button-primary home-editor-publish-button" type="button" onClick={publishAll} disabled={saving}>{saving ? 'Publicando…' : 'Publicar Home ↗'}</button></div>
+          <div className="home-editor-publish-card">
+            <span className="eyebrow">PUBLICAÇÃO</span>
+            <h3>Rascunho separado da loja publicada</h3>
+            <p>Salvar rascunho guarda as alterações no CMS sem mudar o que o cliente vê</p>
+            <div className="home-editor-status-flow">
+              <span>1. Editar</span>
+              <span>2. Salvar rascunho</span>
+              <span>3. Visualizar</span>
+              <span>4. Publicar</span>
+            </div>
+            <button className="button button-primary home-editor-publish-button" type="button" onClick={publishAll} disabled={saving}>{saving ? 'Publicando…' : 'Publicar Home'}</button>
+          </div>
           {selected && <div className="home-editor-publish-card"><span className="eyebrow">SEÇÃO ATUAL</span><strong>{selectedMeta[0]}</strong><small>{selected.visible ? 'Visível na vitrine' : 'Oculta na vitrine'}</small><small>Ordem {selected.order}</small><small>Atualizado {selected.updated_at ? new Date(selected.updated_at).toLocaleString('pt-BR') : '—'}</small></div>}
           <div className="home-editor-publish-card"><span className="eyebrow">MÍDIA</span><strong>{mediaItems.length}</strong><small>arquivos disponíveis na biblioteca</small></div>
         </aside>

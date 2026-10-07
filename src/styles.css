@@ -1310,3 +1310,56 @@ body {
 .campaign-video { filter:saturate(.82) contrast(1.03); }
 @media (max-width:1180px) { .home-editor-main { grid-template-columns:200px minmax(0,1fr); } .home-editor-publish { grid-column:1/-1; grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (max-width:800px) { .home-editor-main { grid-template-columns:1fr; } .home-editor-sidebar { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; } .home-editor-sidebar-title,.home-editor-divider,.home-editor-nav-label { grid-column:1/-1; } .home-editor-workspace { padding:20px; } .home-editor-form,.home-editor-card-grid,.home-editor-product-grid,.home-editor-publish { grid-template-columns:1fr; } .home-editor-list-row { grid-template-columns:1fr auto auto; } .home-editor-list-row button:last-child { grid-column:1/-1; } }
+
+
+/* Preview de rascunho */
+.draft-preview-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 120;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 9px 16px;
+  background: #17110a;
+  border-bottom: 1px solid var(--accent);
+  color: var(--text);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.draft-preview-bar strong { color: var(--accent-soft); }
+.draft-preview-bar a { color: var(--text); border-bottom: 1px solid var(--line); }
+.draft-preview-denied {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  padding: 28px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+.draft-preview-denied strong { font-size: 28px; letter-spacing: -.03em; }
+.draft-preview-denied span { max-width: 560px; color: var(--muted); font-size: 12px; }
+
+.home-editor-sidebar-title strong { margin-bottom: 6px; }
+.home-editor-sidebar-title small { color: var(--muted); font-size: 9px; line-height: 1.5; text-transform: uppercase; letter-spacing: .08em; }
+.home-editor-save-status { display:grid; gap:4px; }
+.home-editor-save-status strong { color: var(--text); font-size: 10px; text-transform:uppercase; letter-spacing:.1em; }
+.home-editor-save-status small { color:var(--muted); font-size:9px; }
+.home-editor-save-actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.button-ghost { border:1px solid var(--line); background:transparent; color:var(--text); }
+.home-editor-status-flow { display:grid; gap:6px; }
+.home-editor-status-flow span { padding:7px 9px; border-left:2px solid var(--line); color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing:.08em; }
+@media (max-width:800px) {
+  .draft-preview-bar { justify-content:space-between; font-size:8px; }
+  .home-editor-save-actions { justify-content:stretch; }
+  .home-editor-save-actions .button { flex:1; min-width:0; }
+}
