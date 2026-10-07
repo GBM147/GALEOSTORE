@@ -22,6 +22,56 @@ const fallbackProducts = [
   { id: 6, name: 'Tênis Urban', category: 'Tênis', price: 299.9, image: '/images/product-placeholder.svg' }
 ]
 
+function KeepAliveSocket() {
+  useEffect(() => {
+    let socket = null
+    let timer = null
+    let reconnectTimer = null
+    let stopped = false
+    let retry = 1000
+
+    const connect = () => {
+      if (stopped) return
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      socket = new WebSocket(protocol + '//' + window.location.host + '/ws')
+
+      socket.addEventListener('open', () => {
+        retry = 1000
+        try { socket.send(JSON.stringify({ type: 'keepalive', at: Date.now() })) } catch {}
+        timer = window.setInterval(() => {
+          if (socket?.readyState === WebSocket.OPEN) {
+            try { socket.send(JSON.stringify({ type: 'keepalive', at: Date.now() })) } catch {}
+          }
+        }, 60 * 1000)
+      })
+
+      socket.addEventListener('close', () => {
+        if (timer) window.clearInterval(timer)
+        timer = null
+        if (stopped) return
+        window.clearTimeout(reconnectTimer)
+        reconnectTimer = window.setTimeout(connect, retry)
+        retry = Math.min(retry * 2, 30 * 1000)
+      })
+
+      socket.addEventListener('error', () => {
+        try { socket?.close() } catch {}
+      })
+    }
+
+    connect()
+
+    return () => {
+      stopped = true
+      if (timer) window.clearInterval(timer)
+      window.clearTimeout(reconnectTimer)
+      try { socket?.close() } catch {}
+    }
+  }, [])
+
+  return null
+}
+
 function StorefrontMotion() {
   useEffect(() => {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -685,6 +735,7 @@ export default function App() {
         </div>
       )}
 
+      <KeepAliveSocket />
       <StorefrontMotion />
       <Header
         theme={theme}
