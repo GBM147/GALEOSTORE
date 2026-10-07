@@ -229,6 +229,14 @@ async function audit(userId, action, entity, entityId, details = null) {
   )
 }
 
+async function ensureColumn(table, column, definition) {
+  const rows = await query(
+    'SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=? LIMIT 1',
+    [table, column]
+  )
+  if (!rows.length) await query('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + definition)
+}
+
 async function init() {
   const schema = [
     `CREATE TABLE IF NOT EXISTS admin_users (
@@ -373,6 +381,13 @@ async function init() {
       customer_name VARCHAR(180) NOT NULL,
       customer_email VARCHAR(255) NOT NULL,
       customer_phone VARCHAR(40) NOT NULL DEFAULT '',
+      payment_status ENUM('PENDING','APPROVED','REJECTED','CANCELLED','REFUNDED') NOT NULL DEFAULT 'PENDING',
+      payment_provider VARCHAR(60) NOT NULL DEFAULT '',
+      payment_method VARCHAR(40) NOT NULL DEFAULT '',
+      payment_reference VARCHAR(160) NULL,
+      payment_url VARCHAR(1200) NULL,
+      paid_at DATETIME NULL,
+      sale_id INT NULL,
       status ENUM('RECEIVED','CONFIRMED','PREPARING','SHIPPED','DELIVERED','CANCELLED') NOT NULL DEFAULT 'RECEIVED',
       subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
       shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -432,6 +447,14 @@ async function init() {
   ]
 
   for (const statement of schema) await query(statement)
+  await ensureColumn('store_orders', 'payment_status', "ENUM('PENDING','APPROVED','REJECTED','CANCELLED','REFUNDED') NOT NULL DEFAULT 'PENDING'")
+  await ensureColumn('store_orders', 'payment_provider', "VARCHAR(60) NOT NULL DEFAULT ''")
+  await ensureColumn('store_orders', 'payment_method', "VARCHAR(40) NOT NULL DEFAULT ''")
+  await ensureColumn('store_orders', 'payment_reference', "VARCHAR(160) NULL")
+  await ensureColumn('store_orders', 'payment_url', "VARCHAR(1200) NULL")
+  await ensureColumn('store_orders', 'paid_at', "DATETIME NULL")
+  await ensureColumn('store_orders', 'sale_id', "INT NULL")
+  await query("CREATE UNIQUE INDEX IF NOT EXISTS uq_store_order_sale ON store_orders(sale_id)")
 
   const productCategories = [
     ['Camisetas', 10],
@@ -617,7 +640,7 @@ function gerarCsrfToken(req) {
 
 function validarCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
-  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register') return next()
+  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
 
   const expected = String(req.session.csrfToken || '')
   const provided = String(req.get('X-CSRF-Token') || '')
@@ -1086,8 +1109,8 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
       if(nextStock<0) throw new Error('Estoque insuficiente para '+line.product_name+'.')
       await conn.execute('UPDATE products SET stock=? WHERE id=?',[nextStock,line.product_id])
       await conn.execute(
-        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,?)",
-        [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0),req.customer.id]
+        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,NULL)",
+        [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0)]
       )
     }
     await conn.commit()
