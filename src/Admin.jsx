@@ -1012,8 +1012,23 @@ function HomeEditor({ user }) {
   )
 }
 
+function OnlineOrderModal({ order, onClose, onStatus }) {
+  const [status,setStatus]=useState(order.status)
+  const [saving,setSaving]=useState(false)
+  const statuses=[['RECEIVED','Recebido'],['CONFIRMED','Confirmado'],['PREPARING','Em preparação'],['SHIPPED','Enviado'],['DELIVERED','Entregue'],['CANCELLED','Cancelado']]
+  async function save(){setSaving(true);try{await onStatus(order.id,status);onClose()}finally{setSaving(false)}}
+  return <div className="modal-backdrop"><div className="modal-panel online-order-modal">
+    <div className="modal-header"><div><span className="eyebrow">PEDIDO ONLINE</span><h2>{order.code}</h2></div><button onClick={onClose}>Fechar</button></div>
+    <div className="online-order-summary"><div><span>Cliente</span><strong>{order.customer_name}</strong><small>{order.customer_email}{order.customer_phone?' · '+order.customer_phone:''}</small></div><div><span>Total</span><strong>{money(order.total)}</strong><small>{dateBR(order.created_at)}</small></div></div>
+    <div className="online-order-address"><span className="eyebrow">ENTREGA</span><p>{order.street}, {order.number}{order.complement?' · '+order.complement:''}<br />{order.neighborhood} · {order.city} / {order.state}<br />CEP {order.postal_code}</p></div>
+    <div className="online-order-items"><span className="eyebrow">ITENS</span>{order.items?.map((item)=><div key={item.product_id}><span>{item.quantity} × {item.product_name}</span><strong>{money(item.line_total)}</strong></div>)}</div>
+    <label className="online-order-status">Status<select value={status} onChange={(e)=>setStatus(e.target.value)}>{statuses.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+    <div className="modal-actions"><button className="button button-ghost" type="button" onClick={onClose}>Voltar</button><button className="button button-primary" type="button" disabled={saving||status===order.status} onClick={save}>{saving?'Salvando…':'Salvar status'}</button></div>
+  </div></div>
+}
+
 function Admin({ user, onLogout }) {
-  const initialTab = (() => { try { const requested = new URLSearchParams(window.location.search).get('tab'); return ['dashboard','editor','products','sales','finance','recurring','movements','library'].includes(requested) ? requested : 'dashboard' } catch { return 'dashboard' } })()
+  const initialTab = (() => { try { const requested = new URLSearchParams(window.location.search).get('tab'); return ['dashboard','editor','products','sales','online-orders','finance','recurring','movements','library'].includes(requested) ? requested : 'dashboard' } catch { return 'dashboard' } })()
   const [tab, setTab] = useState(initialTab)
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
@@ -1023,6 +1038,8 @@ function Admin({ user, onLogout }) {
   const [recurring, setRecurring] = useState([])
   const [movements, setMovements] = useState([])
   const [sales, setSales] = useState([])
+  const [onlineOrders, setOnlineOrders] = useState([])
+  const [selectedOnlineOrder, setSelectedOnlineOrder] = useState(null)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [editingProduct, setEditingProduct] = useState(null)
@@ -1031,7 +1048,7 @@ function Admin({ user, onLogout }) {
   async function load() {
     setLoading(true)
     try {
-      const [d, p, e, c, a, r, m, s] = await Promise.all([
+      const [d, p, e, c, a, r, m, s, o] = await Promise.all([
         api('/api/admin/dashboard'),
         api('/api/admin/products'),
         api('/api/admin/finance/entries'),
@@ -1039,7 +1056,8 @@ function Admin({ user, onLogout }) {
         api('/api/admin/finance/accounts'),
         api('/api/admin/finance/recurring'),
         api('/api/admin/stock/movements'),
-        api('/api/admin/sales')
+        api('/api/admin/sales'),
+        api('/api/admin/store-orders')
       ])
       setDash(d)
       setProducts(p)
@@ -1049,6 +1067,7 @@ function Admin({ user, onLogout }) {
       setRecurring(r)
       setMovements(m)
       setSales(s)
+      setOnlineOrders(Array.isArray(o) ? o : [])
     } catch (error) {
       if (error.message.includes('Sessão') || error.message.includes('conta')) onLogout()
       else alert(error.message)
@@ -1099,6 +1118,20 @@ function Admin({ user, onLogout }) {
     }
   }
 
+  async function updateOnlineOrderStatus(id,status) {
+    try {
+      await api('/api/admin/store-orders/' + id + '/status', { method:'PATCH', body:{ status } })
+      await load()
+    } catch(error) { alert(error.message); throw error }
+  }
+
+  async function openOnlineOrder(id) {
+    try {
+      const order=await api('/api/admin/store-orders/' + id)
+      setSelectedOnlineOrder(order)
+    } catch(error) { alert(error.message) }
+  }
+
   async function cancelSale(id) {
     if (!window.confirm('Cancelar esta venda? O estoque e o financeiro serão estornados.')) return
     try {
@@ -1119,6 +1152,7 @@ function Admin({ user, onLogout }) {
     editor: 'Editor da loja',
     products: 'Produtos e estoque',
     sales: 'Vendas',
+    'online-orders': 'Pedidos online',
     finance: 'Financeiro',
     recurring: 'Contas recorrentes',
     movements: 'Histórico de estoque',
@@ -1142,6 +1176,7 @@ function Admin({ user, onLogout }) {
           ...(user?.role === 'owner' ? [['editor', 'Editor da loja']] : []),
           ['products', 'Produtos e estoque'],
           ['sales', 'Vendas'],
+          ['online-orders', 'Pedidos online'],
           ['finance', 'Financeiro'],
           ['recurring', 'Contas recorrentes'],
           ['movements', 'Histórico de estoque'],
@@ -1238,6 +1273,19 @@ function Admin({ user, onLogout }) {
           </div>
         )}
 
+        {!loading && tab === 'online-orders' && (
+          <div className="admin-panel">
+            <div className="orders-toolbar"><div><span className="eyebrow">LOJA / ONLINE</span><h2>Pedidos recebidos pela vitrine</h2><p>Atualize o andamento de cada pedido sem misturar com as vendas do caixa físico</p></div><strong>{onlineOrders.filter((order)=>order.status!=='CANCELLED' && order.status!=='DELIVERED').length} em andamento</strong></div>
+            <table>
+              <thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {onlineOrders.map((order)=><tr key={order.id}><td><strong>{order.code}</strong></td><td><strong>{order.customer_name}</strong><small>{order.customer_email}</small></td><td>{dateBR(order.created_at)}</td><td>{(order.items||[]).reduce((sum,item)=>sum+Number(item.quantity||0),0)}</td><td><strong>{money(order.total)}</strong></td><td><span className={'status-pill status-'+String(order.status).toLowerCase()}>{order.status_label||order.status}</span></td><td className="admin-actions"><button onClick={()=>openOnlineOrder(order.id)}>Abrir</button></td></tr>)}
+                {!onlineOrders.length && <tr><td colSpan="7" className="empty-state">Nenhum pedido online recebido ainda</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {!loading && tab === 'finance' && (
           <div className="admin-panel">
             <table>
@@ -1298,6 +1346,7 @@ function Admin({ user, onLogout }) {
       {modal === 'sale' && <SaleModal products={products} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
       {modal === 'finance' && <FinanceModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
       {modal === 'recurring' && <RecurringModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
+      {selectedOnlineOrder && <OnlineOrderModal order={selectedOnlineOrder} onClose={()=>setSelectedOnlineOrder(null)} onStatus={updateOnlineOrderStatus} />}
       {securityModal && <PasswordModal onClose={() => setSecurityModal(false)} onDone={() => setSecurityModal(false)} />}
     </div>
   )
