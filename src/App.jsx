@@ -268,6 +268,29 @@ function splitEditorialText(text) {
   return String(text || '').split(/\n+/).filter(Boolean)
 }
 
+function EditorialTitle({ text, type = 'generic' }) {
+  const value = String(text || '')
+  if (type === 'hero' && value === 'Vista o que representa você') {
+    return <>Vista o que<br /><em>representa você</em></>
+  }
+  if (type === 'featured' && value === 'Seleção multimarcas') {
+    return <>Seleção <em>multimarcas</em></>
+  }
+  if (type === 'campaign' && value === 'Peças que marcam presença') {
+    return <>Peças que<br /><em>marcam presença</em></>
+  }
+  if (type === 'campaign' && value === 'Seu estilo, sem rótulo') {
+    return <>Seu estilo,<br /><em>sem rótulo</em></>
+  }
+  if (type === 'campaign' && value === 'Feito para ser notado') {
+    return <>Feito para<br /><em>ser notado</em></>
+  }
+  if (type === 'manifesto' && value === 'Não seguimos o padrão Criamos o nosso') {
+    return <>Não seguimos o padrão<br /><em>Criamos o nosso</em></>
+  }
+  return value
+}
+
 function CampaignVisual({ variant = 0, mediaUrl = '', videoUrl = '', alt = '' }) {
   return (
     <div className={'campaign-visual campaign-visual-' + variant} aria-hidden={alt ? undefined : 'true'}>
@@ -306,7 +329,9 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
         <div className="hero-full-media"><CampaignVisual mediaUrl={hero.desktop_media_url || ''} videoUrl={hero.video_media_url || ''} /><div className="hero-full-shade" /></div>
         <div className="hero-full-content">
           <span className="eyebrow">{hero.eyebrow || 'GALEO / MULTIBRAND STORE'}</span>
-          <h1 className="hero-title"><span className="hero-title-line"><span className="hero-title-mask">{heroTitle}</span></span></h1>
+          <h1 className="hero-title">
+            <span className="hero-title-line"><span className="hero-title-mask"><EditorialTitle text={heroTitle} type="hero" /></span></span>
+          </h1>
           <p>{heroDescription}</p>
           <div className="hero-full-actions"><Link className="button button-primary" to={hero.button_url || '/shop'}>{hero.button_label || 'Explorar coleção'} <span>↗</span></Link><span className="hero-scroll">SCROLL ↓</span></div>
         </div>
@@ -318,7 +343,7 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
       </section>}
 
       {featured.__visible !== false && <section className="section-shell section-block featured-selection" id="destaques">
-        <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{featured.eyebrow || '01 / SELEÇÃO GALEO'}</span><h2>{featured.title || 'Seleção multimarcas'}</h2></div><Link className="text-link" to={featured.button_url || '/shop'}>{featured.button_label || 'Ver todos'} ↗</Link></div>
+        <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{featured.eyebrow || '01 / SELEÇÃO GALEO'}</span><h2><EditorialTitle text={featured.title || 'Seleção multimarcas'} type="featured" /></h2></div><Link className="text-link" to={featured.button_url || '/shop'}>{featured.button_label || 'Ver todos'} ↗</Link></div>
         <div className="product-grid product-grid-editorial">{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</div>
       </section>}
 
@@ -328,7 +353,7 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
             <CampaignVisual variant={index + 1} mediaUrl={item.media_url || ''} />
             <div className="campaign-card-copy">
               <span>{item.eyebrow || 'GALEO / CAMPANHA'}</span>
-              <strong>{splitEditorialText(item.title || 'Nova campanha').map((line,lineIndex) => <span key={lineIndex}>{lineIndex > 0 && <br />}{line}</span>)}</strong>
+              <strong><EditorialTitle text={item.title || 'Nova campanha'} type="campaign" /></strong>
               <small>{item.button_label || 'Explorar'} ↗</small>
             </div>
           </Link>
@@ -338,7 +363,7 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
       {manifesto.__visible !== false && (
         <section className="manifesto section-shell" id="sobre" data-reveal>
           <span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span>
-          <p>{splitEditorialText(manifesto.text || 'Não seguimos o padrão\nCriamos o nosso').map((line,index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p>
+          <p><EditorialTitle text={manifesto.text || 'Não seguimos o padrão\nCriamos o nosso'} type="manifesto" /></p>
         </section>
       )}
 
