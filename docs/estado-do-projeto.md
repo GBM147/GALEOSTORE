@@ -8,6 +8,14 @@ A [primeira etapa dos ajustes de segurança](ajustes-seguranca.md) corrige a rea
 
 A decisão posterior de permitir Admin somente aos donos foi aplicada em [Admin exclusivo OWNER](acesso-admin-owner.md). O plano atual substitui o acesso STAFF operacional pelo acesso exclusivo de contas OWNER ativas.
 
+A etapa seguinte acrescenta [confirmação de e-mail dos clientes](verificacao-email.md)
+e [proteção adicional dos dados pessoais](protecao-dados.md). Novos cadastros e
+contas existentes exigem confirmação antes de entrar e comprar. A camada extra
+de criptografia foi testada com migração e fluxos reais em MySQL local; ativá-la
+na produção depende da chave segura, TLS validado, backup conferido e uma janela
+sem escritas de versões anteriores. A documentação do Aiven sobre criptografia
+do armazenamento e dos backups está em [segurança dos provedores](provedores-seguranca.md).
+
 ## Escopo e forma de trabalho confirmados
 
 - Integração com maquininha e frete automático estão adiados por decisão do usuário até a contratação dos serviços. O PDV atual registra pagamentos confirmados manualmente.

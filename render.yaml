@@ -29,6 +29,14 @@ services:
         value: "true"
       - key: DB_SSL_REJECT_UNAUTHORIZED
         value: "false"
+      - key: DB_SSL_CA
+        sync: false
+      - key: DATA_ENCRYPTION_ENABLED
+        sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: DATA_ENCRYPTION_KEY_ID
+        value: primary
       - key: SESSION_SECRET
         sync: false
       - key: ADMIN_EMAIL

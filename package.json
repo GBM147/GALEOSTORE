@@ -12,10 +12,12 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/mercado-pago.js && node --check server/media-library.js && node --check session-policy.js",
-    "test": "node --test --test-isolation=none server/media-library.test.js",
+    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mercado-pago.js && node --check server/media-library.js && node --check session-policy.js",
+    "test": "node --test --test-isolation=none server/media-library.test.js server/data-protection.test.js server/database-privacy.test.js",
     "test:integration": "node --test --test-isolation=none tests/backend.integration.test.js tests/mercado-pago.integration.test.js",
     "test:security": "node --test --test-isolation=none tests/auth-security.integration.test.js",
+    "test:email": "node --test --test-isolation=none tests/email-verification.integration.test.js",
+    "test:privacy": "node --test --test-isolation=none tests/database-privacy.integration.test.js",
     "test:browser": "node --test --test-isolation=none tests/frontend.browser.mjs"
   },
   "dependencies": {

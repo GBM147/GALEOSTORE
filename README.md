@@ -17,6 +17,14 @@ O painel administrativo contempla produtos, marcas, categorias, estoque, histór
 Somente contas OWNER ativas podem acessar o Admin e suas APIs. Contas STAFF
 existentes não entram no painel; contas de clientes usam acesso separado à loja.
 
+Clientes precisam confirmar o e-mail por link de uso único antes do login e
+de fazer pedidos, incluindo contas existentes. Configure Resend e remetente
+verificado conforme [verificação de e-mail](docs/verificacao-email.md).
+
+A proteção adicional dos dados pessoais e sua ativação segura estão em
+[proteção dos dados](docs/protecao-dados.md). Não habilite a migração sem chave
+guardada separadamente, TLS validado e janela de manutenção.
+
 Uma venda aprovada baixa o estoque e cria automaticamente a receita correspondente no financeiro. O cancelamento estorna estoque e lançamento financeiro.
 
 ## Mídia de produtos
@@ -69,6 +77,19 @@ Para MySQL local sem TLS, defina `DB_SSL=false`. A porta 10002 deve estar livre.
 A suíte inicia sua própria API local, usa contas temporárias e remove os dados
 ao terminar. Ela confere reinício com contas desativadas, política de novas
 senhas e compatibilidade com senhas antigas, sem cobranças ou testes de frete.
+
+`npm run test:email` verifica confirmação, reenvio, expiração, uso único e falhas
+de entrega com Resend simulado e API/MySQL locais. `npm run build` seguido de
+`node --test --test-isolation=none tests/email-verification.browser.mjs` testa
+o mesmo fluxo no Chromium contra a API real. Execute as duas suítes em sequência;
+elas usam a porta 10006. Configure `APP_URL` loopback, os parâmetros do MySQL
+e `SESSION_SECRET`; ambos recusam bancos externos e dados de produção.
+
+`npm run test:privacy` e
+`node --test --test-isolation=none tests/business-privacy.integration.test.js`
+usam um segundo MySQL isolado em `DB_PORT=3308`, `DB_NAME=galeo_store_test`,
+com `DATA_ENCRYPTION_ENABLED=true` e chave aleatória exclusiva de testes.
+O schema deve ter sido inicializado pela API e a porta 10010 deve estar livre.
 
 As correções e os testes no navegador desta etapa estão documentados em
 [ajustes-seguranca.md](docs/ajustes-seguranca.md).

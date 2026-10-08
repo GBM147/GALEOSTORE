@@ -3,12 +3,18 @@ import assert from 'node:assert/strict'
 import { createHmac, randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import bcrypt from 'bcrypt'
 import mysql from 'mysql2/promise'
 
 const loopback = new Set(['localhost', '127.0.0.1', '::1'])
 if (!loopback.has(process.env.DB_HOST) || process.env.DB_NAME !== 'galeo_store_test') {
   throw new Error('A segurança de autenticação exige DB_HOST loopback e DB_NAME=galeo_store_test; produção é recusada.')
+}
+if (process.env.DATA_ENCRYPTION_ENABLED === 'true') {
+  throw new Error('Use a configuração local plaintext para esta suíte de autenticação; a suíte específica de criptografia valida dados protegidos.')
 }
 for (const name of ['DB_USER', 'SESSION_SECRET']) {
   if (!process.env[name]) throw new Error('Configure a variável local de testes ' + name + '.')
@@ -24,6 +30,7 @@ const fixtureEmails = new Set()
 const customerEmails = new Set()
 const sessions = new Set()
 let db, child, owner, inactiveOwner, inactiveStaff, activeStaff, legacyOwner, downgradedOwner, normalOwner
+let fixtureDirectory, resendFixturePath
 
 async function query(sql, params = []) {
   const [rows] = await db.execute(sql, params)
@@ -60,13 +67,18 @@ async function stopApi() {
 
 async function startApi({ email = owner.email, password = initialPassword, shouldFail = false } = {}) {
   await stopApi()
-  child = spawn(process.execPath, ['server/index.js'], {
+  child = spawn(process.execPath, ['--import', './tests/helpers/resend-fetch.mjs', 'server/index.js'], {
     cwd: projectDirectory,
     env: {
       ...process.env,
       PORT: '10002', NODE_ENV: 'test',
       ADMIN_EMAIL: email, ADMIN_PASSWORD: password,
-      RESEND_API_KEY: '', EMAIL_FROM: ''
+      APP_URL: baseUrl, ALLOWED_ORIGINS: baseUrl,
+      RESEND_API_KEY: 'local-email-verification-fixture', EMAIL_FROM: 'fixture@example.invalid',
+      STORE_NOTIFICATION_EMAIL: 'notification@example.invalid',
+      GALEO_TEST_RESEND_FIXTURES: resendFixturePath,
+      MERCADO_PAGO_ACCESS_TOKEN: '', MERCADO_PAGO_POINT_TERMINAL_ID: '',
+      CLOUDINARY_URL: '', CLOUDINARY_CLOUD_NAME: '', CLOUDINARY_API_KEY: '', CLOUDINARY_API_SECRET: ''
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -129,6 +141,18 @@ async function adminLogin(email, password) {
   return client
 }
 
+async function confirmCustomerEmail(client, email, password) {
+  const calls = (await readFile(resendFixturePath + '.calls', 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+  const mail = calls.filter(call => call.payload.to.includes(email) && /#verify=/.test(call.payload.html)).at(-1)
+  assert.ok(mail, 'o provedor local deve capturar a confirmação para a fixture')
+  const token = mail.payload.html.match(/#verify=([a-f0-9]{64})/)?.[1]
+  assert.ok(token, 'o link local deve conter o token completo')
+  const verified = await client.request('/api/customer/verify-email', { method: 'POST', body: { token, password } })
+  assert.equal(verified.status, 200)
+  assert.equal(verified.data.verified, true)
+  assert.equal(verified.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false, 'confirmar e-mail não concede login')
+}
+
 async function legacyStaffSession(role = 'staff') {
   const sid = 'auth-staff-' + suffix + '-' + randomBytes(10).toString('hex')
   const csrfToken = randomBytes(32).toString('hex')
@@ -152,6 +176,9 @@ async function assertSessionRevoked(response, sid) {
 }
 
 before(async () => {
+  fixtureDirectory = await mkdtemp(join(tmpdir(), 'galeo-auth-resend-'))
+  resendFixturePath = join(fixtureDirectory, 'resend.json')
+  await writeFile(resendFixturePath, JSON.stringify({ status: 200 }), { mode: 0o600 })
   db = mysql.createPool({
     host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER, password: process.env.DB_PASSWORD,
@@ -170,18 +197,23 @@ before(async () => {
 
 after(async () => {
   await stopApi()
-  if (!db) return
   try {
+    if (!db) return
     if (fixtureEmails.size) {
       const emails = [...fixtureEmails]
       const placeholders = emails.map(() => '?').join(',')
       await query('DELETE FROM audit_logs WHERE user_id IN (SELECT id FROM admin_users WHERE email IN (' + placeholders + '))', emails)
       await query('DELETE FROM admin_users WHERE email IN (' + placeholders + ')', emails)
     }
-    if (customerEmails.size) await query('DELETE FROM customers WHERE email IN (' + [...customerEmails].map(() => '?').join(',') + ')', [...customerEmails])
+    if (customerEmails.size) {
+      const placeholders = [...customerEmails].map(() => '?').join(',')
+      await query('DELETE FROM customer_email_verifications WHERE customer_id IN (SELECT id FROM customers WHERE email IN (' + placeholders + '))', [...customerEmails])
+      await query('DELETE FROM customers WHERE email IN (' + placeholders + ')', [...customerEmails])
+    }
     if (sessions.size) await query('DELETE FROM sessions WHERE session_id IN (' + [...sessions].map(() => '?').join(',') + ')', [...sessions])
   } finally {
-    await db.end()
+    await db?.end()
+    if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true })
   }
 })
 
@@ -283,12 +315,19 @@ test('cadastro rejeita senha inválida sem linha e aceita72 bytes ou mínimo10 p
   for (const [label, password] of [['boundary', 'é'.repeat(36)], ['minimum-emoji-valid', '😀'.repeat(10)], ['minimum-ascii-valid', 'A'.repeat(10)]]) {
     const email = `customer-valid-${label}-${suffix}@example.invalid`
     customerEmails.add(email)
-    const created = await new Client().request('/api/customer/register', { method: 'POST', body: { name: 'Cliente teste segurança', email, password } })
-    assert.equal(created.status, 200)
-    const rows = await query('SELECT password_hash FROM customers WHERE email=?', [email])
+    const client = new Client()
+    const created = await client.request('/api/customer/register', { method: 'POST', body: { name: 'Cliente teste segurança', email, password } })
+    assert.equal(created.status, 202)
+    assert.equal(created.data.verification_required, true)
+    assert.equal(created.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false)
+    const rows = await query('SELECT password_hash,email_verified_at FROM customers WHERE email=?', [email])
     assert.equal(rows.length, 1)
     assert.ok(/^\$2[aby]\$12\$/.test(rows[0].password_hash))
     assert.equal(await bcrypt.compare(password, rows[0].password_hash), true)
+    assert.equal(rows[0].email_verified_at, null)
+    const pendingLogin = await client.request('/api/customer/login', { method: 'POST', body: { email, password } })
+    assert.equal(pendingLogin.status, 403)
+    await confirmCustomerEmail(client, email, password)
     const login = await new Client().request('/api/customer/login', { method: 'POST', body: { email, password } })
     assert.equal(login.status, 200)
   }
@@ -313,7 +352,11 @@ test('clientes continuam autenticando na loja e não acessam Admin nem o login a
   customerEmails.add(email)
   const client = new Client()
   const registered = await client.request('/api/customer/register', { method: 'POST', body: { name: 'Cliente acesso separado', email, password } })
-  assert.equal(registered.status, 200)
+  assert.equal(registered.status, 202)
+  assert.equal(registered.data.verification_required, true)
+  const pending = await client.request('/api/customer/login', { method: 'POST', body: { email, password } })
+  assert.equal(pending.status, 403)
+  await confirmCustomerEmail(client, email, password)
   const login = await client.request('/api/customer/login', { method: 'POST', body: { email, password } })
   assert.equal(login.status, 200)
   for (const path of ['/api/auth/me', '/api/admin/dashboard', '/api/admin/products', '/api/admin/stock/movements', '/api/admin/finance/entries', '/api/admin/home', '/api/admin/media-library']) {

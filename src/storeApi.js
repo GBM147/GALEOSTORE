@@ -49,14 +49,25 @@ export async function customerApi(path, options = {}) {
     options = { ...options, body: JSON.stringify(options.body) }
   }
   if (method !== 'GET' && customerCsrfToken) headers.set('X-CSRF-Token', customerCsrfToken)
+  if (path === '/api/customer/logout') customerCsrfToken = ''
   const response = await fetch(path, { ...options, headers, credentials: 'include', cache: 'no-store' })
   const raw = await response.text()
   let data = null
   try { data = raw ? JSON.parse(raw) : null } catch {}
-  if (data?.csrfToken) customerCsrfToken = data.csrfToken
+  if (path === '/api/customer/logout' || (path === '/api/customer/verify-email' && response.ok) || response.status === 401 || data?.authenticated === false || data?.verification_required) {
+    customerCsrfToken = ''
+  } else if (data?.csrfToken) customerCsrfToken = data.csrfToken
   if (!response.ok) {
     const error = new Error(data?.error || 'Não foi possível concluir a operação.')
     error.status = response.status
+    error.code = data?.code
+    error.data = data
+    error.verification_required = Boolean(data?.verification_required)
+    const retryHeader = response.headers.get('Retry-After')
+    const retrySeconds = retryHeader && !Number.isNaN(Number(retryHeader))
+      ? Number(retryHeader)
+      : Math.ceil((Date.parse(retryHeader || '') - Date.now()) / 1000)
+    error.retryAfter = Math.max(0, Number(data?.retry_after) || 0, Number.isFinite(retrySeconds) ? retrySeconds : 0)
     throw error
   }
   return data

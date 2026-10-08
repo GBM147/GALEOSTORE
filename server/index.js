@@ -4,6 +4,10 @@ import cors from 'cors'
 import helmet from 'helmet'
 import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
+import { createDataProtection } from './data-protection.js'
+import { createDatabasePrivacy } from './database-privacy.js'
+import { protectSessionStore } from './protected-session-store.js'
+import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
 import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
@@ -88,6 +92,14 @@ const NODE_ENV = process.env.NODE_ENV || 'production'
 const DB_PORT = Number(process.env.DB_PORT || 3306)
 const DB_SSL = process.env.DB_SSL !== 'false'
 const DB_SSL_REJECT_UNAUTHORIZED = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
+if (process.env.DATA_ENCRYPTION_ENABLED && !['true', 'false'].includes(process.env.DATA_ENCRYPTION_ENABLED)) {
+  throw new Error('DATA_ENCRYPTION_ENABLED deve ser true ou false.')
+}
+const DATA_ENCRYPTION_ENABLED = process.env.DATA_ENCRYPTION_ENABLED === 'true'
+
+if (DATA_ENCRYPTION_ENABLED && NODE_ENV === 'production' && (!DB_SSL || !DB_SSL_REJECT_UNAUTHORIZED)) {
+  throw new Error('A proteção de dados em produção exige TLS MySQL com validação de certificado.')
+}
 
 for (const key of ['DB_HOST','DB_USER','DB_PASSWORD','DB_NAME','SESSION_SECRET']) {
   if (!process.env[key]) throw new Error(key + ' não configurada')
@@ -104,10 +116,16 @@ const dbConfig = {
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
-  ssl: DB_SSL ? { rejectUnauthorized: DB_SSL_REJECT_UNAUTHORIZED } : undefined
+  ssl: DB_SSL ? {
+    rejectUnauthorized: DB_SSL_REJECT_UNAUTHORIZED,
+    verifyIdentity: true,
+    ...(process.env.DB_SSL_CA ? { ca: process.env.DB_SSL_CA.replace(/\\n/g, '\n') } : {})
+  } : undefined
 }
 
 const db = mysql.createPool(dbConfig)
+const privacy = createDatabasePrivacy({ db, enabled: DATA_ENCRYPTION_ENABLED })
+const dataProtection = DATA_ENCRYPTION_ENABLED ? createDataProtection() : null
 
 const appUrl = String(process.env.APP_URL || '').trim()
 const allowedOrigins = String(process.env.ALLOWED_ORIGINS || appUrl)
@@ -117,16 +135,24 @@ const allowedOrigins = String(process.env.ALLOWED_ORIGINS || appUrl)
 const emailFrom = String(process.env.EMAIL_FROM || '').trim()
 const storeNotificationEmail = String(process.env.STORE_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL || '').trim()
 
+function confirmationEmailConfigured() {
+  if (!String(process.env.RESEND_API_KEY || '').trim() || !emailFrom) return false
+  try {
+    const url = new URL(appUrl)
+    return url.protocol === 'https:' || (NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
+  } catch { return false }
+}
+
 async function sendTransactionalEmail({ to, subject, html, text = '', idempotencyKey = '' }) {
   const apiKey = String(process.env.RESEND_API_KEY || '').trim()
   if (!apiKey || !emailFrom) {
-    console.log('EMAIL: provider not configured, skipped:', subject)
-    return { skipped: true }
+    throw new Error('Provedor de e-mail não configurado.')
   }
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean)
-  if (!recipients.length) return { skipped: true }
+  if (!recipients.length) throw new Error('Destinatário de e-mail não configurado.')
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + apiKey,
@@ -137,8 +163,9 @@ async function sendTransactionalEmail({ to, subject, html, text = '', idempotenc
   const raw = await response.text()
   let data = null
   try { data = raw ? JSON.parse(raw) : null } catch {}
-  if (!response.ok) throw new Error(data?.message || data?.error || ('Resend HTTP ' + response.status))
-  return data || { success: true }
+  if (!response.ok) throw new Error('Resend HTTP ' + response.status)
+  if (typeof data?.id !== 'string' || !data.id) throw new Error('Resposta do serviço de e-mail inválida.')
+  return data
 }
 
 async function sendEmailSafely(payload) {
@@ -223,15 +250,13 @@ const limitarAlteracaoSenha = criarLimitador({
   prefixo: 'admin-password'
 })
 
+const limitarConfirmacaoEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-confirmation' })
+const limitarReenvioEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-resend' })
+
 const Store = MySQLStoreFactory(session)
-const sessionStore = new Store({
-  host: dbConfig.host,
-  port: dbConfig.port,
-  user: dbConfig.user,
-  password: dbConfig.password,
-  database: dbConfig.database,
-  ssl: dbConfig.ssl
-})
+// Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
+const rawSessionStore = new Store({ endConnectionOnClose: false }, db)
+const sessionStore = protectSessionStore(rawSessionStore, { db, protection: dataProtection })
 
 app.use(session({
   name: 'galeo_sid',
@@ -250,15 +275,38 @@ app.use(validarCsrf)
 
 async function query(sql, params = [], executor = db) {
   const [rows] = await executor.execute(sql, params)
+  const table = sql.match(/\bFROM\s+`?([a-z_]+)/i)?.[1]?.toLowerCase()
+  if (Array.isArray(rows) && table) return privacy.decodeRows(table, rows)
   return rows
 }
 
 async function audit(userId, action, entity, entityId, details = null, executor = db) {
-  await query(
-    'INSERT INTO audit_logs(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
-    [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null],
-    executor
-  )
+  const conn = executor === db ? await db.getConnection() : executor
+  try {
+    if (executor === db) await conn.beginTransaction()
+    await insertPrivateBusiness(conn, 'audit_logs',
+      'INSERT INTO audit_logs(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
+      [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null],
+      { details: 4 })
+    if (executor === db) await conn.commit()
+  } catch (error) {
+    if (executor === db) await conn.rollback().catch(() => {})
+    throw error
+  } finally {
+    if (executor === db) conn.release()
+  }
+}
+
+// The initial INSERT contains placeholders only; encrypted data is completed
+// under the same transaction, after the row id is known for authenticated AAD.
+async function insertPrivateBusiness(conn, table, sql, params, sensitivePositions) {
+  const original = Object.fromEntries(Object.entries(sensitivePositions).map(([field, position]) => [field, params[position]]))
+  const pending = privacy.pendingFields(table, original)
+  const protectedParams = [...params]
+  for (const [field, position] of Object.entries(sensitivePositions)) protectedParams[position] = pending[field]
+  const [result] = await conn.execute(sql, protectedParams)
+  await privacy.completeInsert(table, result.insertId, original, conn)
+  return result
 }
 
 async function ensureColumn(table, column, definition) {
@@ -410,9 +458,18 @@ async function init() {
       password_hash VARCHAR(255) NOT NULL,
       phone VARCHAR(40) NOT NULL DEFAULT '',
       active TINYINT(1) NOT NULL DEFAULT 1,
+      email_verified_at DATETIME NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_customer_active_email (active,email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS customer_email_verifications (
+      token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+      customer_id INT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      sent_at DATETIME NOT NULL,
+      CONSTRAINT fk_email_verification_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+      INDEX idx_email_verification_expiry (expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS store_orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -519,6 +576,9 @@ async function init() {
   ]
 
   for (const statement of schema) await query(statement)
+  // Existing customers retain their data, but must confirm ownership of their
+  // email before a new or previously issued customer session can be used.
+  await ensureColumn('customers', 'email_verified_at', 'DATETIME NULL')
   await ensureColumn('payments', 'payment_url', 'VARCHAR(1200) NULL')
   await ensureColumn('home_sections', 'published_sort_order', 'INT NULL')
   await ensureColumn('home_sections', 'published_visible', 'TINYINT(1) NULL')
@@ -533,6 +593,8 @@ async function init() {
   await ensureColumn('store_orders', 'paid_at', "DATETIME NULL")
   await ensureColumn('store_orders', 'sale_id', "INT NULL")
   await ensureIndex('store_orders', 'uq_store_order_sale', 'CREATE UNIQUE INDEX uq_store_order_sale ON store_orders(sale_id)')
+  await privacy.ensureSchemaAndMigrate()
+  await sessionStore.migrate()
 
   const productCategories = [
     ['Camisetas', 10],
@@ -642,17 +704,25 @@ async function init() {
   if (process.env.ADMIN_EMAIL) {
     const existing = await query(
       'SELECT id FROM admin_users WHERE email=? LIMIT 1',
-      [process.env.ADMIN_EMAIL]
+      [privacy.emailForLookup('admin_users', process.env.ADMIN_EMAIL)]
     )
 
     if (!existing.length && process.env.ADMIN_PASSWORD) {
       const passwordError = newPasswordError(process.env.ADMIN_PASSWORD)
       if (passwordError) throw new Error('ADMIN_PASSWORD inválida: ' + passwordError)
       const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12)
-      await query(
-        "INSERT INTO admin_users(email,password_hash,role,active) VALUES(?,?, 'owner', 1)",
-        [process.env.ADMIN_EMAIL, passwordHash]
-      )
+      const connection = await db.getConnection()
+      try {
+        await connection.beginTransaction()
+        const record = { email: process.env.ADMIN_EMAIL }
+        const safe = privacy.pendingFields('admin_users', record)
+        const [inserted] = await connection.execute("INSERT INTO admin_users(email,password_hash,role,active) VALUES(?,?, 'owner', 1)", [safe.email, passwordHash])
+        await privacy.completeInsert('admin_users', inserted.insertId, record, connection)
+        await connection.commit()
+      } catch (error) {
+        await connection.rollback().catch(() => {})
+        throw error
+      } finally { connection.release() }
     }
   }
 }
@@ -666,7 +736,7 @@ async function exigirLogin(req, res, next) {
 
   try {
     const rows = await query(
-      'SELECT id,email,role,active FROM admin_users WHERE id=? LIMIT 1',
+      'SELECT id,email,role,active,private_data FROM admin_users WHERE id=? LIMIT 1',
       [req.session.userId]
     )
     if (!rows.length || !rows[0].active || rows[0].role !== 'owner') {
@@ -726,7 +796,7 @@ function gerarCsrfToken(req) {
 
 function validarCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
-  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
+  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/customer/verify-email' || req.path === '/api/customer/resend-verification' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
 
   const expected = String(req.session.csrfToken || '')
   const provided = String(req.get('X-CSRF-Token') || '')
@@ -754,14 +824,16 @@ const exigirOwner = exigirPapel('owner')
 
 async function registrarEventoIntegracao(conn, provider, eventId, eventType, payload) {
   if (!eventId) return true
+  const original = { payload: JSON.stringify(payload || {}) }
   await conn.execute(
     'INSERT INTO integration_events(provider,event_id,event_type,payload) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE event_id=event_id',
-    [provider, eventId, eventType, JSON.stringify(payload || {})]
+    [provider, eventId, eventType, privacy.pendingFields('integration_events', original).payload]
   )
   const [events] = await conn.execute(
-    'SELECT processed_at FROM integration_events WHERE provider=? AND event_id=? FOR UPDATE',
+    'SELECT id,processed_at FROM integration_events WHERE provider=? AND event_id=? FOR UPDATE',
     [provider, eventId]
   )
+  if (!events[0]?.processed_at) await privacy.updateFields('integration_events', events[0].id, original, conn)
   return !events[0]?.processed_at
 }
 
@@ -775,9 +847,10 @@ async function devolverReservaPedido(conn, order, userId = null) {
     const stockBefore = Number(products[0].stock)
     const stockAfter = stockBefore + Number(item.quantity)
     await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, item.product_id])
-    await conn.execute(
+    await insertPrivateBusiness(conn, 'stock_movements',
       "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
-      [item.product_id, item.quantity, stockBefore, stockAfter, 'Cancelamento do pedido ' + order.code, 'store-order:' + order.id, Number(products[0].cost || 0), userId]
+      [item.product_id, item.quantity, stockBefore, stockAfter, 'Cancelamento do pedido ' + order.code, 'store-order:' + order.id, Number(products[0].cost || 0), userId],
+      { reason: 4 }
     )
   }
 }
@@ -803,16 +876,17 @@ function mapPaymentMethod(paymentMethod) {
 async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
   const [orderRows] = await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE', [orderId])
   if (!orderRows.length) throw new Error('Pedido online não encontrado.')
-  const order = orderRows[0]
+  const order = privacy.decodeRow('store_orders', orderRows[0])
   if (order.sale_id) return { saleId: Number(order.sale_id), created: false, code: order.code }
   if (String(order.payment_status) !== 'APPROVED') throw new Error('O pagamento do pedido ainda não foi aprovado.')
 
   const [items] = await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id', [orderId])
   if (!items.length) throw new Error('O pedido online não possui itens.')
   const paymentMethod = mapPaymentMethod(paymentData.payment_method_type || order.payment_method)
-  const [saleResult] = await conn.execute(
+  const saleResult = await insertPrivateBusiness(conn, 'sales',
     "INSERT INTO sales(code,customer_name,payment_method,total,status,notes,user_id) VALUES(?,?,?,?, 'PAGA',?,NULL)",
-    ['PENDING', order.customer_name, paymentMethod, Number(order.total), 'Origem: pedido online ' + order.code]
+    ['PENDING', order.customer_name, paymentMethod, Number(order.total), 'Origem: pedido online ' + order.code],
+    { customer_name: 1, notes: 4 }
   )
   const saleId = saleResult.insertId
   const saleCode = 'VDA-' + String(saleId).padStart(6, '0')
@@ -830,9 +904,10 @@ async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
   const [categoryRows] = await conn.execute("SELECT id FROM financial_categories WHERE name='Vendas' AND type='RECEITA' LIMIT 1")
   const [accountRows] = await conn.execute("SELECT id FROM financial_accounts WHERE name='Caixa da loja' LIMIT 1")
   if (!categoryRows.length || !accountRows.length) throw new Error('Categoria ou conta financeira da venda não encontrada.')
-  await conn.execute(
+  await insertPrivateBusiness(conn, 'financial_entries',
     "INSERT INTO financial_entries(account_id,category_id,type,description,amount,due_date,paid_at,status,recurring,reference_type,reference_id,user_id) VALUES(?,?,?,?,?,CURDATE(),NOW(),'PAGO',0,'VENDA',?,NULL)",
-    [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, Number(order.total), 'sale:' + saleId]
+    [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, Number(order.total), 'sale:' + saleId],
+    { description: 3 }
   )
   await conn.execute("UPDATE payments SET sale_id=?,status='APPROVED',paid_at=COALESCE(paid_at,NOW()) WHERE store_order_id=? AND provider='MERCADO_PAGO'", [saleId, orderId])
   await conn.execute("UPDATE store_orders SET status=CASE WHEN status='RECEIVED' THEN 'CONFIRMED' ELSE status END,payment_status='APPROVED',paid_at=COALESCE(paid_at,NOW()),sale_id=? WHERE id=?", [saleId, orderId])
@@ -860,7 +935,7 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
       return { duplicate: true }
     }
     const [lockedOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE', [orderId])
-    const originalOrder = lockedOrders[0]
+    const originalOrder = privacy.decodeRow('store_orders', lockedOrders[0])
     if (!originalOrder) throw new Error('Pedido online não encontrado.')
     if (status === 'APPROVED' && Math.round(amount * 100) !== Math.round(Number(originalOrder.total) * 100)) {
       throw new Error('O valor aprovado não corresponde ao total do pedido.')
@@ -871,10 +946,13 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
       await conn.commit()
       return { ignored: true, reason: 'status_pagamento_regressivo' }
     }
+    const paymentPrivate = { raw_payload: JSON.stringify(mpOrder) }
     await conn.execute(
       "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,raw_payload,paid_at) VALUES('ONLINE',?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),method=VALUES(method),amount=VALUES(amount),raw_payload=VALUES(raw_payload),paid_at=VALUES(paid_at)",
-      [orderId, method, 'MERCADO_PAGO', providerReference, status, amount, JSON.stringify(mpOrder), status === 'APPROVED' ? new Date() : null]
+      [orderId, method, 'MERCADO_PAGO', providerReference, status, amount, privacy.pendingFields('payments', paymentPrivate).raw_payload, status === 'APPROVED' ? new Date() : null]
     )
+    const [paymentRows] = await conn.execute('SELECT id FROM payments WHERE provider=? AND provider_reference=? FOR UPDATE', ['MERCADO_PAGO', providerReference])
+    await privacy.updateFields('payments', paymentRows[0].id, paymentPrivate, conn)
     await conn.execute("UPDATE store_orders SET payment_status=?,payment_provider='MERCADO_PAGO',payment_method=?,payment_reference=?,paid_at=? WHERE id=?", [status, method, providerReference || null, status === 'APPROVED' ? new Date() : null, orderId])
     if (status === 'APPROVED' && originalOrder.status !== 'CANCELLED') {
       promoted = await promoverPedidoPagoParaVenda(conn, orderId, { payment_method_type: method })
@@ -883,7 +961,7 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
       console.error('Pagamento aprovado após cancelamento; conciliação necessária:', originalOrder.code)
     } else if (status === 'REFUNDED') {
       const [refundOrderRows]=await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE',[orderId])
-      const refundOrder=refundOrderRows[0]
+      const refundOrder=privacy.decodeRow('store_orders', refundOrderRows[0])
       if(refundOrder?.sale_id){
         const [saleRows]=await conn.execute('SELECT * FROM sales WHERE id=? FOR UPDATE',[refundOrder.sale_id])
         if(saleRows.length && saleRows[0].status!=='CANCELADA'){
@@ -895,9 +973,10 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
             const stockBefore=Number(product.stock)
             const stockAfter=stockBefore+Number(item.quantity)
             await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
-            await conn.execute(
+            await insertPrivateBusiness(conn, 'stock_movements',
               "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,NULL)",
-              [item.product_id,item.quantity,stockBefore,stockAfter,'Estorno do pedido online '+refundOrder.code,'store-order:'+orderId,Number(item.unit_cost||0)]
+              [item.product_id,item.quantity,stockBefore,stockAfter,'Estorno do pedido online '+refundOrder.code,'store-order:'+orderId,Number(item.unit_cost||0)],
+              { reason: 4 }
             )
           }
           await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?",[refundOrder.sale_id])
@@ -926,10 +1005,16 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
 async function exigirCliente(req,res,next) {
   if (!req.session.customerId) return res.status(401).json({ success:false,authenticated:false,error:'Faça login para continuar.' })
   try {
-    const rows=await query('SELECT id,name,email,phone,active,created_at FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
+    const rows=await query('SELECT id,name,email,phone,active,created_at,email_verified_at,private_data FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
     if (!rows.length || !rows[0].active) {
       delete req.session.customerId
       return res.status(401).json({ success:false,authenticated:false,error:'Esta conta não está disponível.' })
+    }
+    if (!rows[0].email_verified_at) {
+      delete req.session.customerId
+      if (!req.session.userId) delete req.session.csrfToken
+      await salvarSessao(req)
+      return res.status(403).json({ ...verificationRequired, email: rows[0].email })
     }
     req.customer=rows[0]
     next()
@@ -976,14 +1061,14 @@ app.post('/api/auth/login', limitarAutenticacao, async (req, res) => {
   const password = String(req.body?.password || '')
   const manterConectado = normalizarManterConectado(req.body?.manterConectado)
 
-  if (!email || !password) {
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 255 || !password) {
     return res.status(400).json({ success: false, error: 'Informe e-mail e senha.' })
   }
 
   try {
     const rows = await query(
-      'SELECT id,email,password_hash,role,active FROM admin_users WHERE email=? LIMIT 1',
-      [email]
+      'SELECT id,email,password_hash,role,active,private_data FROM admin_users WHERE email=? LIMIT 1',
+      [privacy.emailForLookup('admin_users', email)]
     )
 
     if (!rows.length || !rows[0].active || !(await bcrypt.compare(password, rows[0].password_hash))) {
@@ -1214,13 +1299,24 @@ async function generateCurrentRecurring() {
 
     const dueDay = Math.min(Number(rec.due_day), Number(rec.last_day))
     const dueDate = `${rec.current_month}-${String(dueDay).padStart(2, '0')}`
-    await query(
-      `INSERT INTO financial_entries
-       (account_id,category_id,type,description,amount,due_date,status,recurring,recurrence,reference_type,reference_id)
-       VALUES(?,?, 'DESPESA',?,?,?,'PENDENTE',1,'MENSAL','RECURRING',?)
-       ON DUPLICATE KEY UPDATE reference_id=reference_id`,
-      [rec.account_id, rec.category_id, rec.description, rec.amount, dueDate, referenceId]
-    )
+    const conn = await db.getConnection()
+    try {
+      await conn.beginTransaction()
+      const original = { description: rec.description }
+      await conn.execute(
+        `INSERT INTO financial_entries
+         (account_id,category_id,type,description,amount,due_date,status,recurring,recurrence,reference_type,reference_id)
+         VALUES(?,?, 'DESPESA',?,?,?,'PENDENTE',1,'MENSAL','RECURRING',?)
+         ON DUPLICATE KEY UPDATE reference_id=reference_id`,
+        [rec.account_id, rec.category_id, privacy.pendingFields('financial_entries', original).description, rec.amount, dueDate, referenceId]
+      )
+      const [created] = await conn.execute('SELECT id FROM financial_entries WHERE reference_id=? FOR UPDATE', [referenceId])
+      await privacy.updateFields('financial_entries', created[0].id, original, conn)
+      await conn.commit()
+    } catch (error) {
+      await conn.rollback().catch(() => {})
+      throw error
+    } finally { conn.release() }
   }
 }
 
@@ -1232,6 +1328,21 @@ async function seedAndScheduleRecurring() {
 
 cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' })
 
+function responderErroVerificacao(res, error) {
+  if (error instanceof EmailVerificationError) {
+    if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter))
+    return res.status(error.status).json({ success: false, code: error.code, error: error.message, ...(error.retryAfter ? { retry_after: error.retryAfter } : {}) })
+  }
+  // SQL errors may include query values. Keep personal data and tokens out of logs.
+  console.error('Erro na confirmação de e-mail:', error?.code || 'INTERNAL_ERROR')
+  return res.status(500).json({ success: false, error: 'Não foi possível concluir a confirmação de e-mail.' })
+}
+
+app.get('/api/customer/registration-status', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ email_verification_required: true, registration_available: confirmationEmailConfigured() })
+})
+
 app.post('/api/customer/register', limitarAutenticacao, async (req,res) => {
   const name=String(req.body?.name || '').trim()
   const email=String(req.body?.email || '').trim().toLowerCase()
@@ -1239,37 +1350,103 @@ app.post('/api/customer/register', limitarAutenticacao, async (req,res) => {
   const password=String(req.body?.password || '')
   if(name.length<2||name.length>180) return res.status(400).json({error:'Informe um nome válido.'})
   if(!/^\S+@\S+\.\S+$/.test(email)||email.length>255) return res.status(400).json({error:'Informe um e-mail válido.'})
+  if(phone.length>40) return res.status(400).json({error:'Informe um telefone válido.'})
   const passwordError=newPasswordError(password)
   if(passwordError) return res.status(400).json({error:passwordError})
+  const conn=await db.getConnection()
   try {
-    const exists=await query('SELECT id FROM customers WHERE email=? LIMIT 1',[email])
-    if(exists.length) return res.status(409).json({error:'Já existe uma conta com este e-mail.'})
-    const passwordHash=await bcrypt.hash(password,12)
-    const result=await query('INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',[name,email,passwordHash,phone])
-    await renovarSessao(req)
-    req.session.customerId=result.insertId
-    req.session.csrfToken=randomBytes(32).toString('hex')
-    configurarPersistenciaSessao(req.session, true)
-    await salvarSessao(req)
-    void sendEmailSafely({
-      to:email,
-      subject:'Bem-vindo à GALEO',
-      idempotencyKey:'welcome-customer-'+result.insertId,
-      html:'<div style="font-family:Arial,sans-serif"><h1>Bem-vindo à GALEO</h1><p>Olá, '+escapeHtml(name)+'</p><p>Sua conta foi criada com sucesso</p><p><a href="'+escapeHtml(appUrl || '/')+'">Visitar a GALEO</a></p></div>'
-    })
-    res.json({success:true,user:{id:result.insertId,name,email,phone},csrfToken:req.session.csrfToken})
+    await conn.beginTransaction()
+    const [exists]=await conn.execute('SELECT id,name,email,password_hash,active,email_verified_at,private_data FROM customers WHERE email=? LIMIT 1 FOR UPDATE',[privacy.emailForLookup('customers', email)])
+    let customer=exists[0] ? privacy.decodeRow('customers', exists[0]) : null
+    if(customer) {
+      if (!customer.active || customer.email_verified_at || !(await bcrypt.compare(password,customer.password_hash))) {
+        await conn.rollback()
+        return res.status(409).json({error:'Já existe uma conta com este e-mail.'})
+      }
+      // Repeating a pending registration only resends the link with the same
+      // password. It never changes account identity or overrides credentials.
+    } else {
+      const passwordHash=await bcrypt.hash(password,12)
+      const personal = { name, email, phone }
+      const safe = privacy.pendingFields('customers', personal)
+      const [result]=await conn.execute('INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',[safe.name,safe.email,passwordHash,safe.phone])
+      await privacy.completeInsert('customers', result.insertId, personal, conn)
+      customer={id:result.insertId,name,email}
+    }
+    await issueEmailVerification(conn,customer,{appUrl,sendTransactionalEmail})
+    await conn.commit()
+    // Registration never issues an authenticated customer session.
+    return res.status(202).json({success:true,verification_required:true,message:'Enviamos um link para confirmar seu e-mail. Abra o link e informe a senha escolhida para ativar sua conta.'})
   } catch(error) {
-    console.error('Erro ao criar cliente:',error)
-    res.status(500).json({error:'Não foi possível criar sua conta.'})
+    await conn.rollback().catch(()=>{})
+    if (error?.code==='ER_DUP_ENTRY') return res.status(409).json({error:'Já existe uma conta com este e-mail. Tente entrar ou reenviar a confirmação.'})
+    return responderErroVerificacao(res,error)
+  } finally {
+    conn.release()
+  }
+})
+
+app.post('/api/customer/resend-verification', limitarReenvioEmail, async (req,res) => {
+  const email=String(req.body?.email || '').trim().toLowerCase()
+  const password=String(req.body?.password || '')
+  const generic={success:true,message:'Se os dados estiverem corretos e o e-mail ainda não estiver confirmado, você receberá um novo link.'}
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length>255 || !password) return res.status(202).json(generic)
+  const conn=await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows]=await conn.execute('SELECT id,email,password_hash,active,email_verified_at,private_data FROM customers WHERE email=? LIMIT 1 FOR UPDATE',[privacy.emailForLookup('customers', email)])
+    const customer=rows[0] ? privacy.decodeRow('customers', rows[0]) : null
+    if (!customer?.active || customer.email_verified_at || !(await bcrypt.compare(password,customer.password_hash))) {
+      await conn.rollback()
+      return res.status(202).json(generic)
+    }
+    await issueEmailVerification(conn,customer,{appUrl,sendTransactionalEmail})
+    await conn.commit()
+    return res.status(202).json(generic)
+  } catch(error) {
+    await conn.rollback().catch(()=>{})
+    return responderErroVerificacao(res,error)
+  } finally {
+    conn.release()
+  }
+})
+
+app.post('/api/customer/verify-email', limitarConfirmacaoEmail, async (req,res) => {
+  const token=String(req.body?.token || '')
+  const password=String(req.body?.password || '')
+  const conn=await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const verified=await consumeEmailVerification(conn,token,password)
+    if (!verified) {
+      await conn.rollback()
+      return res.status(400).json({success:false,code:'VERIFY_EMAIL_INVALID',error:'Link inválido, expirado ou já utilizado, ou senha incorreta. Confira a senha ou solicite uma nova confirmação.'})
+    }
+    await conn.commit()
+    // Confirmation never grants or revives a customer login, including an old
+    // session from before verification became mandatory. Preserve owner login.
+    if (req.session.customerId) {
+      delete req.session.customerId
+      if (!req.session.userId) delete req.session.csrfToken
+      await salvarSessao(req)
+    }
+    return res.json({success:true,verified:true,message:'E-mail confirmado. Agora entre na sua conta com seu e-mail e senha.'})
+  } catch(error) {
+    await conn.rollback().catch(()=>{})
+    return responderErroVerificacao(res,error)
+  } finally {
+    conn.release()
   }
 })
 
 app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
   const email=String(req.body?.email || '').trim().toLowerCase()
   const password=String(req.body?.password || '')
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 255 || !password) return res.status(401).json({error:'E-mail ou senha inválidos.'})
   try {
-    const rows=await query('SELECT id,name,email,password_hash,phone,active FROM customers WHERE email=? LIMIT 1',[email])
+    const rows=await query('SELECT id,name,email,password_hash,phone,active,email_verified_at,private_data FROM customers WHERE email=? LIMIT 1',[privacy.emailForLookup('customers', email)])
     if(!rows.length||!rows[0].active||!(await bcrypt.compare(password,rows[0].password_hash))) return res.status(401).json({error:'E-mail ou senha inválidos.'})
+    if (!rows[0].email_verified_at) return res.status(403).json({...verificationRequired,email:rows[0].email})
     await renovarSessao(req)
     req.session.customerId=rows[0].id
     req.session.csrfToken=randomBytes(32).toString('hex')
@@ -1285,8 +1462,14 @@ app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
 app.get('/api/customer/me', async (req,res) => {
   if(!req.session.customerId) return res.status(401).json({success:false,authenticated:false,error:'Não autenticado.'})
   try {
-    const rows=await query('SELECT id,name,email,phone,created_at,active FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
+    const rows=await query('SELECT id,name,email,phone,created_at,active,email_verified_at,private_data FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
     if(!rows.length||!rows[0].active) return res.status(401).json({success:false,authenticated:false,error:'Não autenticado.'})
+    if (!rows[0].email_verified_at) {
+      delete req.session.customerId
+      if (!req.session.userId) delete req.session.csrfToken
+      await salvarSessao(req)
+      return res.status(403).json({...verificationRequired,email:rows[0].email})
+    }
     const csrfToken=gerarCsrfToken(req)
     await salvarSessao(req)
     res.json({success:true,authenticated:true,user:{id:rows[0].id,name:rows[0].name,email:rows[0].email,phone:rows[0].phone,created_at:rows[0].created_at},csrfToken})
@@ -1307,13 +1490,18 @@ app.put('/api/customer/profile', exigirCliente, async (req,res) => {
   const name=String(req.body?.name || '').trim()
   const phone=String(req.body?.phone || '').trim()
   if(name.length<2||name.length>180) return res.status(400).json({error:'Informe um nome válido.'})
+  if(phone.length>40) return res.status(400).json({error:'Informe um telefone válido.'})
+  const connection = await db.getConnection()
   try {
-    await query('UPDATE customers SET name=?,phone=? WHERE id=?',[name,phone,req.customer.id])
+    await connection.beginTransaction()
+    await privacy.updateFields('customers', req.customer.id, { name, phone }, connection)
+    await connection.commit()
     res.json({success:true,user:{...req.customer,name,phone}})
   } catch(error) {
-    console.error('Erro ao atualizar cliente:',error)
+    await connection.rollback().catch(() => {})
+    console.error('Erro ao atualizar cliente:',error?.code || 'INTERNAL_ERROR')
     res.status(500).json({error:'Não foi possível atualizar seus dados.'})
-  }
+  } finally { connection.release() }
 })
 
 app.get('/api/customer/orders', exigirCliente, async (req,res) => {
@@ -1370,7 +1558,9 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     const total=subtotal+shippingFee
     const code='GALEO-'+Date.now().toString(36).toUpperCase().slice(-7)+'-'+randomBytes(2).toString('hex').toUpperCase()
     const insertSql="INSERT INTO store_orders(code,customer_id,customer_name,customer_email,customer_phone,status,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state) VALUES(?,?,?,?,?,'RECEIVED',?,?,?,?,?,?,?,?,?,?)"
-    const [orderResult]=await conn.execute(insertSql,[code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state])
+    const orderResult=await insertPrivateBusiness(conn, 'store_orders', insertSql,
+      [code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state],
+      { customer_name:2, customer_email:3, customer_phone:4, postal_code:8, street:9, number:10, complement:11, neighborhood:12, city:13, state:14 })
     for(const line of lines){
       await conn.execute('INSERT INTO store_order_items(order_id,product_id,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
       const [currentRows]=await conn.execute('SELECT stock,cost FROM products WHERE id=? FOR UPDATE',[line.product_id])
@@ -1378,9 +1568,10 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
       const nextStock=currentStock-line.quantity
       if(nextStock<0) throw new Error('Estoque insuficiente para '+line.product_name+'.')
       await conn.execute('UPDATE products SET stock=? WHERE id=?',[nextStock,line.product_id])
-      await conn.execute(
+      await insertPrivateBusiness(conn, 'stock_movements',
         "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,NULL)",
-        [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0)]
+        [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0)],
+        { reason:4 }
       )
     }
     await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' }, conn)
@@ -1406,7 +1597,7 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
     if(order.sale_id || order.payment_status==='APPROVED') return res.json({success:true,paid:true,order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
     if(order.status==='CANCELLED') return res.status(409).json({error:'Este pedido está cancelado.'})
     if (!mercadoPagoOnlineConfigured()) return res.json({success:true,payment_configured:false,checkout_url:'',order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
-    const existing=await query("SELECT provider_reference,payment_url FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' AND status='PENDING' ORDER BY id DESC LIMIT 1",[orderId])
+    const existing=await query("SELECT id,private_data,provider_reference,payment_url FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' AND status='PENDING' ORDER BY id DESC LIMIT 1",[orderId])
     if(existing.length && existing[0].payment_url) return res.json({success:true,checkout_url:existing[0].payment_url,payment_reference:existing[0].provider_reference})
     const items=await query('SELECT product_id,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
     const mpOrder=await createMercadoPagoOnlineOrder({order,items,idempotencyKey:'galeo-order-'+orderId})
@@ -1414,7 +1605,7 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
     try {
       await conn.beginTransaction()
       const [currentOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? AND customer_id=? FOR UPDATE', [orderId, req.customer.id])
-      const currentOrder = currentOrders[0]
+      const currentOrder = privacy.decodeRow('store_orders', currentOrders[0])
       if (!currentOrder) throw new Error('Pedido não encontrado.')
       if (currentOrder.status === 'CANCELLED' || currentOrder.payment_status === 'REFUNDED') {
         await conn.rollback()
@@ -1424,11 +1615,16 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
         await conn.commit()
         return res.json({success:true,paid:true,order:{id:currentOrder.id,code:currentOrder.code,status:currentOrder.status,payment_status:currentOrder.payment_status}})
       }
+      const paymentPrivate = { raw_payload:JSON.stringify(mpOrder), payment_url:String(mpOrder.checkout_url||'') }
+      const pendingPayment = privacy.pendingFields('payments', paymentPrivate)
       await conn.execute(
         "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload,payment_url) VALUES('ONLINE',?,'CHECKOUT_PRO','MERCADO_PAGO',?,'PENDING',?,?,?,?) ON DUPLICATE KEY UPDATE provider_reference=VALUES(provider_reference),raw_payload=VALUES(raw_payload),payment_url=VALUES(payment_url)",
-        [orderId,String(mpOrder.id||''),Number(order.total),'galeo-order-'+orderId,JSON.stringify(mpOrder),String(mpOrder.checkout_url||'')]
+        [orderId,String(mpOrder.id||''),Number(order.total),'galeo-order-'+orderId,pendingPayment.raw_payload,pendingPayment.payment_url]
       )
-      await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO',payment_method='CHECKOUT_PRO',payment_reference=?,payment_url=?,payment_status='PENDING' WHERE id=?",[String(mpOrder.id||''),String(mpOrder.checkout_url||''),orderId])
+      const [paymentRows] = await conn.execute('SELECT id FROM payments WHERE idempotency_key=? FOR UPDATE', ['galeo-order-'+orderId])
+      await privacy.updateFields('payments', paymentRows[0].id, paymentPrivate, conn)
+      await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO',payment_method='CHECKOUT_PRO',payment_reference=?,payment_status='PENDING' WHERE id=?",[String(mpOrder.id||''),orderId])
+      await privacy.updateFields('store_orders', orderId, { payment_url:String(mpOrder.checkout_url||'') }, conn)
       await conn.commit()
     }catch(error){ await conn.rollback().catch(()=>{}); throw error } finally { conn.release() }
     res.json({success:true,checkout_url:String(mpOrder.checkout_url||''),payment_reference:String(mpOrder.id||''),order:{id:order.id,code:order.code,payment_status:'PENDING'}})
@@ -1485,7 +1681,7 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
       }
       const [rows]=await conn.execute('SELECT * FROM store_orders WHERE code=? FOR UPDATE',[orderCode])
       if(!rows.length) throw new Error('Pedido não encontrado.')
-      const order=rows[0]
+      const order=privacy.decodeRow('store_orders', rows[0])
       const terminal = ['CANCELLED', 'DELIVERED'].includes(order.status)
       const paidCancellation = mapped === 'CANCELLED' && (order.payment_status === 'APPROVED' || order.sale_id)
       if ((terminal && mapped !== order.status) ||
@@ -1514,9 +1710,18 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
 })
 
 app.use('/api/admin', exigirLogin, exigirOwner)
+app.get('/api/admin/security-status', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({
+    email_confirmation_configured: confirmationEmailConfigured(),
+    data_encryption_enabled: privacy.enabled,
+    mysql_tls: { enabled: DB_SSL, certificate_verified: DB_SSL && DB_SSL_REJECT_UNAUTHORIZED },
+    storage_and_backups: 'PROVIDER_VERIFICATION_REQUIRED'
+  })
+})
 app.get('/api/admin/store-orders', async (req,res) => {
   try {
-    const orders=await query('SELECT id,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
+    const orders=await query('SELECT id,private_data,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
     for(const order of orders){
       order.items=await query('SELECT product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
@@ -1552,7 +1757,7 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
     await conn.beginTransaction()
     const [orderRows]=await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE',[id])
     if(!orderRows.length) throw new Error('Pedido não encontrado.')
-    const order=orderRows[0]
+    const order=privacy.decodeRow('store_orders', orderRows[0])
     if(order.status==='CANCELLED' && status!=='CANCELLED') throw new Error('Pedido cancelado não pode voltar ao fluxo.')
     if(order.status==='DELIVERED' && status!=='DELIVERED') throw new Error('Pedido entregue não pode voltar ao fluxo.')
 
@@ -1827,9 +2032,10 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
     const paymentMethods = ['PIX','CARTAO_CREDITO','CARTAO_DEBITO','DINHEIRO','TRANSFERENCIA','OUTRO']
     const paymentMethod = paymentMethods.includes(String(body.payment_method || '')) ? String(body.payment_method) : 'PIX'
 
-    const [saleResult] = await conn.execute(
+    const saleResult = await insertPrivateBusiness(conn, 'sales',
       "INSERT INTO sales(code,customer_name,payment_method,total,status,notes,user_id,client_reference) VALUES(?,?,?,?, 'PAGA',?,?,?)",
-      ['PENDING', String(body.customer_name || '').trim(), paymentMethod, 0, String(body.notes || '').trim(), req.admin.id, clientReference]
+      ['PENDING', String(body.customer_name || '').trim(), paymentMethod, 0, String(body.notes || '').trim(), req.admin.id, clientReference],
+      { customer_name:1, notes:4 }
     )
 
     const saleId = saleResult.insertId
@@ -1855,9 +2061,10 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
 
       const stockAfter = stock - quantity
       await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, productId])
-      await conn.execute(
+      await insertPrivateBusiness(conn, 'stock_movements',
         "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,?)",
-        [productId, quantity, stock, stockAfter, 'Venda ' + saleCode, 'sale:' + saleId, unitCost, req.admin.id]
+        [productId, quantity, stock, stockAfter, 'Venda ' + saleCode, 'sale:' + saleId, unitCost, req.admin.id],
+        { reason:4 }
       )
     }
 
@@ -1872,9 +2079,10 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
     const [accountRows] = await conn.execute("SELECT id FROM financial_accounts WHERE name='Caixa da loja' LIMIT 1")
     if (!categoryRows.length || !accountRows.length) throw new Error('Categoria ou conta financeira da venda não encontrada.')
 
-    await conn.execute(
+    await insertPrivateBusiness(conn, 'financial_entries',
       "INSERT INTO financial_entries(account_id,category_id,type,description,amount,due_date,paid_at,status,recurring,reference_type,reference_id,user_id) VALUES(?,?,?,?,?,CURDATE(),NOW(),'PAGO',0,'VENDA',?,?)",
-      [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, total, 'sale:' + saleId, req.admin.id]
+      [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, total, 'sale:' + saleId, req.admin.id],
+      { description:3 }
     )
 
     await audit(req.admin.id, 'CRIAR', 'venda', saleId, { code: saleCode, total, items: Array.from(merged.entries()) }, conn)
@@ -1903,7 +2111,7 @@ app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
 
     const [saleRows] = await conn.execute('SELECT * FROM sales WHERE id=? FOR UPDATE', [saleId])
     if (!saleRows.length) throw new Error('Venda não encontrada.')
-    const sale = saleRows[0]
+    const sale = privacy.decodeRow('sales', saleRows[0])
     if (sale.status === 'CANCELADA') throw new Error('Esta venda já está cancelada.')
     const [onlineOrders] = await conn.execute('SELECT id FROM store_orders WHERE sale_id=? LIMIT 1', [saleId])
     if (onlineOrders.length) throw new Error('Esta venda pertence a um pedido online. O estorno deve ser processado no Mercado Pago.')
@@ -1917,9 +2125,10 @@ app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
       const stockAfter = stockBefore + Number(item.quantity)
 
       await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, item.product_id])
-      await conn.execute(
+      await insertPrivateBusiness(conn, 'stock_movements',
         "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
-        [item.product_id, item.quantity, stockBefore, stockAfter, 'Estorno da venda ' + sale.code, 'sale:' + saleId, Number(item.unit_cost || 0), req.admin.id]
+        [item.product_id, item.quantity, stockBefore, stockAfter, 'Estorno da venda ' + sale.code, 'sale:' + saleId, Number(item.unit_cost || 0), req.admin.id],
+        { reason:4 }
       )
     }
 
@@ -2161,11 +2370,12 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
 
     const productId = result.insertId
     if (Number(b.stock) > 0) {
-      await conn.execute(
+      await insertPrivateBusiness(conn, 'stock_movements',
         `INSERT INTO stock_movements
          (product_id,type,quantity,stock_before,stock_after,reason,user_id)
-         VALUES(?,'ENTRADA',?,0,?,'Estoque inicial',?)`,
-        [productId, Number(b.stock), Number(b.stock), req.admin.id]
+         VALUES(?,'ENTRADA',?,0,?,?,?)`,
+        [productId, Number(b.stock), Number(b.stock), 'Estoque inicial', req.admin.id],
+        { reason:3 }
       )
     }
 
@@ -2283,11 +2493,12 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
 
     const oldStock = Number(oldRows[0].stock)
     if (newStock !== oldStock) {
-      await conn.execute(
+      await insertPrivateBusiness(conn, 'stock_movements',
         `INSERT INTO stock_movements
          (product_id,type,quantity,stock_before,stock_after,reason,user_id)
-         VALUES(?,'AJUSTE',?,?,?,'Ajuste manual pelo painel',?)`,
-        [productId, newStock - oldStock, oldStock, newStock, req.admin.id]
+         VALUES(?,'AJUSTE',?,?,?,?,?)`,
+        [productId, newStock - oldStock, oldStock, newStock, 'Ajuste manual pelo painel', req.admin.id],
+        { reason:4 }
       )
     }
 
@@ -2340,7 +2551,7 @@ app.post('/api/admin/stock', exigirLogin, async (req, res) => {
       'UPDATE products SET stock=? WHERE id=?',
       [stockAfter, productId]
     )
-    await conn.execute(
+    await insertPrivateBusiness(conn, 'stock_movements',
       `INSERT INTO stock_movements
        (product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id)
        VALUES(?,?,?,?,?,?,?,?,?)`,
@@ -2354,7 +2565,8 @@ app.post('/api/admin/stock', exigirLogin, async (req, res) => {
         req.body?.reference_id ? String(req.body.reference_id) : null,
         Number(req.body?.unit_cost || 0),
         req.admin.id
-      ]
+      ],
+      { reason:5 }
     )
 
     await audit(req.admin.id, 'MOVIMENTAR', 'estoque', productId, {
@@ -2377,19 +2589,19 @@ app.post('/api/admin/stock', exigirLogin, async (req, res) => {
 
 app.get('/api/admin/stock/movements', exigirLogin, async (req, res) => {
   const rows = await query(`
-    SELECT m.*, p.name AS product, u.email AS user_email
+    SELECT m.*, p.name AS product, u.email AS user_email, u.private_data AS user_private_data
     FROM stock_movements m
     INNER JOIN products p ON p.id=m.product_id
     LEFT JOIN admin_users u ON u.id=m.user_id
     ORDER BY m.id DESC
     LIMIT 500
   `)
-  res.json(rows)
+  res.json(decodeBusinessUserEmails(rows))
 })
 
 app.get('/api/admin/finance/entries', exigirLogin, async (req, res) => {
   const rows = await query(`
-    SELECT e.*, c.name AS category, a.name AS account, u.email AS user_email
+    SELECT e.*, c.name AS category, a.name AS account, u.email AS user_email, u.private_data AS user_private_data
     FROM financial_entries e
     LEFT JOIN financial_categories c ON c.id=e.category_id
     LEFT JOIN financial_accounts a ON a.id=e.account_id
@@ -2397,8 +2609,18 @@ app.get('/api/admin/finance/entries', exigirLogin, async (req, res) => {
     ORDER BY e.due_date DESC, e.id DESC
     LIMIT 500
   `)
-  res.json(rows)
+  res.json(decodeBusinessUserEmails(rows))
 })
+
+function decodeBusinessUserEmails(rows) {
+  return rows.map(row => {
+    const { user_private_data, ...publicRow } = row
+    if (row.user_id && row.user_email != null) {
+      publicRow.user_email = privacy.decodeRow('admin_users', { id:row.user_id, email:row.user_email, private_data:user_private_data }).email
+    }
+    return publicRow
+  })
+}
 
 app.get('/api/admin/finance/categories', exigirLogin, async (req, res) => {
   res.json(await query('SELECT * FROM financial_categories ORDER BY type,name'))
@@ -2416,36 +2638,39 @@ app.post('/api/admin/finance/entries', exigirLogin, async (req, res) => {
     return res.status(400).json({ error: 'Lançamento financeiro inválido.' })
   }
 
-  const rows = await query(
-    `INSERT INTO financial_entries
-     (account_id,category_id,type,description,amount,due_date,status,paid_at,recurring,recurrence,user_id)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      Number(b.account_id) || null,
-      Number(b.category_id) || null,
-      type,
-      String(b.description).trim(),
-      amount,
-      b.due_date || null,
-      b.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
-      b.status === 'PAGO' ? new Date() : null,
-      b.recurring === true ? 1 : 0,
-      b.recurrence ? String(b.recurrence) : null,
-      req.admin.id
-    ]
-  )
-
-  const id = rows.insertId
-  await audit(req.admin.id, 'CRIAR', 'lancamento_financeiro', id, {
-    type,
-    amount
-  })
-
-  const inserted = await query(
-    'SELECT e.*,c.name AS category,a.name AS account FROM financial_entries e LEFT JOIN financial_categories c ON c.id=e.category_id LEFT JOIN financial_accounts a ON a.id=e.account_id WHERE e.id=?',
-    [id]
-  )
-  res.status(201).json(inserted[0])
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const result = await insertPrivateBusiness(conn, 'financial_entries',
+      `INSERT INTO financial_entries
+       (account_id,category_id,type,description,amount,due_date,status,paid_at,recurring,recurrence,user_id)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        Number(b.account_id) || null,
+        Number(b.category_id) || null,
+        type,
+        String(b.description).trim(),
+        amount,
+        b.due_date || null,
+        b.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
+        b.status === 'PAGO' ? new Date() : null,
+        b.recurring === true ? 1 : 0,
+        b.recurrence ? String(b.recurrence) : null,
+        req.admin.id
+      ],
+      { description:3 })
+    const id = result.insertId
+    await audit(req.admin.id, 'CRIAR', 'lancamento_financeiro', id, { type, amount }, conn)
+    const inserted = await query(
+      'SELECT e.*,c.name AS category,a.name AS account FROM financial_entries e LEFT JOIN financial_categories c ON c.id=e.category_id LEFT JOIN financial_accounts a ON a.id=e.account_id WHERE e.id=?',
+      [id], conn)
+    await conn.commit()
+    res.status(201).json(inserted[0])
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao criar lançamento financeiro:', error?.code || 'INTERNAL_ERROR')
+    res.status(500).json({ error:'Não foi possível criar o lançamento financeiro.' })
+  } finally { conn.release() }
 })
 
 app.delete('/api/admin/finance/entries/:id', exigirLogin, async (req, res) => {
@@ -2495,26 +2720,28 @@ app.post('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
     return res.status(400).json({ error: 'Recorrência inválida.' })
   }
 
-  const result = await query(
-    'INSERT INTO recurring_expenses(description,category_id,account_id,amount,due_day) VALUES(?,?,?,?,?)',
-    [
-      String(b.description).trim(),
-      Number(b.category_id) || null,
-      Number(b.account_id) || null,
-      amount,
-      dueDay
-    ]
-  )
-  await audit(req.admin.id, 'CRIAR', 'despesa_recorrente', result.insertId)
-  const rows = await query(
-    `SELECT r.*, c.name AS category, a.name AS account
-     FROM recurring_expenses r
-     LEFT JOIN financial_categories c ON c.id=r.category_id
-     LEFT JOIN financial_accounts a ON a.id=r.account_id
-     WHERE r.id=?`,
-    [result.insertId]
-  )
-  res.status(201).json(rows[0])
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const result = await insertPrivateBusiness(conn, 'recurring_expenses',
+      'INSERT INTO recurring_expenses(description,category_id,account_id,amount,due_day) VALUES(?,?,?,?,?)',
+      [String(b.description).trim(), Number(b.category_id) || null, Number(b.account_id) || null, amount, dueDay],
+      { description:0 })
+    await audit(req.admin.id, 'CRIAR', 'despesa_recorrente', result.insertId, null, conn)
+    const rows = await query(
+      `SELECT r.*, c.name AS category, a.name AS account
+       FROM recurring_expenses r
+       LEFT JOIN financial_categories c ON c.id=r.category_id
+       LEFT JOIN financial_accounts a ON a.id=r.account_id
+       WHERE r.id=?`,
+      [result.insertId], conn)
+    await conn.commit()
+    res.status(201).json(rows[0])
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao criar recorrência:', error?.code || 'INTERNAL_ERROR')
+    res.status(500).json({ error:'Não foi possível criar a recorrência.' })
+  } finally { conn.release() }
 })
 
 app.get('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
