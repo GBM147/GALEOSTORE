@@ -326,6 +326,7 @@ h1 em, h2 em, .manifesto em { color: var(--accent-soft); font-family: Georgia, "
 .category-card > span { position: relative; z-index: 2; color: var(--muted); font-size: 9px; }
 .category-card strong { position: relative; z-index: 2; font-size: clamp(32px, 4.4vw, 62px); line-height: .86; letter-spacing: -.06em; }
 .category-card small { position: relative; z-index: 2; color: var(--accent-soft); font-size: 9px; text-transform: uppercase; letter-spacing: .14em; }
+.category-media { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.4; }
 
 .product-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 20px; margin-top: 54px; }
 .product-grid-editorial { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 24px 18px; }
@@ -1307,6 +1308,13 @@ body {
 .home-editor-publish-button { width:100%; min-width:0; margin-top:6px; }
 .visual-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .campaign-media { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; opacity:.82; }
+.campaign-mobile-image { display:none; }
+.campaign-visual[data-campaign-effect="static"] *,
+.campaign-visual[data-campaign-effect="static"]::before { animation:none!important; }
+@media (max-width:700px) {
+  .campaign-desktop-video { display:none; }
+  .campaign-mobile-image { display:block; }
+}
 .campaign-video { filter:saturate(.82) contrast(1.03); }
 @media (max-width:1180px) { .home-editor-main { grid-template-columns:200px minmax(0,1fr); } .home-editor-publish { grid-column:1/-1; grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (max-width:800px) { .home-editor-main { grid-template-columns:1fr; } .home-editor-sidebar { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; } .home-editor-sidebar-title,.home-editor-divider,.home-editor-nav-label { grid-column:1/-1; } .home-editor-workspace { padding:20px; } .home-editor-form,.home-editor-card-grid,.home-editor-product-grid,.home-editor-publish { grid-template-columns:1fr; } .home-editor-list-row { grid-template-columns:1fr auto auto; } .home-editor-list-row button:last-child { grid-column:1/-1; } }

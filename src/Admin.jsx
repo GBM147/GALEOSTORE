@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import MediaLibrary from './MediaLibrary'
+import PointOfSale from './PointOfSale'
 let csrfToken = ''
 
 const api = async (path, options = {}) => {
@@ -26,7 +27,13 @@ const api = async (path, options = {}) => {
 
   if (data?.csrfToken) csrfToken = data.csrfToken
   if (!response.ok) {
-    throw new Error(data?.error || 'Erro na comunicação com o servidor.')
+    const error = new Error(data?.error || 'Erro na comunicação com o servidor.')
+    error.status = response.status
+    error.code = data?.code
+    if (path !== '/api/auth/login' && (error.status === 401 || error.code === 'ADMIN_OWNER_REQUIRED')) {
+      window.dispatchEvent(new Event('galeo-admin-auth-required'))
+    }
+    throw error
   }
   return data
 }
@@ -71,6 +78,9 @@ const uploadMedia = async (productId, files, onProgress) => {
     try { data = raw ? JSON.parse(raw) : null } catch {}
 
     if (!response.ok) {
+      if (response.status === 401 || data?.code === 'ADMIN_OWNER_REQUIRED') {
+        window.dispatchEvent(new Event('galeo-admin-auth-required'))
+      }
       throw new Error(data?.error || 'Não foi possível enviar a mídia.')
     }
 
@@ -145,7 +155,8 @@ function Login({ onLogin }) {
 }
 
 function ProductForm({ product, categories, onClose, onDone }) {
-  const editing = Boolean(product?.id)
+  const [savedProductId, setSavedProductId] = useState(Number(product?.id || 0))
+  const editing = Boolean(savedProductId)
   const [form, setForm] = useState(product ? {
     ...product,
     category_id: product.category_id || '',
@@ -188,8 +199,8 @@ function ProductForm({ product, categories, onClose, onDone }) {
   }
 
   useEffect(() => {
-    if (editing) loadMedia(product.id)
-  }, [editing, product?.id])
+    if (savedProductId) loadMedia(savedProductId)
+  }, [savedProductId])
 
   async function removeMedia(item) {
     if (!window.confirm('Excluir esta mídia do produto?')) return
@@ -203,19 +214,19 @@ function ProductForm({ product, categories, onClose, onDone }) {
 
   async function enviarMidiaAtual() {
     const files = [...imageFiles, ...videoFiles]
-    if (!editing || !product?.id || !files.length) return
+    if (!savedProductId || !files.length) return
 
     setUploading(true)
     setMediaError('')
     setUploadProgress({ done: 0, total: files.length })
 
     try {
-      await uploadMedia(product.id, files, (done, total) => {
+      await uploadMedia(savedProductId, files, (done, total) => {
         setUploadProgress({ done, total })
       })
       setImageFiles([])
       setVideoFiles([])
-      await loadMedia(product.id)
+      await loadMedia(savedProductId)
     } catch (error) {
       setMediaError(error.message)
     } finally {
@@ -230,7 +241,7 @@ function ProductForm({ product, categories, onClose, onDone }) {
     setMediaError('')
 
     try {
-      const saved = await api(editing ? '/api/admin/products/' + product.id : '/api/admin/products', {
+      const saved = await api(editing ? '/api/admin/products/' + savedProductId : '/api/admin/products', {
         method: editing ? 'PUT' : 'POST',
         body: {
           ...form,
@@ -242,7 +253,9 @@ function ProductForm({ product, categories, onClose, onDone }) {
         }
       })
 
-      const productId = saved?.id || product?.id
+      const productId = Number(saved?.id || savedProductId)
+      if (!productId) throw new Error('O servidor não confirmou o cadastro do produto.')
+      setSavedProductId(productId)
       const files = [...imageFiles, ...videoFiles]
 
       // O produto pode ser novo ou estar sendo editado. Em ambos os casos,
@@ -810,7 +823,7 @@ function HomeEditor({ user }) {
     try {
       await api('/api/admin/home/settings/' + key, { method: 'PUT', body: { value } })
       await loadHome()
-      setStatus('Configuração salva')
+      setStatus('Configuração salva no rascunho. Visualize antes de publicar a Home.')
     } catch (error) {
       setStatus(error.message)
     } finally { setSaving(false) }
@@ -966,7 +979,7 @@ function HomeEditor({ user }) {
                 ['background','Fundo'],['surface','Superfície'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave'],['accent_deep','Destaque profundo']
               ].map(([key,label]) => <label key={key}>{label}<input type="text" value={visual.palette?.[key] || ''} onChange={(e) => setVisual((current) => ({ ...current, palette: { ...(current.palette || {}), [key]: e.target.value } }))} placeholder="#000000" /></label>)}
               <div className="home-editor-inline-settings home-editor-full">Os campos visuais ficam salvos no CMS e aplicados na vitrine publicada</div>
-              <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('storefront_visual_defaults', visual)} disabled={saving}>Salvar visual ↗</button></div>
+              <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('storefront_visual_defaults', visual)} disabled={saving}>Salvar visual no rascunho ↗</button></div>
             </div>
           )}
 
@@ -974,11 +987,11 @@ function HomeEditor({ user }) {
             <div className="home-editor-list">
               {(navigation.items || []).map((item,index) => <div className="home-editor-card-row" key={index}><div className="home-editor-card-grid"><label>Nome<input value={item.label || ''} onChange={(e) => setNavigation((current) => ({ ...current, items: current.items.map((x,i) => i === index ? { ...x, label: e.target.value } : x) }))} /></label><label>Link<input value={item.url || ''} onChange={(e) => setNavigation((current) => ({ ...current, items: current.items.map((x,i) => i === index ? { ...x, url: e.target.value } : x) }))} /></label></div><div className="home-editor-row-actions"><button type="button" onClick={() => setNavigation((current) => ({ ...current, items: current.items.filter((_,i) => i !== index) }))}>Excluir</button></div></div>)}
               <button className="text-button" type="button" onClick={() => setNavigation((current) => ({ ...current, items: [...(current.items || []), { label:'Novo item', url:'/shop' }] }))}>+ adicionar item</button>
-              <div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('navigation', navigation)} disabled={saving}>Salvar menu ↗</button></div>
+              <div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('navigation', navigation)} disabled={saving}>Salvar menu no rascunho ↗</button></div>
             </div>
           )}
 
-          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Localização<input value={footer.location || ''} onChange={(e) => setFooter((current) => ({ ...current, location: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé ↗</button></div></div>}
+          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Localização<input value={footer.location || ''} onChange={(e) => setFooter((current) => ({ ...current, location: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé no rascunho ↗</button></div></div>}
 
           {area === 'campaign' && campaignDefaults && (
             <div className="home-editor-form">
@@ -986,7 +999,7 @@ function HomeEditor({ user }) {
               <label>Transição<select value={campaignDefaults.transition} onChange={(e) => setCampaignDefaults((current) => ({ ...current, transition: e.target.value }))}><option value="fade">Fade</option><option value="slide">Slide</option><option value="crossfade">Crossfade</option></select></label>
               <label>Velocidade<select value={campaignDefaults.speed} onChange={(e) => setCampaignDefaults((current) => ({ ...current, speed: e.target.value }))}><option value="slow">Lenta</option><option value="normal">Normal</option><option value="fast">Rápida</option></select></label>
               <label>Duração (segundos)<input type="number" min="2" max="30" value={campaignDefaults.duration_seconds} onChange={(e) => setCampaignDefaults((current) => ({ ...current, duration_seconds: Number(e.target.value) }))} /></label>
-              <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('campaign_defaults', campaignDefaults)} disabled={saving}>Salvar animações ↗</button></div>
+              <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('campaign_defaults', campaignDefaults)} disabled={saving}>Salvar animações no rascunho ↗</button></div>
             </div>
           )}
         </section>
@@ -1035,6 +1048,7 @@ function Admin({ user, onLogout }) {
   const [products, setProducts] = useState([])
   const [entries, setEntries] = useState([])
   const [categories, setCategories] = useState([])
+  const [productCategories, setProductCategories] = useState([])
   const [accounts, setAccounts] = useState([])
   const [recurring, setRecurring] = useState([])
   const [movements, setMovements] = useState([])
@@ -1046,10 +1060,10 @@ function Admin({ user, onLogout }) {
   const [editingProduct, setEditingProduct] = useState(null)
   const [securityModal, setSecurityModal] = useState(false)
 
-  async function load() {
-    setLoading(true)
+  async function load(background = false) {
+    if (!background) setLoading(true)
     try {
-      const [d, p, e, c, a, r, m, s, o] = await Promise.all([
+      const [d, p, e, c, a, r, m, s, o, store] = await Promise.all([
         api('/api/admin/dashboard'),
         api('/api/admin/products'),
         api('/api/admin/finance/entries'),
@@ -1058,22 +1072,24 @@ function Admin({ user, onLogout }) {
         api('/api/admin/finance/recurring'),
         api('/api/admin/stock/movements'),
         api('/api/admin/sales'),
-        api('/api/admin/store-orders')
+        api('/api/admin/store-orders'),
+        api('/api/store')
       ])
       setDash(d)
       setProducts(p)
       setEntries(e)
       setCategories(c)
+      setProductCategories(Array.isArray(store?.categories) ? store.categories : [])
       setAccounts(a)
       setRecurring(r)
       setMovements(m)
       setSales(s)
       setOnlineOrders(Array.isArray(o) ? o : [])
     } catch (error) {
-      if (error.message.includes('Sessão') || error.message.includes('conta')) onLogout()
+      if (error.status === 401 || error.code === 'ADMIN_OWNER_REQUIRED' || error.message.includes('Sessão') || error.message.includes('conta')) onLogout()
       else alert(error.message)
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }
 
@@ -1153,6 +1169,7 @@ function Admin({ user, onLogout }) {
     editor: 'Editor da loja',
     products: 'Produtos e estoque',
     sales: 'Vendas',
+    pdv: 'PDV — loja física',
     'online-orders': 'Pedidos online',
     finance: 'Financeiro',
     recurring: 'Contas recorrentes',
@@ -1176,6 +1193,7 @@ function Admin({ user, onLogout }) {
           ['dashboard', 'Visão geral'],
           ...(user?.role === 'owner' ? [['editor', 'Editor da loja']] : []),
           ['products', 'Produtos e estoque'],
+          ['pdv', 'PDV — loja física'],
           ['sales', 'Vendas'],
           ['online-orders', 'Pedidos online'],
           ['finance', 'Financeiro'],
@@ -1202,6 +1220,7 @@ function Admin({ user, onLogout }) {
         {loading ? <div className="admin-loading">Carregando dados reais…</div> : null}
         {!loading && tab === 'editor' && user?.role === 'owner' && <HomeEditor user={user} />}
         {!loading && tab === 'library' && <MediaLibrary api={api} csrf={() => csrfToken} role={user?.role} />}
+        {!loading && tab === 'pdv' && <PointOfSale api={api} operatorId={user.id} onSaleCreated={() => load(true)} />}
         {!loading && tab === 'dashboard' && (
           <>
             <div className="metric-grid metric-grid-extended">
@@ -1342,7 +1361,7 @@ function Admin({ user, onLogout }) {
         )}
       </main>
 
-      {modal === 'product' && <ProductForm product={editingProduct} categories={categories} onClose={() => setModal(null)} onDone={() => { setModal(null); setEditingProduct(null); load() }} />}
+      {modal === 'product' && <ProductForm product={editingProduct} categories={productCategories} onClose={() => setModal(null)} onDone={() => { setModal(null); setEditingProduct(null); load() }} />}
       {modal === 'stock' && <StockModal products={products} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
       {modal === 'sale' && <SaleModal products={products} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
       {modal === 'finance' && <FinanceModal categories={categories} accounts={accounts} onClose={() => setModal(null)} onDone={() => { setModal(null); load() }} />}
@@ -1358,14 +1377,20 @@ export default function AdminGate() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
+    function requireAdminLogin() {
+      csrfToken = ''
+      setUser(null)
+    }
+    window.addEventListener('galeo-admin-auth-required', requireAdminLogin)
     api('/api/auth/me')
       .then((data) => setUser(data.user))
       .catch(() => {})
       .finally(() => setChecking(false))
+    return () => window.removeEventListener('galeo-admin-auth-required', requireAdminLogin)
   }, [])
 
   if (checking) return <main className="admin-login"><p>Verificando sessão...</p></main>
-  return user
+  return user?.role === 'owner'
     ? <Admin user={user} onLogout={() => setUser(null)} />
     : <Login onLogin={setUser} />
 }

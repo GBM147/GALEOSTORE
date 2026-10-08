@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import bcrypt from 'bcrypt'
+import { newPasswordError } from './password-policy.js'
 import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
@@ -20,7 +21,8 @@ import { WebSocketServer } from 'ws'
 import { mercadoPagoOnlineConfigured, mercadoPagoPointConfigured, createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, getMercadoPagoOrder, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
 import {
   configurarPersistenciaSessao,
-  normalizarManterConectado
+  normalizarManterConectado,
+  sessaoDevePersistir
 } from '../session-policy.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -251,10 +253,11 @@ async function query(sql, params = [], executor = db) {
   return rows
 }
 
-async function audit(userId, action, entity, entityId, details = null) {
+async function audit(userId, action, entity, entityId, details = null, executor = db) {
   await query(
     'INSERT INTO audit_logs(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
-    [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null]
+    [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null],
+    executor
   )
 }
 
@@ -457,6 +460,38 @@ async function init() {
       INDEX idx_order_item_order (order_id),
       INDEX idx_order_item_product (product_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS payments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      channel ENUM('ONLINE','POINT') NOT NULL,
+      store_order_id INT NULL,
+      sale_id INT NULL,
+      method VARCHAR(40) NOT NULL DEFAULT '',
+      provider VARCHAR(60) NOT NULL,
+      provider_reference VARCHAR(160) NULL,
+      status ENUM('PENDING','APPROVED','REJECTED','CANCELLED','REFUNDED') NOT NULL DEFAULT 'PENDING',
+      amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      payment_url VARCHAR(1200) NULL,
+      idempotency_key VARCHAR(160) NULL,
+      raw_payload JSON NULL,
+      paid_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_payment_order FOREIGN KEY (store_order_id) REFERENCES store_orders(id) ON DELETE RESTRICT,
+      CONSTRAINT fk_payment_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE RESTRICT,
+      UNIQUE KEY uq_payment_provider_reference (provider,provider_reference),
+      UNIQUE KEY uq_payment_idempotency (idempotency_key),
+      INDEX idx_payment_order_status (store_order_id,status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS integration_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      provider VARCHAR(60) NOT NULL,
+      event_id VARCHAR(255) NOT NULL,
+      event_type VARCHAR(80) NOT NULL DEFAULT '',
+      payload JSON NOT NULL,
+      processed_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_integration_event (provider,event_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS home_sections (
       id INT AUTO_INCREMENT PRIMARY KEY,
       section_key VARCHAR(80) NOT NULL UNIQUE,
@@ -484,6 +519,12 @@ async function init() {
   ]
 
   for (const statement of schema) await query(statement)
+  await ensureColumn('payments', 'payment_url', 'VARCHAR(1200) NULL')
+  await ensureColumn('home_sections', 'published_sort_order', 'INT NULL')
+  await ensureColumn('home_sections', 'published_visible', 'TINYINT(1) NULL')
+  await ensureColumn('home_settings', 'draft_value', 'JSON NULL')
+  await ensureColumn('sales', 'client_reference', 'VARCHAR(80) NULL')
+  await ensureIndex('sales', 'uq_sale_client_reference', 'CREATE UNIQUE INDEX uq_sale_client_reference ON sales(user_id,client_reference)')
   await ensureColumn('store_orders', 'payment_status', "ENUM('PENDING','APPROVED','REJECTED','CANCELLED','REFUNDED') NOT NULL DEFAULT 'PENDING'")
   await ensureColumn('store_orders', 'payment_provider', "VARCHAR(60) NOT NULL DEFAULT ''")
   await ensureColumn('store_orders', 'payment_method', "VARCHAR(40) NOT NULL DEFAULT ''")
@@ -545,10 +586,13 @@ async function init() {
   for (const section of homeDefaults) {
     const payload = JSON.stringify(section.content)
     await query(
-      "INSERT INTO home_sections (section_key,section_type,sort_order,visible,draft_content,published_content) VALUES(?,?,?,1,?,?) ON DUPLICATE KEY UPDATE section_type=VALUES(section_type), sort_order=VALUES(sort_order)",
+      "INSERT INTO home_sections (section_key,section_type,sort_order,visible,draft_content,published_content) VALUES(?,?,?,1,?,?) ON DUPLICATE KEY UPDATE section_key=section_key",
       [section.key, section.type, section.order, payload, payload]
     )
   }
+
+  await query('UPDATE home_sections SET published_sort_order=sort_order WHERE published_sort_order IS NULL')
+  await query('UPDATE home_sections SET published_visible=visible WHERE published_visible IS NULL')
 
   await query(
     "INSERT INTO home_settings(setting_key,setting_value) VALUES('campaign_defaults',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
@@ -601,12 +645,9 @@ async function init() {
       [process.env.ADMIN_EMAIL]
     )
 
-    if (existing.length) {
-      await query(
-        'UPDATE admin_users SET active=1 WHERE id=?',
-        [existing[0].id]
-      )
-    } else if (process.env.ADMIN_PASSWORD) {
+    if (!existing.length && process.env.ADMIN_PASSWORD) {
+      const passwordError = newPasswordError(process.env.ADMIN_PASSWORD)
+      if (passwordError) throw new Error('ADMIN_PASSWORD inválida: ' + passwordError)
       const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12)
       await query(
         "INSERT INTO admin_users(email,password_hash,role,active) VALUES(?,?, 'owner', 1)",
@@ -628,7 +669,8 @@ async function exigirLogin(req, res, next) {
       'SELECT id,email,role,active FROM admin_users WHERE id=? LIMIT 1',
       [req.session.userId]
     )
-    if (!rows.length || !rows[0].active) {
+    if (!rows.length || !rows[0].active || rows[0].role !== 'owner') {
+      const roleDenied = rows[0]?.active && rows[0]?.role !== 'owner'
       return req.session.destroy(() => {
         res.clearCookie('galeo_sid', {
           httpOnly: true,
@@ -636,9 +678,10 @@ async function exigirLogin(req, res, next) {
           sameSite: 'lax',
           path: '/'
         })
-        return res.status(401).json({
+        return res.status(roleDenied ? 403 : 401).json({
           success: false,
-          error: 'Esta conta não está disponível.'
+          ...(roleDenied ? { code: 'ADMIN_OWNER_REQUIRED' } : {}),
+          error: roleDenied ? 'Acesso administrativo exclusivo dos proprietários.' : 'Esta conta não está disponível.'
         })
       })
     }
@@ -656,6 +699,12 @@ function salvarSessao(req) {
   })
 }
 
+function renovarSessao(req) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((error) => error ? reject(error) : resolve())
+  })
+}
+
 function normalizarPapel(role) {
   return role === 'owner' ? 'owner' : 'staff'
 }
@@ -666,7 +715,7 @@ function permissoesDoPapel(role) {
     role: papel,
     content: papel === 'owner',
     users: false,
-    operations: true
+    operations: papel === 'owner'
   }
 }
 
@@ -702,7 +751,36 @@ function exigirPapel(...papeisPermitidos) {
 }
 
 const exigirOwner = exigirPapel('owner')
-const exigirOperacao = exigirPapel('owner', 'staff')
+
+async function registrarEventoIntegracao(conn, provider, eventId, eventType, payload) {
+  if (!eventId) return true
+  await conn.execute(
+    'INSERT INTO integration_events(provider,event_id,event_type,payload) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE event_id=event_id',
+    [provider, eventId, eventType, JSON.stringify(payload || {})]
+  )
+  const [events] = await conn.execute(
+    'SELECT processed_at FROM integration_events WHERE provider=? AND event_id=? FOR UPDATE',
+    [provider, eventId]
+  )
+  return !events[0]?.processed_at
+}
+
+// O chamador bloqueia o pedido na mesma transação antes de devolver a reserva.
+async function devolverReservaPedido(conn, order, userId = null) {
+  if (order.status === 'CANCELLED') return
+  const [items] = await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY product_id', [order.id])
+  for (const item of items) {
+    const [products] = await conn.execute('SELECT stock,cost FROM products WHERE id=? FOR UPDATE', [item.product_id])
+    if (!products.length) throw new Error('Produto do pedido não encontrado.')
+    const stockBefore = Number(products[0].stock)
+    const stockAfter = stockBefore + Number(item.quantity)
+    await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, item.product_id])
+    await conn.execute(
+      "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
+      [item.product_id, item.quantity, stockBefore, stockAfter, 'Cancelamento do pedido ' + order.code, 'store-order:' + order.id, Number(products[0].cost || 0), userId]
+    )
+  }
+}
 
 function mapMercadoPagoStatus(status, statusDetail = '') {
   const value = String(status || '').toLowerCase()
@@ -757,7 +835,7 @@ async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
     [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, Number(order.total), 'sale:' + saleId]
   )
   await conn.execute("UPDATE payments SET sale_id=?,status='APPROVED',paid_at=COALESCE(paid_at,NOW()) WHERE store_order_id=? AND provider='MERCADO_PAGO'", [saleId, orderId])
-  await conn.execute("UPDATE store_orders SET status='CONFIRMED',payment_status='APPROVED',paid_at=COALESCE(paid_at,NOW()),sale_id=? WHERE id=?", [saleId, orderId])
+  await conn.execute("UPDATE store_orders SET status=CASE WHEN status='RECEIVED' THEN 'CONFIRMED' ELSE status END,payment_status='APPROVED',paid_at=COALESCE(paid_at,NOW()),sale_id=? WHERE id=?", [saleId, orderId])
   return { saleId, saleCode, code: order.code, total: Number(order.total), customerEmail: order.customer_email, customerName: order.customer_name, created: true }
 }
 
@@ -774,15 +852,35 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
   const amount = Number(mpOrder?.total_amount || payment?.amount || 0)
   const conn = await db.getConnection()
   let promoted = null
+  let reconciliationRequired = false
   try {
     await conn.beginTransaction()
+    if (!(await registrarEventoIntegracao(conn, 'MERCADO_PAGO', eventId, eventType, mpOrder))) {
+      await conn.commit()
+      return { duplicate: true }
+    }
+    const [lockedOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE', [orderId])
+    const originalOrder = lockedOrders[0]
+    if (!originalOrder) throw new Error('Pedido online não encontrado.')
+    if (status === 'APPROVED' && Math.round(amount * 100) !== Math.round(Number(originalOrder.total) * 100)) {
+      throw new Error('O valor aprovado não corresponde ao total do pedido.')
+    }
+    if ((originalOrder.payment_status === 'REFUNDED' && status !== 'REFUNDED') ||
+        (originalOrder.payment_status === 'APPROVED' && !['APPROVED', 'REFUNDED'].includes(status))) {
+      if (eventId) await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?', ['MERCADO_PAGO', eventId])
+      await conn.commit()
+      return { ignored: true, reason: 'status_pagamento_regressivo' }
+    }
     await conn.execute(
       "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,raw_payload,paid_at) VALUES('ONLINE',?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),method=VALUES(method),amount=VALUES(amount),raw_payload=VALUES(raw_payload),paid_at=VALUES(paid_at)",
       [orderId, method, 'MERCADO_PAGO', providerReference, status, amount, JSON.stringify(mpOrder), status === 'APPROVED' ? new Date() : null]
     )
     await conn.execute("UPDATE store_orders SET payment_status=?,payment_provider='MERCADO_PAGO',payment_method=?,payment_reference=?,paid_at=? WHERE id=?", [status, method, providerReference || null, status === 'APPROVED' ? new Date() : null, orderId])
-    if (status === 'APPROVED') {
+    if (status === 'APPROVED' && originalOrder.status !== 'CANCELLED') {
       promoted = await promoverPedidoPagoParaVenda(conn, orderId, { payment_method_type: method })
+    } else if (status === 'APPROVED') {
+      reconciliationRequired = true
+      console.error('Pagamento aprovado após cancelamento; conciliação necessária:', originalOrder.code)
     } else if (status === 'REFUNDED') {
       const [refundOrderRows]=await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE',[orderId])
       const refundOrder=refundOrderRows[0]
@@ -805,21 +903,7 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
           await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?",[refundOrder.sale_id])
           await conn.execute("UPDATE financial_entries SET status='CANCELADO',paid_at=NULL WHERE reference_type='VENDA' AND reference_id=?",['sale:'+refundOrder.sale_id])
         }
-      } else {
-        const [items]=await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
-        for(const item of items){
-          const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
-          if(!productRows.length) throw new Error('Produto do pedido não encontrado.')
-          const product=productRows[0]
-          const stockBefore=Number(product.stock)
-          const stockAfter=stockBefore+Number(item.quantity)
-          await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
-          await conn.execute(
-            "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,NULL)",
-            [item.product_id,item.quantity,stockBefore,stockAfter,'Estorno do pedido online '+refundOrder.code,'store-order:'+orderId,Number(product.cost||0)]
-          )
-        }
-      }
+      } else await devolverReservaPedido(conn, originalOrder)
       await conn.execute("UPDATE store_orders SET status='CANCELLED',payment_status='REFUNDED' WHERE id=?",[orderId])
     }
     if (eventId) await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?', ['MERCADO_PAGO', eventId])
@@ -836,7 +920,7 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
     idempotencyKey: 'payment-approved-customer-' + promoted.saleId,
     html: '<div style="font-family:Arial,sans-serif"><h1>Pagamento aprovado</h1><p>Olá, ' + escapeHtml(promoted.customerName) + '</p><p>O pagamento do pedido <strong>' + escapeHtml(promoted.code) + '</strong> foi aprovado</p><p>Seu pedido está confirmado e aguardando preparação</p><p><strong>Total: ' + escapeHtml(moneyBR(promoted.total)) + '</strong></p></div>'
   })
-  return { ignored: false, status, promoted }
+  return { ignored: false, status, promoted, reconciliation_required: reconciliationRequired }
 }
 
 async function exigirCliente(req,res,next) {
@@ -907,6 +991,9 @@ app.post('/api/auth/login', limitarAutenticacao, async (req, res) => {
         success: false,
         error: 'E-mail ou senha inválidos.'
       })
+    }
+    if (rows[0].role !== 'owner') {
+      return res.status(403).json({ success: false, code: 'ADMIN_OWNER_REQUIRED', error: 'Acesso administrativo exclusivo dos proprietários.' })
     }
 
     req.session.regenerate(async (error) => {
@@ -1001,9 +1088,8 @@ app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, 
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ success: false, error: 'Informe a senha atual e a nova senha.' })
   }
-  if (newPassword.length < 10 || newPassword.length > 128) {
-    return res.status(400).json({ success: false, error: 'A nova senha deve ter entre 10 e 128 caracteres.' })
-  }
+  const passwordError = newPasswordError(newPassword)
+  if (passwordError) return res.status(400).json({ success: false, error: passwordError })
   if (currentPassword === newPassword) {
     return res.status(400).json({ success: false, error: 'A nova senha deve ser diferente da atual.' })
   }
@@ -1013,12 +1099,16 @@ app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, 
     if (!rows.length || !(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
       return res.status(401).json({ success: false, error: 'A senha atual está incorreta.' })
     }
+    if (await bcrypt.compare(newPassword, rows[0].password_hash)) {
+      return res.status(400).json({ success: false, error: 'A nova senha deve ser diferente da atual.' })
+    }
 
     const passwordHash = await bcrypt.hash(newPassword, 12)
     await query('UPDATE admin_users SET password_hash=? WHERE id=?', [passwordHash, req.admin.id])
 
     await audit(req.admin.id, 'ALTERAR_SENHA', 'admin_user', req.admin.id)
 
+    const manterConectado = sessaoDevePersistir(req.session)
     req.session.regenerate(async (regenerateError) => {
       if (regenerateError) {
         console.error('Erro ao renovar sessão após alteração de senha:', regenerateError)
@@ -1028,7 +1118,7 @@ app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, 
       req.session.userId = req.admin.id
       req.session.role = normalizarPapel(req.admin.role)
       req.session.csrfToken = randomBytes(32).toString('hex')
-      configurarPersistenciaSessao(req.session, true)
+      configurarPersistenciaSessao(req.session, manterConectado)
 
       try {
         await salvarSessao(req)
@@ -1048,7 +1138,7 @@ app.get('/api/store/products/:id', async (req,res) => {
   const productId=Number(req.params.id)
   if(!Number.isInteger(productId)||productId<=0) return res.status(400).json({error:'Produto inválido.'})
   try {
-    const products=await query('SELECT p.*,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=? AND p.active=1 LIMIT 1',[productId])
+    const products=await query('SELECT p.id,p.name,p.brand,p.category_id,p.description,p.price,p.stock,p.image,p.video,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=? AND p.active=1 LIMIT 1',[productId])
     if(!products.length) return res.status(404).json({error:'Produto não encontrado.'})
     const media=await query('SELECT id,media_type,url,width,height,duration,sort_order FROM product_media WHERE product_id=? ORDER BY sort_order,id',[productId])
     const related=await query('SELECT p.id,p.name,p.brand,p.price,p.stock,p.image,p.video,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.active=1 AND p.category_id <=> ? AND p.id<>? ORDER BY p.id DESC LIMIT 8',[products[0].category_id,productId])
@@ -1061,7 +1151,7 @@ app.get('/api/store/products/:id', async (req,res) => {
 
 app.get('/api/store/home', async (req, res) => {
   try {
-    const rows = await query('SELECT section_key,section_type,sort_order,visible,published_content,published_at FROM home_sections WHERE visible=1 ORDER BY sort_order,id')
+    const rows = await query('SELECT section_key,section_type,published_sort_order AS sort_order,published_visible AS visible,published_content,published_at FROM home_sections WHERE published_visible=1 ORDER BY published_sort_order,id')
     res.json({ sections: rows.map((row) => ({ key: row.section_key, type: row.section_type, order: Number(row.sort_order), visible: Boolean(row.visible), content: typeof row.published_content === 'string' ? JSON.parse(row.published_content) : row.published_content, published_at: row.published_at })) })
   } catch (error) {
     console.error('Erro ao carregar conteúdo publicado da home:', error)
@@ -1082,7 +1172,7 @@ app.get('/api/store', async (req, res) => {
   try {
     const [products, categories] = await Promise.all([
       query(`
-        SELECT p.*, c.name AS category
+        SELECT p.id,p.name,p.brand,p.category_id,p.description,p.price,p.stock,p.image,p.video,c.name AS category
         FROM products p
         LEFT JOIN categories c ON c.id=p.category_id
         WHERE p.active=1
@@ -1108,7 +1198,8 @@ app.get('/api/store', async (req, res) => {
 
 async function generateCurrentRecurring() {
   const recs = await query(`
-    SELECT r.*, DATE_FORMAT(CURRENT_DATE,'%Y-%m') AS current_month
+    SELECT r.*, DATE_FORMAT(CURRENT_DATE,'%Y-%m') AS current_month,
+      DAY(LAST_DAY(CURRENT_DATE)) AS last_day
     FROM recurring_expenses r
     WHERE r.active=1
   `)
@@ -1121,11 +1212,13 @@ async function generateCurrentRecurring() {
     )
     if (existing.length) continue
 
-    const dueDate = `${rec.current_month}-${String(rec.due_day).padStart(2, '0')}`
+    const dueDay = Math.min(Number(rec.due_day), Number(rec.last_day))
+    const dueDate = `${rec.current_month}-${String(dueDay).padStart(2, '0')}`
     await query(
       `INSERT INTO financial_entries
        (account_id,category_id,type,description,amount,due_date,status,recurring,recurrence,reference_type,reference_id)
-       VALUES(?,?, 'DESPESA',?,?,?,'PENDENTE',1,'MENSAL','RECURRING',?)`,
+       VALUES(?,?, 'DESPESA',?,?,?,'PENDENTE',1,'MENSAL','RECURRING',?)
+       ON DUPLICATE KEY UPDATE reference_id=reference_id`,
       [rec.account_id, rec.category_id, rec.description, rec.amount, dueDate, referenceId]
     )
   }
@@ -1146,14 +1239,17 @@ app.post('/api/customer/register', limitarAutenticacao, async (req,res) => {
   const password=String(req.body?.password || '')
   if(name.length<2||name.length>180) return res.status(400).json({error:'Informe um nome válido.'})
   if(!/^\S+@\S+\.\S+$/.test(email)||email.length>255) return res.status(400).json({error:'Informe um e-mail válido.'})
-  if(password.length<10||password.length>128) return res.status(400).json({error:'A senha deve ter entre 10 e 128 caracteres.'})
+  const passwordError=newPasswordError(password)
+  if(passwordError) return res.status(400).json({error:passwordError})
   try {
     const exists=await query('SELECT id FROM customers WHERE email=? LIMIT 1',[email])
     if(exists.length) return res.status(409).json({error:'Já existe uma conta com este e-mail.'})
     const passwordHash=await bcrypt.hash(password,12)
     const result=await query('INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',[name,email,passwordHash,phone])
+    await renovarSessao(req)
     req.session.customerId=result.insertId
     req.session.csrfToken=randomBytes(32).toString('hex')
+    configurarPersistenciaSessao(req.session, true)
     await salvarSessao(req)
     void sendEmailSafely({
       to:email,
@@ -1174,8 +1270,10 @@ app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
   try {
     const rows=await query('SELECT id,name,email,password_hash,phone,active FROM customers WHERE email=? LIMIT 1',[email])
     if(!rows.length||!rows[0].active||!(await bcrypt.compare(password,rows[0].password_hash))) return res.status(401).json({error:'E-mail ou senha inválidos.'})
+    await renovarSessao(req)
     req.session.customerId=rows[0].id
     req.session.csrfToken=randomBytes(32).toString('hex')
+    configurarPersistenciaSessao(req.session, true)
     await salvarSessao(req)
     res.json({success:true,user:{id:rows[0].id,name:rows[0].name,email:rows[0].email,phone:rows[0].phone},csrfToken:req.session.csrfToken})
   } catch(error) {
@@ -1285,11 +1383,11 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
         [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0)]
       )
     }
+    await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' }, conn)
     await conn.commit()
     const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
     void sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
     if(storeNotificationEmail) void sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
-    await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' })
     res.json({success:true,payment_configured:mercadoPagoOnlineConfigured(),order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
   } catch(error) {
     await conn.rollback().catch(()=>{})
@@ -1302,12 +1400,12 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
   const orderId=Number(req.params.id)
   if(!Number.isInteger(orderId)||orderId<=0) return res.status(400).json({error:'Pedido inválido.'})
   try {
-    if (!mercadoPagoOnlineConfigured()) return res.json({success:true,payment_configured:false,checkout_url:'',order:{id:orderId,payment_status:'PENDING'}})
     const orders=await query('SELECT * FROM store_orders WHERE id=? AND customer_id=? LIMIT 1',[orderId,req.customer.id])
     if(!orders.length) return res.status(404).json({error:'Pedido não encontrado.'})
     const order=orders[0]
     if(order.sale_id || order.payment_status==='APPROVED') return res.json({success:true,paid:true,order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
     if(order.status==='CANCELLED') return res.status(409).json({error:'Este pedido está cancelado.'})
+    if (!mercadoPagoOnlineConfigured()) return res.json({success:true,payment_configured:false,checkout_url:'',order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
     const existing=await query("SELECT provider_reference,payment_url FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' AND status='PENDING' ORDER BY id DESC LIMIT 1",[orderId])
     if(existing.length && existing[0].payment_url) return res.json({success:true,checkout_url:existing[0].payment_url,payment_reference:existing[0].provider_reference})
     const items=await query('SELECT product_id,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
@@ -1315,9 +1413,20 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
     const conn=await db.getConnection()
     try {
       await conn.beginTransaction()
+      const [currentOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? AND customer_id=? FOR UPDATE', [orderId, req.customer.id])
+      const currentOrder = currentOrders[0]
+      if (!currentOrder) throw new Error('Pedido não encontrado.')
+      if (currentOrder.status === 'CANCELLED' || currentOrder.payment_status === 'REFUNDED') {
+        await conn.rollback()
+        return res.status(409).json({error:'Este pedido está cancelado.'})
+      }
+      if (currentOrder.sale_id || currentOrder.payment_status === 'APPROVED') {
+        await conn.commit()
+        return res.json({success:true,paid:true,order:{id:currentOrder.id,code:currentOrder.code,status:currentOrder.status,payment_status:currentOrder.payment_status}})
+      }
       await conn.execute(
-        "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload) VALUES('ONLINE',?,'CHECKOUT_PRO','MERCADO_PAGO',?,'PENDING',?,?,?) ON DUPLICATE KEY UPDATE provider_reference=VALUES(provider_reference),raw_payload=VALUES(raw_payload)",
-        [orderId,String(mpOrder.id||''),Number(order.total),'galeo-order-'+orderId,JSON.stringify(mpOrder)]
+        "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload,payment_url) VALUES('ONLINE',?,'CHECKOUT_PRO','MERCADO_PAGO',?,'PENDING',?,?,?,?) ON DUPLICATE KEY UPDATE provider_reference=VALUES(provider_reference),raw_payload=VALUES(raw_payload),payment_url=VALUES(payment_url)",
+        [orderId,String(mpOrder.id||''),Number(order.total),'galeo-order-'+orderId,JSON.stringify(mpOrder),String(mpOrder.checkout_url||'')]
       )
       await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO',payment_method='CHECKOUT_PRO',payment_reference=?,payment_url=?,payment_status='PENDING' WHERE id=?",[String(mpOrder.id||''),String(mpOrder.checkout_url||''),orderId])
       await conn.commit()
@@ -1339,9 +1448,8 @@ app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
   if(!valid) return res.status(401).json({error:'Assinatura de webhook inválida.'})
   const eventId=String(req.body?.id||req.get('x-request-id')||('mp-'+dataId+'-'+String(req.body?.date_created||Date.now())))
   const eventType=String(req.body?.type||req.query.type||'order')
-  const existing=await query('SELECT id FROM integration_events WHERE provider=? AND event_id=? LIMIT 1',['MERCADO_PAGO',eventId])
+  const existing=await query('SELECT id FROM integration_events WHERE provider=? AND event_id=? AND processed_at IS NOT NULL LIMIT 1',['MERCADO_PAGO',eventId])
   if(existing.length) return res.status(200).json({received:true,duplicate:true})
-  await query('INSERT INTO integration_events(provider,event_id,event_type,payload) VALUES(?,?,?,?)',['MERCADO_PAGO',eventId,eventType,JSON.stringify(req.body||{})])
   try {
     if(!dataId) return res.status(200).json({received:true,ignored:true})
     const mpOrder=await getMercadoPagoOrder(dataId)
@@ -1349,7 +1457,6 @@ app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
     return res.status(200).json({received:true,...result})
   } catch(error) {
     console.error('Erro no webhook Mercado Pago:',error)
-    await query('DELETE FROM integration_events WHERE provider=? AND event_id=?',['MERCADO_PAGO',eventId]).catch(()=>{})
     return res.status(500).json({error:'Não foi possível processar o webhook.'})
   }
 })
@@ -1366,28 +1473,33 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
   const mapped=statusMap[nextStatus]
   if(!orderCode || !mapped) return res.status(400).json({error:'Evento da distribuidora incompleto.'})
   const uniqueEventId=eventId||('dist-'+orderCode+'-'+mapped+'-'+String(Date.now()))
-  const existing=await query('SELECT id FROM integration_events WHERE provider=? AND event_id=? LIMIT 1',['DISTRIBUTOR',uniqueEventId])
-  if(existing.length) return res.status(200).json({received:true,duplicate:true})
-  await query('INSERT INTO integration_events(provider,event_id,event_type,payload) VALUES(?,?,?,?)',['DISTRIBUTOR',uniqueEventId,nextStatus,JSON.stringify(req.body||{})])
   const rank={RECEIVED:1,CONFIRMED:2,PREPARING:3,SHIPPED:4,DELIVERED:5,CANCELLED:99}
   try {
     const conn=await db.getConnection()
     let customer=null
     try {
       await conn.beginTransaction()
+      if (!(await registrarEventoIntegracao(conn, 'DISTRIBUTOR', uniqueEventId, nextStatus, req.body))) {
+        await conn.commit()
+        return res.status(200).json({received:true,duplicate:true})
+      }
       const [rows]=await conn.execute('SELECT * FROM store_orders WHERE code=? FOR UPDATE',[orderCode])
       if(!rows.length) throw new Error('Pedido não encontrado.')
       const order=rows[0]
-      if(order.status!=='CANCELLED' && mapped!=='CANCELLED' && rank[mapped] < rank[order.status]) {
-        await conn.rollback()
-        await query('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
-        return res.status(200).json({received:true,ignored:true,reason:'status_regressivo'})
+      const terminal = ['CANCELLED', 'DELIVERED'].includes(order.status)
+      const paidCancellation = mapped === 'CANCELLED' && (order.payment_status === 'APPROVED' || order.sale_id)
+      if ((terminal && mapped !== order.status) ||
+          (mapped !== 'CANCELLED' && rank[mapped] < rank[order.status]) || paidCancellation) {
+        await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
+        await conn.commit()
+        return res.status(200).json({received:true,ignored:true,reason:paidCancellation?'estorno_pagamento_necessario':'status_regressivo'})
       }
-      await conn.execute("UPDATE store_orders SET status=? WHERE id=?",[mapped,order.id])
-      customer={email:order.customer_email,name:order.customer_name}
+      if (mapped === 'CANCELLED') await devolverReservaPedido(conn, order)
+      await conn.execute("UPDATE store_orders SET status=?,payment_status=CASE WHEN ?='CANCELLED' THEN 'CANCELLED' ELSE payment_status END WHERE id=?",[mapped,mapped,order.id])
+      if (mapped !== order.status) customer={email:order.customer_email,name:order.customer_name}
+      await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
       await conn.commit()
     }catch(error){await conn.rollback().catch(()=>{});throw error}finally{conn.release()}
-    await query('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
     if(customer?.email && ['PREPARING','SHIPPED','DELIVERED'].includes(mapped)) void sendEmailSafely({
       to:customer.email,
       subject:'Pedido '+orderCode+' — '+({PREPARING:'em preparação',SHIPPED:'enviado',DELIVERED:'entregue'})[mapped],
@@ -1397,12 +1509,11 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
     return res.status(200).json({received:true,status:mapped})
   } catch(error) {
     console.error('Erro no webhook da distribuidora:',error)
-    await query('DELETE FROM integration_events WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId]).catch(()=>{})
     return res.status(500).json({error:'Não foi possível processar o webhook da distribuidora.'})
   }
 })
 
-app.use('/api/admin', exigirLogin, exigirOperacao)
+app.use('/api/admin', exigirLogin, exigirOwner)
 app.get('/api/admin/store-orders', async (req,res) => {
   try {
     const orders=await query('SELECT id,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
@@ -1447,24 +1558,12 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
 
     if(status==='CANCELLED' && order.status!=='CANCELLED'){
       if(order.payment_status==='APPROVED' || order.sale_id) throw new Error('Pagamento aprovado não pode ser cancelado por este painel. O estorno deve ser processado no Mercado Pago.')
-      const [items]=await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY id',[id])
-      for(const item of items){
-        const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
-        if(!productRows.length) throw new Error('Produto do pedido não encontrado.')
-        const product=productRows[0]
-        const stockBefore=Number(product.stock)
-        const stockAfter=stockBefore+Number(item.quantity)
-        await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
-        await conn.execute(
-          "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
-          [item.product_id,item.quantity,stockBefore,stockAfter,'Cancelamento do pedido '+order.code,'store-order:'+id,Number(product.cost||0),req.admin.id]
-        )
-      }
+      await devolverReservaPedido(conn, order, req.admin.id)
     }
 
     await conn.execute("UPDATE store_orders SET status=?,payment_status=CASE WHEN ?='CANCELLED' THEN 'CANCELLED' ELSE payment_status END WHERE id=?",[status,status,id])
+    await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status},conn)
     await conn.commit()
-    await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status})
     res.json({success:true,id,status})
   }catch(error){
     await conn.rollback().catch(()=>{})
@@ -1525,11 +1624,12 @@ app.post('/api/admin/home/publish', exigirLogin, exigirOwner, async (req, res) =
   try {
     await conn.beginTransaction()
     await conn.execute(
-      'UPDATE home_sections SET published_content=draft_content, published_by=?, published_at=NOW() WHERE id IS NOT NULL',
+      'UPDATE home_sections SET published_content=draft_content, published_sort_order=sort_order, published_visible=visible, published_by=?, published_at=NOW() WHERE id IS NOT NULL',
       [req.admin.id]
     )
+    await conn.execute('UPDATE home_settings SET setting_value=draft_value WHERE draft_value IS NOT NULL')
+    await audit(req.admin.id, 'PUBLICAR', 'home', null, { sections:'all' }, conn)
     await conn.commit()
-    await audit(req.admin.id, 'PUBLICAR', 'home', null, { sections:'all' })
     res.json({ success:true, published_at:new Date().toISOString() })
   } catch (error) {
     await conn.rollback().catch(() => {})
@@ -1542,7 +1642,7 @@ app.post('/api/admin/home/publish', exigirLogin, exigirOwner, async (req, res) =
 
 app.get('/api/admin/home/settings', exigirLogin, exigirOwner, async (req, res) => {
   try {
-    const rows = await query('SELECT setting_key,setting_value FROM home_settings ORDER BY setting_key')
+    const rows = await query('SELECT setting_key,COALESCE(draft_value,setting_value) AS setting_value FROM home_settings ORDER BY setting_key')
     res.json({ settings: rows.map((row) => ({ key: row.setting_key, value: typeof row.setting_value === 'string' ? JSON.parse(row.setting_value) : row.setting_value })) })
   } catch (error) {
     console.error('Erro ao carregar configurações do CMS:', error)
@@ -1573,7 +1673,7 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
 
   if (key === 'storefront_visual_defaults') {
     const palette = value.palette && typeof value.palette === 'object' ? value.palette : {}
-    const validColor = (color) => typeof color === 'string' && /^(#[0-9a-f]{3,8}|rgba?\\([^)]{1,80}\\)|hsla?\\([^)]{1,80}\\))$/i.test(color.trim())
+    const validColor = (color) => typeof color === 'string' && /^(#[0-9a-f]{3,8}|rgba?\([^)]{1,80}\)|hsla?\([^)]{1,80}\))$/i.test(color.trim())
     const safe = {}
     for (const paletteKey of ['background','surface','surface_alt','text','muted','accent','accent_soft','accent_deep','line']) {
       if (palette[paletteKey] !== undefined) {
@@ -1594,8 +1694,8 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
   }
 
   try {
-    await query("INSERT INTO home_settings(setting_key,setting_value,updated_by) VALUES(?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)", [key, JSON.stringify(setting), req.admin.id])
-    res.json({ success:true, key, value:setting })
+    await query("INSERT INTO home_settings(setting_key,setting_value,draft_value,updated_by) VALUES(?,JSON_OBJECT(),?,?) ON DUPLICATE KEY UPDATE draft_value=VALUES(draft_value), updated_by=VALUES(updated_by)", [key, JSON.stringify(setting), req.admin.id])
+    res.json({ success:true, key, value:setting, saved_as:'draft' })
   } catch (error) {
     console.error('Erro ao salvar configuração do CMS:', error)
     res.status(500).json({ error:'Não foi possível salvar a configuração do CMS.' })
@@ -1696,6 +1796,17 @@ app.get('/api/admin/sales/:id', exigirLogin, async (req, res) => {
 
 app.post('/api/admin/sales', exigirLogin, async (req, res) => {
   const body = req.body || {}
+  if (body.expected_total !== undefined && (!Number.isFinite(Number(body.expected_total)) || Number(body.expected_total) < 0)) {
+    return res.status(400).json({ error: 'Total da venda inválido.' })
+  }
+  const clientReference = String(body.client_reference || '').trim() || null
+  if (clientReference && !/^[A-Za-z0-9_-]{8,80}$/.test(clientReference)) {
+    return res.status(400).json({ error: 'Referência da venda inválida.' })
+  }
+  if (clientReference) {
+    const existing = await query('SELECT * FROM sales WHERE user_id=? AND client_reference=? LIMIT 1', [req.admin.id, clientReference])
+    if (existing.length) return res.json(existing[0])
+  }
   const rawItems = Array.isArray(body.items) ? body.items : []
   if (!rawItems.length) return res.status(400).json({ error: 'Adicione pelo menos um produto à venda.' })
 
@@ -1717,8 +1828,8 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
     const paymentMethod = paymentMethods.includes(String(body.payment_method || '')) ? String(body.payment_method) : 'PIX'
 
     const [saleResult] = await conn.execute(
-      "INSERT INTO sales(code,customer_name,payment_method,total,status,notes,user_id) VALUES(?,?,?,?, 'PAGA',?,?)",
-      ['PENDING', String(body.customer_name || '').trim(), paymentMethod, 0, String(body.notes || '').trim(), req.admin.id]
+      "INSERT INTO sales(code,customer_name,payment_method,total,status,notes,user_id,client_reference) VALUES(?,?,?,?, 'PAGA',?,?,?)",
+      ['PENDING', String(body.customer_name || '').trim(), paymentMethod, 0, String(body.notes || '').trim(), req.admin.id, clientReference]
     )
 
     const saleId = saleResult.insertId
@@ -1751,6 +1862,11 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
     }
 
     await conn.execute('UPDATE sales SET code=?, total=? WHERE id=?', [saleCode, total, saleId])
+    if (body.expected_total !== undefined && Math.round(Number(body.expected_total) * 100) !== Math.round(total * 100)) {
+      const error = new Error('Os preços foram atualizados. Confira o novo total antes de confirmar o pagamento.')
+      error.status = 409
+      throw error
+    }
 
     const [categoryRows] = await conn.execute("SELECT id FROM financial_categories WHERE name='Vendas' AND type='RECEITA' LIMIT 1")
     const [accountRows] = await conn.execute("SELECT id FROM financial_accounts WHERE name='Caixa da loja' LIMIT 1")
@@ -1761,15 +1877,18 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
       [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, total, 'sale:' + saleId, req.admin.id]
     )
 
+    await audit(req.admin.id, 'CRIAR', 'venda', saleId, { code: saleCode, total, items: Array.from(merged.entries()) }, conn)
+    const inserted = await query('SELECT * FROM sales WHERE id=? LIMIT 1', [saleId], conn)
     await conn.commit()
-    await audit(req.admin.id, 'CRIAR', 'venda', saleId, { code: saleCode, total, items: Array.from(merged.entries()) })
-
-    const inserted = await query('SELECT * FROM sales WHERE id=? LIMIT 1', [saleId])
     res.status(201).json(inserted[0])
   } catch (error) {
     await conn.rollback()
+    if (clientReference && error.code === 'ER_DUP_ENTRY') {
+      const existing = await query('SELECT * FROM sales WHERE user_id=? AND client_reference=? LIMIT 1', [req.admin.id, clientReference])
+      if (existing.length) return res.json(existing[0])
+    }
     console.error('Erro ao registrar venda:', error)
-    res.status(400).json({ error: error.message || 'Não foi possível registrar a venda.' })
+    res.status(error.status || 400).json({ error: error.message || 'Não foi possível registrar a venda.' })
   } finally {
     conn.release()
   }
@@ -1786,6 +1905,8 @@ app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
     if (!saleRows.length) throw new Error('Venda não encontrada.')
     const sale = saleRows[0]
     if (sale.status === 'CANCELADA') throw new Error('Esta venda já está cancelada.')
+    const [onlineOrders] = await conn.execute('SELECT id FROM store_orders WHERE sale_id=? LIMIT 1', [saleId])
+    if (onlineOrders.length) throw new Error('Esta venda pertence a um pedido online. O estorno deve ser processado no Mercado Pago.')
 
     const [items] = await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id', [saleId])
     for (const item of items) {
@@ -1805,8 +1926,8 @@ app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
     await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?", [saleId])
     await conn.execute("UPDATE financial_entries SET status='CANCELADO', paid_at=NULL WHERE reference_type='VENDA' AND reference_id=?", ['sale:' + saleId])
 
+    await audit(req.admin.id, 'CANCELAR', 'venda', saleId, { code: sale.code, total: Number(sale.total) }, conn)
     await conn.commit()
-    await audit(req.admin.id, 'CANCELAR', 'venda', saleId, { code: sale.code, total: Number(sale.total) })
     res.json({ success: true, id: saleId })
   } catch (error) {
     await conn.rollback()
@@ -1995,8 +2116,24 @@ app.get('/api/admin/products', exigirLogin, async (req, res) => {
   res.json(rows)
 })
 
+function validarDadosProduto(product) {
+  if (!String(product.name || '').trim()) return 'Nome do produto é obrigatório.'
+  for (const key of ['price', 'cost']) {
+    const value = Number(product[key] ?? 0)
+    if (!Number.isFinite(value) || value < 0 || value > 9999999999.99) return 'Preço e custo devem ser valores válidos e não negativos.'
+  }
+  for (const key of ['stock', 'min_stock']) {
+    const value = Number(product[key] ?? 0)
+    if (!Number.isInteger(value) || value < 0 || value > 2147483647) return 'Estoque e estoque mínimo devem ser inteiros não negativos.'
+  }
+  if (product.category_id && (!Number.isInteger(Number(product.category_id)) || Number(product.category_id) < 1)) return 'Categoria inválida.'
+  return null
+}
+
 app.post('/api/admin/products', exigirLogin, async (req, res) => {
   const b = req.body || {}
+  const validationError = validarDadosProduto(b)
+  if (validationError) return res.status(400).json({ error: validationError })
   const name = String(b.name || '').trim()
   if (!name) return res.status(400).json({ error: 'Nome do produto é obrigatório.' })
 
@@ -2032,12 +2169,12 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
       )
     }
 
-    await conn.commit()
-    await audit(req.admin.id, 'CRIAR', 'produto', productId, { name })
+    await audit(req.admin.id, 'CRIAR', 'produto', productId, { name }, conn)
     const rows = await query(
       'SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?',
-      [productId]
+      [productId], conn
     )
+    await conn.commit()
     res.status(201).json(rows[0])
   } catch (error) {
     await conn.rollback()
@@ -2106,10 +2243,11 @@ app.delete('/api/admin/products/:id', exigirLogin, async (req, res) => {
 
 app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
   const productId = Number(req.params.id)
-  const oldRows = await query('SELECT * FROM products WHERE id=? LIMIT 1', [productId])
-  if (!oldRows.length) return res.status(404).json({ error: 'Produto não encontrado.' })
+  if (!Number.isInteger(productId) || productId < 1) return res.status(400).json({ error: 'Produto inválido.' })
 
   const b = req.body || {}
+  const validationError = validarDadosProduto(b)
+  if (validationError) return res.status(400).json({ error: validationError })
   const newStock = Number(b.stock)
   if (!Number.isInteger(newStock) || newStock < 0) {
     return res.status(400).json({ error: 'Estoque inválido.' })
@@ -2118,6 +2256,11 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const [oldRows] = await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE', [productId])
+    if (!oldRows.length) {
+      await conn.rollback()
+      return res.status(404).json({ error: 'Produto não encontrado.' })
+    }
     await conn.execute(
       `UPDATE products SET
        name=?,brand=?,category_id=?,description=?,price=?,cost=?,stock=?,min_stock=?,image=?,video=?,active=?
@@ -2148,15 +2291,15 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
       )
     }
 
-    await conn.commit()
     await audit(req.admin.id, 'EDITAR', 'produto', productId, {
       oldStock,
       newStock
-    })
+    }, conn)
     const rows = await query(
       'SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?',
-      [productId]
+      [productId], conn
     )
+    await conn.commit()
     res.json(rows[0])
   } catch (error) {
     await conn.rollback()
@@ -2172,7 +2315,7 @@ app.post('/api/admin/stock', exigirLogin, async (req, res) => {
   const type = String(req.body?.type || '')
   const quantity = Number(req.body?.quantity)
 
-  if (!productId || !['ENTRADA','SAIDA','AJUSTE'].includes(type) || !Number.isInteger(quantity) || quantity <= 0) {
+  if (!Number.isInteger(productId) || productId < 1 || !['ENTRADA','SAIDA','AJUSTE'].includes(type) || !Number.isInteger(quantity) || quantity < 0 || (type !== 'AJUSTE' && quantity === 0)) {
     return res.status(400).json({ error: 'Movimentação inválida.' })
   }
 
@@ -2214,12 +2357,12 @@ app.post('/api/admin/stock', exigirLogin, async (req, res) => {
       ]
     )
 
-    await conn.commit()
     await audit(req.admin.id, 'MOVIMENTAR', 'estoque', productId, {
       type,
       before: Number(product.stock),
       after: stockAfter
-    })
+    }, conn)
+    await conn.commit()
     res.json({
       before: Number(product.stock),
       after: stockAfter

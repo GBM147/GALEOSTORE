@@ -97,7 +97,7 @@ export function registerMediaLibrary(app, deps) {
       if (a.ai_status === 'done') return res.json({ success: true, reused: true, item: view(a) })
       if (!cloudinaryConfigurado()) return semCloudinary(res)
 
-      let aiUrl = a.ai_status === 'processing' && a.ai_age < 600 ? a.ai_url : null
+      let aiUrl = a.ai_status === 'processing' ? a.ai_url : null
       if (!aiUrl) {
         const claim = await query(
           "UPDATE media_assets SET ai_status='processing', ai_started_at=NOW(), ai_url=NULL WHERE id=? AND (ai_status IN ('none','failed') OR (ai_status='processing' AND ai_started_at < NOW() - INTERVAL 10 MINUTE))",

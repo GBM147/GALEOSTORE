@@ -1,4 +1,4 @@
-export const STORE_API_BASE = 'https://galeo-api-go.onrender.com'
+export const STORE_API_BASE = String(import.meta.env?.VITE_STORE_API_URL || '').trim().replace(/\/+$/, '')
 export const CART_STORAGE_KEY = 'galeo-cart-v1'
 let customerCsrfToken = ''
 

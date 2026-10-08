@@ -2,14 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import Lenis from 'lenis'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminGate from './Admin'
 import ProductPage from './ProductPage'
 import CartPage from './CartPage'
 import AccountPage from './AccountPage'
-import { cartCount, readCart } from './storeApi'
-
-const PUBLIC_API_BASE = 'https://galeo-api-go.onrender.com'
+import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 
 const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
 
@@ -72,16 +70,29 @@ function KeepAliveSocket() {
   return null
 }
 
-function StorefrontMotion() {
+const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(value))
+  ? Math.min(max, Math.max(min, Number(value))) : fallback
+
+function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefaults }) {
+  const { pathname } = useLocation()
   useEffect(() => {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reduceMotion) return undefined
 
     gsap.registerPlugin(ScrollTrigger)
 
-    const lenis = new Lenis({
-      duration: 1.05,
-      wheelMultiplier: 0.95,
+    const interaction = visualDefaults?.interaction || {}
+    const smoothScroll = interaction.smooth_scroll || {}
+    const reveal = interaction.scroll_reveal || {}
+    const textReveal = interaction.hero_text_reveal || {}
+    const campaignSection = homeSections.find((section) => section.key === 'campaigns')
+    const campaign = { ...(campaignSection?.content?.defaults || {}), ...(campaignDefaults || {}) }
+    const effect = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns'].includes(campaign.effect) ? campaign.effect : 'zoom'
+    const speedFactor = { slow:1.4, normal:1, fast:0.7 }[campaign.speed] || 1
+    const campaignDuration = boundedNumber(campaign.duration_seconds, 6, 2, 30) * speedFactor
+    const lenis = smoothScroll.enabled === false ? null : new Lenis({
+      duration: boundedNumber(smoothScroll.duration, 1.05, 0.1, 3),
+      wheelMultiplier: boundedNumber(smoothScroll.wheel_multiplier, 0.95, 0.1, 3),
       smoothWheel: true,
       autoRaf: false
     })
@@ -95,53 +106,56 @@ function StorefrontMotion() {
       document.documentElement.style.setProperty('--scroll-progress', String(progress))
     }
 
-    lenis.on('scroll', updateScrollChrome)
-    const raf = (time) => lenis.raf(time * 1000)
-    gsap.ticker.add(raf)
+    const nativeScroll = () => updateScrollChrome({ scroll:window.scrollY })
+    lenis?.on('scroll', updateScrollChrome)
+    const raf = (time) => lenis?.raf(time * 1000)
+    if (lenis) gsap.ticker.add(raf)
+    else window.addEventListener('scroll', nativeScroll, { passive:true })
+    nativeScroll()
     gsap.ticker.lagSmoothing(0)
 
     const ctx = gsap.context(() => {
-      gsap.utils.toArray('[data-reveal]').forEach((element) => {
+      if (reveal.enabled !== false) gsap.utils.toArray('[data-reveal]').forEach((element) => {
         gsap.fromTo(
           element,
-          { autoAlpha: 0, y: 24 },
+          { autoAlpha: 0, y: boundedNumber(reveal.distance, 24, 0, 100) },
           {
             autoAlpha: 1,
             y: 0,
-            duration: 0.8,
+            duration: boundedNumber(reveal.duration, 0.8, 0.1, 3),
             ease: 'power2.out',
             scrollTrigger: {
               trigger: element,
               start: 'top 86%',
-              once: true
+              once: reveal.once !== false
             }
           }
         )
       })
 
       const staggerGroups = ['.category-card', '.product-card', '.campaign-card']
-      staggerGroups.forEach((selector) => {
+      if (reveal.enabled !== false) staggerGroups.forEach((selector) => {
         const elements = gsap.utils.toArray(selector)
         if (!elements.length) return
         gsap.fromTo(
           elements,
-          { autoAlpha: 0, y: 26 },
+          { autoAlpha: 0, y: boundedNumber(reveal.distance, 26, 0, 100) },
           {
             autoAlpha: 1,
             y: 0,
-            duration: 0.75,
-            stagger: 0.06,
+            duration: boundedNumber(reveal.duration, 0.75, 0.1, 3),
+            stagger: boundedNumber(reveal.stagger, 0.06, 0, 0.5),
             ease: 'power2.out',
             scrollTrigger: {
               trigger: elements[0],
               start: 'top 88%',
-              once: true
+              once: reveal.once !== false
             }
           }
         )
       })
 
-      gsap.to('.hero-full-media', {
+      if (document.querySelector('.hero-full') && effect === 'parallax') gsap.to('.hero-full-media', {
         yPercent: 5,
         scale: 1.045,
         ease: 'none',
@@ -153,7 +167,7 @@ function StorefrontMotion() {
         }
       })
 
-      gsap.to('.hero-full-content', {
+      if (document.querySelector('.hero-full-content') && effect !== 'static') gsap.to('.hero-full-content', {
         y: -22,
         ease: 'none',
         scrollTrigger: {
@@ -164,15 +178,15 @@ function StorefrontMotion() {
         }
       })
 
-      gsap.from('.hero-full .hero-title-mask', {
+      if (textReveal.enabled !== false && document.querySelector('.hero-full .hero-title-mask')) gsap.from('.hero-full .hero-title-mask', {
         yPercent: 120,
-        duration: 0.9,
-        stagger: 0.08,
+        duration: boundedNumber(textReveal.duration, 0.9, 0.1, 3),
+        stagger: boundedNumber(textReveal.stagger, 0.08, 0, 0.5),
         ease: 'power4.out',
         delay: 0.12
       })
 
-      gsap.from('.hero-full .eyebrow, .hero-full p, .hero-full-actions, .hero-full-meta', {
+      if (textReveal.enabled !== false && document.querySelector('.hero-full')) gsap.from('.hero-full .eyebrow, .hero-full p, .hero-full-actions, .hero-full-meta', {
         autoAlpha: 0,
         y: 18,
         duration: 0.7,
@@ -181,21 +195,19 @@ function StorefrontMotion() {
         delay: 0.3
       })
 
-      gsap.utils.toArray('.campaign-card').forEach((card) => {
-        const visual = card.querySelector('.campaign-visual')
-        if (!visual) return
-        gsap.to(visual, {
-          scale: 1.055,
-          xPercent: 1.5,
-          yPercent: -1.5,
-          ease: 'none',
-          scrollTrigger: {
-            trigger: card,
-            start: 'top bottom',
-            end: 'bottom top',
-            scrub: true
-          }
-        })
+      gsap.utils.toArray('.hero-full .campaign-visual, .campaign-card .campaign-visual').forEach((visual) => {
+        if (effect === 'static') return
+        const motions = {
+          zoom: [{ scale:1 }, { scale:1.055 }],
+          'pan-horizontal': [{ scale:1.06, xPercent:-1.5 }, { scale:1.06, xPercent:1.5 }],
+          'pan-vertical': [{ scale:1.06, yPercent:-1.5 }, { scale:1.06, yPercent:1.5 }],
+          'ken-burns': [{ scale:1.015, xPercent:-1, yPercent:-1 }, { scale:1.065, xPercent:1.5, yPercent:1.5 }],
+          parallax: [{ scale:1.025, yPercent:-1.5 }, { scale:1.055, yPercent:1.5 }]
+        }
+        const [from, to] = motions[effect]
+        gsap.fromTo(visual, from, effect === 'parallax'
+          ? { ...to, ease:'none', scrollTrigger:{ trigger:visual.closest('.campaign-card, .hero-full'), start:'top bottom', end:'bottom top', scrub:speedFactor } }
+          : { ...to, duration:campaignDuration, repeat:-1, yoyo:true, ease:'sine.inOut' })
       })
 
       gsap.utils.toArray('.manifesto p').forEach((element) => {
@@ -219,12 +231,13 @@ function StorefrontMotion() {
     })
 
     return () => {
-      lenis.off('scroll', updateScrollChrome)
-      gsap.ticker.remove(raf)
-      lenis.destroy()
+      lenis?.off('scroll', updateScrollChrome)
+      if (lenis) gsap.ticker.remove(raf)
+      window.removeEventListener('scroll', nativeScroll)
+      lenis?.destroy()
       ctx.revert()
     }
-  }, [])
+  }, [pathname, catalog, homeSections, visualDefaults, campaignDefaults])
 
   return null
 }
@@ -313,9 +326,9 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
   )
 }
 
-function homeSectionContent(sections, key) {
+function homeSectionContent(sections, key, loaded = false) {
   const section = Array.isArray(sections) ? sections.find((item) => item.key === key) : null
-  return { ...(section?.content || {}), __visible: section ? section.visible !== false : true }
+  return { ...(section?.content || {}), __visible: section ? section.visible !== false : !loaded }
 }
 
 function splitEditorialText(text) {
@@ -345,31 +358,41 @@ function EditorialTitle({ text, type = 'generic' }) {
   return value
 }
 
-function CampaignVisual({ variant = 0, mediaUrl = '', videoUrl = '', alt = '' }) {
+const isVideoUrl = (url) => /\.(mp4|webm|mov)(?:[?#]|$)|\/video\/upload\//i.test(String(url || ''))
+
+function CampaignVisual({ variant = 0, mediaUrl = '', mobileUrl = '', videoUrl = '', alt = '', effect = 'zoom' }) {
+  const imageUrl = mediaUrl || mobileUrl
   return (
-    <div className={'campaign-visual campaign-visual-' + variant} aria-hidden={alt ? undefined : 'true'}>
+    <div className={'campaign-visual campaign-visual-' + variant} data-campaign-effect={effect} aria-hidden={alt ? undefined : 'true'}>
       <div className="campaign-orb" />
       <div className="campaign-line campaign-line-a" />
       <div className="campaign-line campaign-line-b" />
-      {videoUrl ? <video className="campaign-media campaign-video" src={videoUrl} autoPlay muted loop playsInline /> : mediaUrl ? <img src={mediaUrl} alt={alt} className="campaign-media campaign-brand-image" loading="lazy" /> : <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />}
+      {videoUrl ? <>
+        <video className={'campaign-media campaign-video' + (mobileUrl ? ' campaign-desktop-video' : '')} src={videoUrl} autoPlay muted loop playsInline />
+        {mobileUrl && <img src={mobileUrl} alt={alt} className="campaign-media campaign-mobile-image" loading="lazy" />}
+      </> : imageUrl ? <picture>
+        {mobileUrl && <source media="(max-width: 700px)" srcSet={mobileUrl} />}
+        <img src={imageUrl} alt={alt} className="campaign-media" loading="lazy" />
+      </picture> : <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />}
       <div className="campaign-scan" />
     </div>
   )
 }
 
-function Home({ products = fallbackProducts, homeSections = [] }) {
-  const hero = homeSectionContent(homeSections, 'hero')
-  const utility = homeSectionContent(homeSections, 'utility')
-  const featured = homeSectionContent(homeSections, 'featured_products')
-  const campaigns = homeSectionContent(homeSections, 'campaigns')
-  const manifesto = homeSectionContent(homeSections, 'manifesto')
-  const newsletter = homeSectionContent(homeSections, 'newsletter')
+function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults }) {
+  const hero = homeSectionContent(homeSections, 'hero', homeLoaded)
+  const utility = homeSectionContent(homeSections, 'utility', homeLoaded)
+  const categorySection = homeSectionContent(homeSections, 'categories', homeLoaded)
+  const featured = homeSectionContent(homeSections, 'featured_products', homeLoaded)
+  const campaigns = homeSectionContent(homeSections, 'campaigns', homeLoaded)
+  const manifesto = homeSectionContent(homeSections, 'manifesto', homeLoaded)
+  const newsletter = homeSectionContent(homeSections, 'newsletter', homeLoaded)
 
   const shownProducts = featured?.source === 'manual' && Array.isArray(featured.product_ids) && featured.product_ids.length
     ? featured.product_ids.map((id) => products.find((product) => Number(product.id) === Number(id))).filter(Boolean).slice(0, 8)
     : products.slice(0, 8)
 
-  const campaignItems = Array.isArray(campaigns.items) && campaigns.items.length ? campaigns.items : [
+  const campaignItems = Array.isArray(campaigns.items) ? campaigns.items : [
     { eyebrow:'NEW DROPS', title:'Peças que marcam presença', button_label:'Descobrir agora', button_url:'/shop', media_url:'' },
     { eyebrow:'PREMIUM SELECTION', title:'Seu estilo, sem rótulo', button_label:'Ver seleção', button_url:'/shop', media_url:'' },
     { eyebrow:'LIMITED EDITION', title:'Feito para ser notado', button_label:'Explorar', button_url:'/shop', media_url:'' }
@@ -377,10 +400,12 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
 
   const heroTitle = hero.title || 'Vista o que representa você'
   const heroDescription = hero.description || 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho'
-  return (
-    <main>
-      {hero.__visible !== false && <section className="hero-full section-shell">
-        <div className="hero-full-media"><CampaignVisual mediaUrl={hero.desktop_media_url || ''} videoUrl={hero.video_media_url || ''} /><div className="hero-full-shade" /></div>
+  const categoryItems = Array.isArray(categorySection.items) ? categorySection.items : MALE_CATEGORIES.slice(0,3).map((title) => ({ title, url:'/shop?category=' + encodeURIComponent(title) }))
+  const effect = campaignDefaults?.effect || campaigns.defaults?.effect || 'zoom'
+  const defaultOrder = ['hero','utility','categories','featured_products','campaigns','manifesto','newsletter']
+  const sections = {
+    hero: hero.__visible !== false && <section key="hero" data-home-section="hero" className="hero-full section-shell">
+        <div className="hero-full-media"><CampaignVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} /><div className="hero-full-shade" /></div>
         <div className="hero-full-content">
           <span className="eyebrow">{hero.eyebrow || 'GALEO / MULTIBRAND STORE'}</span>
           <h1 className="hero-title">
@@ -390,21 +415,26 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
           <div className="hero-full-actions"><Link className="button button-primary" to={hero.button_url || '/shop'}>{hero.button_label || 'Explorar coleção'} <span>↗</span></Link><span className="hero-scroll">SCROLL ↓</span></div>
         </div>
         <div className="hero-full-meta"><span>01 / 03</span><span>São Paulo / BR</span></div>
-      </section>}
+      </section>,
 
-      {utility.__visible !== false && <section className="utility-strip section-shell" aria-label="Diferenciais">
-        {(Array.isArray(utility.items) && utility.items.length ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}>{item}</span>)}
-      </section>}
+    utility: utility.__visible !== false && <section key="utility" data-home-section="utility" className="utility-strip section-shell" aria-label="Diferenciais">
+        {(Array.isArray(utility.items) ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}>{item}</span>)}
+      </section>,
 
-      {featured.__visible !== false && <section className="section-shell section-block featured-selection" id="destaques">
+    categories: categorySection.__visible !== false && <section key="categories" data-home-section="categories" className="section-shell section-block">
+        <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{categorySection.eyebrow || '01 / CATEGORIAS'}</span><h2>{categorySection.title || 'Escolha seu movimento'}</h2></div><Link className="text-link" to={categorySection.button_url || '/shop'}>{categorySection.button_label || 'Ver catálogo'} ↗</Link></div>
+        <div className="category-grid">{categoryItems.map((item,index) => <Link key={item.id || index} className={'category-card category-card-' + (index % 3)} to={item.url || '/shop'}>{item.media_url && <img className="category-media" src={item.media_url} alt="" loading="lazy" />}<span>{String(index + 1).padStart(2,'0')} / GALEO</span><strong>{item.title || 'Categoria'}</strong><small>Explorar ↗</small></Link>)}</div>
+      </section>,
+
+    featured_products: featured.__visible !== false && <section key="featured_products" data-home-section="featured_products" className="section-shell section-block featured-selection" id="destaques">
         <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{featured.eyebrow || '01 / SELEÇÃO GALEO'}</span><h2><EditorialTitle text={featured.title || 'Seleção multimarcas'} type="featured" /></h2></div><Link className="text-link" to={featured.button_url || '/shop'}>{featured.button_label || 'Ver todos'} ↗</Link></div>
         <div className="product-grid product-grid-editorial">{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</div>
-      </section>}
+      </section>,
 
-      {campaigns.__visible !== false && <section className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
+    campaigns: campaigns.__visible !== false && <section key="campaigns" data-home-section="campaigns" className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
         {campaignItems.slice(0,3).map((item,index) => (
           <Link className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} to={item.button_url || '/shop'} key={index}>
-            <CampaignVisual variant={index + 1} mediaUrl={item.media_url || ''} />
+            <CampaignVisual variant={index + 1} mediaUrl={isVideoUrl(item.media_url) ? '' : item.media_url || ''} mobileUrl={item.mobile_media_url || ''} videoUrl={item.video_media_url || (isVideoUrl(item.media_url) ? item.media_url : '')} effect={effect} />
             <div className="campaign-card-copy">
               <span>{item.eyebrow || 'GALEO / CAMPANHA'}</span>
               <strong><EditorialTitle text={item.title || 'Nova campanha'} type="campaign" /></strong>
@@ -412,24 +442,26 @@ function Home({ products = fallbackProducts, homeSections = [] }) {
             </div>
           </Link>
         ))}
-      </section>}
+      </section>,
 
-      {manifesto.__visible !== false && (
-        <section className="manifesto section-shell" id="sobre" data-reveal>
+    manifesto: manifesto.__visible !== false && (
+        <section key="manifesto" data-home-section="manifesto" className="manifesto section-shell" id="sobre" data-reveal>
           <span className="eyebrow">{manifesto.eyebrow || '03 / SOBRE A GALEO'}</span>
           <p><EditorialTitle text={manifesto.text || 'Não seguimos o padrão\nCriamos o nosso'} type="manifesto" /></p>
         </section>
-      )}
+      ),
 
-      {newsletter.__visible !== false && (
-        <section className="newsletter section-shell" data-reveal>
+    newsletter: newsletter.__visible !== false && (
+        <section key="newsletter" data-home-section="newsletter" className="newsletter section-shell" data-reveal>
           <div><span className="eyebrow">{newsletter.eyebrow || 'GALEO / INSIDER'}</span><h2>{newsletter.title || 'Entre para a próxima fase'}</h2></div>
           <form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" /><button type="submit">{newsletter.button_label || 'Entrar'} ↗</button></form>
         </section>
-      )}
-
-    </main>
-  )
+      )
+  }
+  const orderedKeys = homeLoaded
+    ? [...homeSections].sort((a,b) => Number(a.order || 0) - Number(b.order || 0)).map((section) => section.key).filter((key) => defaultOrder.includes(key))
+    : defaultOrder
+  return <main>{orderedKeys.map((key) => sections[key])}</main>
 }
 
 function ProductCard({ product, index = 0 }) {
@@ -618,17 +650,22 @@ function PlaceholderPage({ title, label }) {
 export default function App() {
   const previewMode = new URLSearchParams(window.location.search).get('preview') === 'draft'
   const [previewDenied, setPreviewDenied] = useState(false)
-  const [theme, setTheme] = useState(() => {
+  const [themePreference, setThemePreference] = useState(() => {
     const requestedTheme = new URLSearchParams(window.location.search).get('theme')
-    return requestedTheme === 'light' || requestedTheme === 'dark'
-      ? requestedTheme
-      : (localStorage.getItem('galeo-theme') || 'dark')
+    if (requestedTheme === 'light' || requestedTheme === 'dark') return requestedTheme
+    try {
+      const savedTheme = localStorage.getItem('galeo-theme')
+      return savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : null
+    } catch { return null }
   })
   const [catalog, setCatalog] = useState([])
   const [categories, setCategories] = useState([])
   const [catalogError, setCatalogError] = useState('')
   const [homeSections, setHomeSections] = useState([])
+  const [homeLoaded, setHomeLoaded] = useState(false)
   const [siteSettings, setSiteSettings] = useState({})
+  const defaultTheme = siteSettings.storefront_visual_defaults?.theme
+  const theme = themePreference || (defaultTheme === 'light' ? 'light' : 'dark')
   const [cartItemsCount, setCartItemsCount] = useState(() => cartCount(readCart()))
 
   useEffect(() => {
@@ -642,7 +679,8 @@ export default function App() {
 
     async function loadCatalog() {
       setCatalogError('')
-      const endpoints = [PUBLIC_API_BASE + '/api/store?ts=' + Date.now(), '/api/store?ts=' + Date.now()]
+      const catalogPath = '/api/store?ts=' + Date.now()
+      const endpoints = [...new Set([STORE_API_BASE + catalogPath, catalogPath])]
       let catalogLoaded = false
 
       for (const endpoint of endpoints) {
@@ -682,7 +720,7 @@ export default function App() {
           const sections = previewMode
             ? (Array.isArray(homeData?.sections) ? homeData.sections.map((section) => ({ ...section, content: section.draft })) : [])
             : (Array.isArray(homeData?.sections) ? homeData.sections : [])
-          if (active) setHomeSections(sections)
+          if (active) { setHomeSections(sections); setHomeLoaded(true) }
         }
 
         if (settingsResponse.ok) {
@@ -700,8 +738,10 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem('galeo-theme', theme)
-  }, [theme])
+    if (themePreference) {
+      try { localStorage.setItem('galeo-theme', themePreference) } catch {}
+    }
+  }, [theme, themePreference])
 
   useEffect(() => {
     const palette = siteSettings.storefront_visual_defaults?.palette || {}
@@ -736,17 +776,17 @@ export default function App() {
       )}
 
       <KeepAliveSocket />
-      <StorefrontMotion />
+      <StorefrontMotion catalog={catalog} homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />
       <Header
         theme={theme}
         categories={categories}
         navigation={siteSettings.navigation}
         cartItemsCount={cartItemsCount}
-        onToggle={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
+        onToggle={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}
       />
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
-        <Route path="/" element={<Home products={catalog} homeSections={homeSections} />} />
+        <Route path="/" element={<Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} />} />
         <Route path="/shop" element={<Shop products={catalog} categories={categories} />} />
         <Route path="/produto/:id" element={<ProductPage />} />
         <Route path="/conta" element={<AccountPage />} />
