@@ -1,6 +1,6 @@
 # GALEO Store — revisão do plano
 
-Revisão do código comparada aos dois trechos do histórico fornecido da conversa “Continuar Galeo Store”, em 8 de outubro de 2026. As alterações desta revisão estão no checkout local e precisam de deploy para chegar à loja publicada.
+Revisão do código comparada aos dois trechos do histórico fornecido da conversa “Continuar Galeo Store”, em 8 de outubro de 2026. As etapas implementadas foram publicadas no serviço Render existente, incluindo a integração transacional com Resend. As pendências abaixo distinguem a validação dos donos, a configuração dos provedores e as funcionalidades ainda não implementadas.
 
 A rodada posterior de [verificação real no navegador](verificacao-no-navegador.md) usa a API e o MySQL locais sem mocks e registra funções aprovadas, falhas reproduzidas e pendências das nove fases. Pagamento e frete foram excluídos dessa rodada conforme solicitado.
 
@@ -44,7 +44,7 @@ do armazenamento e dos backups está em [segurança dos provedores](provedores-s
 
 | Fase | O que existe | O que ainda precisa ser concluído |
 | --- | --- | --- |
-| 1 — Segurança e permissões | Admin exclusivo OWNER conforme decisão atual; STAFF não inicia sessão e sessões antigas são revogadas; clientes separados; CSRF, bcrypt, renovação de sessão, bloqueio de contas desativadas e limites de login; reinício não reativa contas e novas senhas respeitam o limite do bcrypt; sem gestão de usuários | Validar estas alterações no ambiente usado pelos donos após disponibilizar o código |
+| 1 — Segurança e permissões | Admin exclusivo OWNER conforme decisão atual; STAFF não inicia sessão e sessões antigas são revogadas; clientes separados; CSRF, bcrypt, renovação de sessão, bloqueio de contas desativadas e limites de login; reinício não reativa contas e novas senhas respeitam o limite do bcrypt; sem gestão de usuários | Validação final dos donos no ambiente publicado |
 | 2 — CMS da Home | Sete blocos no MySQL, conteúdo editável, dados de mídia, ordem e visibilidade | Conferir todos os campos e o uso no editor com o proprietário; alterações de texto não podem perder a formatação editorial |
 | 3 — Biblioteca de mídia | Upload e visualização no Cloudinary, metadados no MySQL, exclusão, seleção original/IA e ordenação de mídia de produtos | Substituição e ordenação da biblioteca geral; seleção da versão tratada diretamente no cadastro de produto |
 | 3A — Tratamento de imagens | Original preservado, remoção de fundo e resultado salvo/reutilizado | Prévia lado a lado e aprovação antes de usar: hoje concluir a IA já marca `use_ai=1`; configurar o padrão para novas fotos de produtos; opção visual Fundo GALEO |
