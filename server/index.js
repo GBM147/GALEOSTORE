@@ -7,6 +7,7 @@ import { newPasswordError } from './password-policy.js'
 import { createDataProtection } from './data-protection.js'
 import { createDatabasePrivacy } from './database-privacy.js'
 import { protectSessionStore } from './protected-session-store.js'
+import { inspectMySqlSecurity } from './mysql-security-status.js'
 import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
 import { createTransactionalEmail } from './transactional-email.js'
 import { rateLimit } from 'express-rate-limit'
@@ -1697,14 +1698,27 @@ app.get('/api/admin/email-status', (req, res) => {
   // domain or a message arriving in a recipient's inbox.
   res.json({ ...transactionalEmail.status(), provider_validation: 'PENDING', delivery_validation: 'PENDING' })
 })
-app.get('/api/admin/security-status', (req, res) => {
+app.get('/api/admin/security-status', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
-  res.json({
-    email_confirmation_configured: confirmationEmailConfigured(),
-    data_encryption_enabled: privacy.enabled,
-    mysql_tls: { enabled: DB_SSL, certificate_verified: DB_SSL && DB_SSL_REJECT_UNAUTHORIZED },
-    storage_and_backups: 'PROVIDER_VERIFICATION_REQUIRED'
-  })
+  try {
+    const mysqlTls = await inspectMySqlSecurity({
+      db,
+      sslEnabled: DB_SSL,
+      verifyCertificate: DB_SSL_REJECT_UNAUTHORIZED,
+      verifyHostname: dbConfig.ssl?.verifyIdentity === true,
+      caConfigured: Boolean(dbConfig.ssl?.ca)
+    })
+    res.json({
+      email_confirmation_configured: confirmationEmailConfigured(),
+      data_encryption_enabled: privacy.enabled,
+      mysql_tls: mysqlTls,
+      storage_and_backups: 'PROVIDER_VERIFICATION_REQUIRED'
+    })
+  } catch (error) {
+    const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,60}$/.test(error.code) ? error.code : 'SECURITY_STATUS_UNAVAILABLE'
+    console.error('Erro ao verificar segurança do banco:', code)
+    res.status(503).json({ error: 'Não foi possível verificar a segurança do banco.' })
+  }
 })
 app.get('/api/admin/store-orders', async (req,res) => {
   try {

@@ -12,7 +12,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mercado-pago.js && node --check server/media-library.js && node --check session-policy.js",
+    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/mercado-pago.js && node --check server/media-library.js && node --check session-policy.js",
     "test": "node --test --test-isolation=none server/media-library.test.js server/data-protection.test.js server/database-privacy.test.js server/transactional-email.test.js",
     "test:integration": "node --test --test-isolation=none tests/backend.integration.test.js tests/mercado-pago.integration.test.js",
     "test:security": "node --test --test-isolation=none tests/auth-security.integration.test.js",

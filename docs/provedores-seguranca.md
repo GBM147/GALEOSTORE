@@ -109,3 +109,20 @@ no serviço real a configuração da chave da aplicação, a CA e a verificaçã
 TLS, a migração dos dados existentes e a possibilidade de restaurar um backup
 com a chave correspondente. Esses requisitos não foram satisfeitos apenas por
 consultar a documentação dos provedores.
+
+## Diagnóstico atual da conexão
+
+O diagnóstico OWNER em `GET /api/admin/security-status` foi ampliado para
+consultar `Ssl_cipher` e `Ssl_version` na mesma conexão MySQL da aplicação,
+além da opção global `require_secure_transport`. Os campos de certificado e
+hostname só indicam verificação quando a conexão negociou TLS e as opções
+correspondentes do driver estão ativas. O resultado não expõe credenciais.
+
+A exigência global de TLS não substitui a conferência da regra do usuário
+individual. Restrições de leitura ou uma variável indisponível deixam a
+exigência global como desconhecida; uma falha de transporte retorna 503.
+Essas consultas não verificam criptografia em repouso nem backups da Aiven.
+
+O procedimento solicitado de remoção dos testes está em
+[limpeza dos dados de teste](limpeza-dados-de-teste.md). A remoção na produção
+permanece pendente de acesso seguro e da definição do escopo.
