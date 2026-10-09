@@ -24,6 +24,11 @@ O bootstrap deixou de substituir automaticamente frases da Home em cada
 reinício. A remoção na produção continua pendente do acesso seguro e do backup;
 o token Aiven vinculado respondeu HTTP 401 na última conferência.
 
+O usuário adiou a execução dessa limpeza. O incremento seguinte das fases 3 e
+3A acrescenta [comparação e escolha da imagem](escolha-imagem-produto.md): a IA
+prepara a versão sem fundo sem ativá-la automaticamente, e o dono escolhe a capa
+no cadastro/edição do produto.
+
 ## Escopo e forma de trabalho confirmados
 
 - Integração com maquininha e frete automático estão adiados por decisão do usuário até a contratação dos serviços. O PDV atual registra pagamentos confirmados manualmente.
@@ -54,8 +59,8 @@ o token Aiven vinculado respondeu HTTP 401 na última conferência.
 | --- | --- | --- |
 | 1 — Segurança e permissões | Admin exclusivo OWNER conforme decisão atual; STAFF não inicia sessão e sessões antigas são revogadas; clientes separados; CSRF, bcrypt, renovação de sessão, bloqueio de contas desativadas e limites de login; reinício não reativa contas e novas senhas respeitam o limite do bcrypt; sem gestão de usuários | Validação final dos donos no ambiente publicado |
 | 2 — CMS da Home | Sete blocos no MySQL, conteúdo editável, dados de mídia, ordem e visibilidade | Conferir todos os campos e o uso no editor com o proprietário; alterações de texto não podem perder a formatação editorial |
-| 3 — Biblioteca de mídia | Upload e visualização no Cloudinary, metadados no MySQL, exclusão, seleção original/IA e ordenação de mídia de produtos | Substituição e ordenação da biblioteca geral; seleção da versão tratada diretamente no cadastro de produto |
-| 3A — Tratamento de imagens | Original preservado, remoção de fundo e resultado salvo/reutilizado | Prévia lado a lado e aprovação antes de usar: hoje concluir a IA já marca `use_ai=1`; configurar o padrão para novas fotos de produtos; opção visual Fundo GALEO |
+| 3 — Biblioteca de mídia | Upload e visualização no Cloudinary, metadados no MySQL, exclusão, seleção original/IA e ordenação de mídia de produtos; escolha explícita da capa original ou tratada no cadastro/edição do produto | Substituição e ordenação da biblioteca geral |
+| 3A — Tratamento de imagens | Original preservado, remoção de fundo e resultado salvo/reutilizado; comparação Original/Sem fundo e aprovação explícita antes de usar | Configurar o padrão para novas fotos de produtos; opção visual Fundo GALEO; validação dos donos deste incremento |
 | 4 — Campanhas com movimento | Presets de efeito, velocidade/duração, GSAP e configurações de movimento | Carrossel real com Fade/Slide/Crossfade, opção explícita Usar padrão da GALEO e escolha de mídia móvel na edição da campanha |
 | 5 — Ordenação | Ordem numérica editável, respeitada pela Home, visível/oculto | Arrastar e soltar seções no editor |
 | 6 — Rascunho e publicação | Conteúdo, metadados e configurações separados; publicação transacional | Comparação visual clara entre rascunho e última publicação, além das datas e prévia atuais |

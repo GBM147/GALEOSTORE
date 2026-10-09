@@ -12,15 +12,16 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/test-data-cleanup.js && node --check scripts/cleanup-test-data.mjs && node --check server/mercado-pago.js && node --check server/media-library.js && node --check session-policy.js",
-    "test": "node --test --test-isolation=none server/media-library.test.js server/data-protection.test.js server/database-privacy.test.js server/transactional-email.test.js",
+    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/test-data-cleanup.js && node --check scripts/cleanup-test-data.mjs && node --check server/mercado-pago.js && node --check server/media-library.js && node --check server/product-image-selection.js && node --check session-policy.js",
+    "test": "node --test --test-isolation=none server/media-library.test.js server/product-image-selection.test.js server/data-protection.test.js server/database-privacy.test.js server/transactional-email.test.js",
     "test:integration": "node --test --test-isolation=none tests/backend.integration.test.js tests/mercado-pago.integration.test.js",
     "test:security": "node --test --test-isolation=none tests/auth-security.integration.test.js",
     "test:email": "node --test --test-concurrency=1 tests/email-verification.integration.test.js tests/resend-events.integration.test.js",
     "test:privacy": "node --test --test-isolation=none tests/database-privacy.integration.test.js",
     "test:cleanup": "node --test --test-concurrency=1 tests/test-data-cleanup.integration.test.js",
     "cleanup:test-data": "node scripts/cleanup-test-data.mjs",
-    "test:browser": "node --test --test-isolation=none tests/frontend.browser.mjs"
+    "test:browser": "node --test --test-isolation=none tests/frontend.browser.mjs tests/media-approval.browser.mjs",
+    "test:media": "node --test --test-concurrency=1 tests/media-approval.integration.test.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

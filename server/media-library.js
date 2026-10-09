@@ -25,6 +25,14 @@ const view = (r) => ({
 
 export function registerMediaLibrary(app, deps) {
   const { query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary } = deps
+  const verifyAiResult = deps.verifyAiResult || (async (url) => {
+    for (let i = 0; i < 6; i++) {
+      const head = await fetch(url, { method: 'HEAD' }).catch(() => null)
+      if (head?.status === 200) return true
+      if (i < 5) await new Promise((resolve) => setTimeout(resolve, 4000))
+    }
+    return false
+  })
   const base = '/api/admin/media-library'
   let ready
   const ensure = () => (ready ??= query(DDL).catch((e) => { ready = undefined; throw e }))
@@ -72,17 +80,24 @@ export function registerMediaLibrary(app, deps) {
     } catch (e) { fail(res, e, 'Não foi possível enviar para a biblioteca de mídia.') }
   })
 
-  app.patch(base + '/:id', exigirLogin, async (req, res) => {
+  app.patch(base + '/:id', exigirLogin, exigirOwner, async (req, res) => {
     try {
       const a = await find(req, res); if (!a) return
       const b = req.body || {}
       const title = b.title === undefined ? a.title : (String(b.title).trim().slice(0, 160) || null)
-      let useAi = a.use_ai
       if (b.use_ai !== undefined) {
+        if (typeof b.use_ai !== 'boolean') return res.status(400).json({ error: 'Escolha explicitamente a versão original ou a versão sem fundo.' })
+        if (b.use_ai && a.media_type !== 'image') return res.status(400).json({ error: 'A versão sem fundo está disponível apenas para fotos.' })
         if (b.use_ai && !(a.ai_status === 'done' && a.ai_url)) return res.status(409).json({ error: 'Esta mídia ainda não tem versão tratada pela IA.' })
-        useAi = b.use_ai ? 1 : 0
+        if (b.title === undefined) {
+          await query('UPDATE media_assets SET use_ai=? WHERE id=?', [b.use_ai ? 1 : 0, a.id])
+        } else {
+          await query('UPDATE media_assets SET title=?, use_ai=? WHERE id=?', [title, b.use_ai ? 1 : 0, a.id])
+        }
+      } else {
+        // Editing a title must not replace a version chosen by another request.
+        await query('UPDATE media_assets SET title=? WHERE id=?', [title, a.id])
       }
-      await query('UPDATE media_assets SET title=?, use_ai=? WHERE id=?', [title, useAi, a.id])
       await audit(req.admin.id, 'LIBRARY_UPDATE', 'media_assets', a.id, { title: b.title, use_ai: b.use_ai })
       const [row] = await query('SELECT * FROM media_assets WHERE id=?', [a.id])
       res.json({ success: true, item: view(row) })
@@ -94,10 +109,10 @@ export function registerMediaLibrary(app, deps) {
     try {
       const a = await find(req, res); if (!a) return
       if (a.media_type !== 'image') return res.status(400).json({ error: 'A IA só trata fotos.' })
-      if (a.ai_status === 'done') return res.json({ success: true, reused: true, item: view(a) })
+      if (a.ai_status === 'done' && a.ai_url) return res.json({ success: true, reused: true, item: view(a) })
       if (!cloudinaryConfigurado()) return semCloudinary(res)
 
-      let aiUrl = a.ai_status === 'processing' ? a.ai_url : null
+      let aiUrl = a.ai_url
       if (!aiUrl) {
         const claim = await query(
           "UPDATE media_assets SET ai_status='processing', ai_started_at=NOW(), ai_url=NULL WHERE id=? AND (ai_status IN ('none','failed') OR (ai_status='processing' AND ai_started_at < NOW() - INTERVAL 10 MINUTE))",
@@ -117,15 +132,13 @@ export function registerMediaLibrary(app, deps) {
         }
       }
 
-      let pronto = false
-      for (let i = 0; i < 6 && !pronto; i++) {
-        const head = await fetch(aiUrl, { method: 'HEAD' }).catch(() => null)
-        pronto = head?.status === 200
-        if (!pronto) await new Promise((r) => setTimeout(r, i < 5 ? 4000 : 0))
+      if (!await verifyAiResult(aiUrl)) {
+        const [row] = await query('SELECT * FROM media_assets WHERE id=?', [a.id])
+        return res.status(202).json({ success: true, processing: true, item: view(row), message: 'A IA ainda está processando. Aguarde um pouco e clique em "Verificar resultado". Não gasta crédito extra.' })
       }
-      if (!pronto) return res.status(202).json({ success: true, processing: true, message: 'A IA ainda está processando. Aguarde um pouco e clique em "Verificar resultado". Não gasta crédito extra.' })
 
-      await query("UPDATE media_assets SET ai_status='done', ai_done_at=NOW(), use_ai=1 WHERE id=?", [a.id])
+      // Processing prepares a preview; only an explicit version choice activates it.
+      await query("UPDATE media_assets SET ai_status='done', ai_done_at=NOW() WHERE id=?", [a.id])
       await audit(req.admin.id, 'LIBRARY_AI_BACKGROUND', 'media_assets', a.id, { public_id: a.public_id })
       const [row] = await query('SELECT * FROM media_assets WHERE id=?', [a.id])
       res.json({ success: true, item: view(row) })

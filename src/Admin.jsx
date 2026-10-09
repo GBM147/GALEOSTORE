@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import MediaLibrary from './MediaLibrary'
+import { MediaLibraryPicker } from './MediaComparison'
 import PointOfSale from './PointOfSale'
 let csrfToken = ''
 
@@ -105,6 +106,8 @@ const emptyProduct = {
   stock: 0,
   min_stock: 0,
   image: '',
+  image_asset_id: null,
+  image_variant: null,
   video: '',
   active: true
 }
@@ -159,6 +162,10 @@ function ProductForm({ product, categories, onClose, onDone }) {
   const editing = Boolean(savedProductId)
   const [form, setForm] = useState(product ? {
     ...product,
+    image: product.image || '',
+    video: product.video || '',
+    image_asset_id: null,
+    image_variant: null,
     category_id: product.category_id || '',
     active: Boolean(product.active)
   } : emptyProduct)
@@ -169,7 +176,30 @@ function ProductForm({ product, categories, onClose, onDone }) {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [mediaError, setMediaError] = useState('')
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [coverFailedUrl, setCoverFailedUrl] = useState('')
+  const libraryTrigger = useRef(null)
+  const manualImagePending = useRef(false)
+  const manualVideoPending = useRef(false)
+  const titleId = useId()
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+
+  function closeLibrary() {
+    setLibraryOpen(false)
+    window.requestAnimationFrame(() => libraryTrigger.current?.focus())
+  }
+
+  function chooseLibraryImage(item) {
+    setForm((current) => ({ ...current, image: item.url, image_asset_id: item.id, image_variant: item.variant }))
+    setCoverFailedUrl('')
+    closeLibrary()
+  }
+
+  function setManualImage(url) {
+    manualImagePending.current = true
+    setForm((current) => ({ ...current, image: url, image_asset_id: null, image_variant: null }))
+    setCoverFailedUrl('')
+  }
 
   function appendFiles(setter, incomingFiles) {
     setter((current) => {
@@ -188,11 +218,21 @@ function ProductForm({ product, categories, onClose, onDone }) {
     setter((current) => current.filter((_, fileIndex) => fileIndex !== index))
   }
 
-  async function loadMedia(productId) {
+  async function loadMedia(productId, syncUploadedCover = false) {
     if (!productId) return setMedia([])
     try {
       const data = await api('/api/admin/products/' + productId + '/media')
-      setMedia(Array.isArray(data) ? data : [])
+      const uploaded = Array.isArray(data) ? data : []
+      setMedia(uploaded)
+      if (syncUploadedCover) {
+        const products = await api('/api/admin/products')
+        const savedProduct = Array.isArray(products) ? products.find((item) => Number(item.id) === Number(productId)) : null
+        if (savedProduct) setForm((current) => ({
+          ...current,
+          image: current.image || (manualImagePending.current ? '' : savedProduct.image) || '',
+          video: current.video || (manualVideoPending.current ? '' : savedProduct.video) || ''
+        }))
+      }
     } catch (error) {
       setMediaError(error.message)
     }
@@ -226,8 +266,9 @@ function ProductForm({ product, categories, onClose, onDone }) {
       })
       setImageFiles([])
       setVideoFiles([])
-      await loadMedia(savedProductId)
+      await loadMedia(savedProductId, true)
     } catch (error) {
+      await loadMedia(savedProductId, true)
       setMediaError(error.message)
     } finally {
       setUploading(false)
@@ -245,6 +286,8 @@ function ProductForm({ product, categories, onClose, onDone }) {
         method: editing ? 'PUT' : 'POST',
         body: {
           ...form,
+          image_asset_id: Number(form.image_asset_id) || null,
+          image_variant: Number(form.image_asset_id) ? form.image_variant : null,
           price: Number(form.price || 0),
           cost: Number(form.cost || 0),
           stock: Number(form.stock || 0),
@@ -256,6 +299,8 @@ function ProductForm({ product, categories, onClose, onDone }) {
       const productId = Number(saved?.id || savedProductId)
       if (!productId) throw new Error('O servidor não confirmou o cadastro do produto.')
       setSavedProductId(productId)
+      manualImagePending.current = false
+      manualVideoPending.current = false
       const files = [...imageFiles, ...videoFiles]
 
       // O produto pode ser novo ou estar sendo editado. Em ambos os casos,
@@ -270,8 +315,9 @@ function ProductForm({ product, categories, onClose, onDone }) {
           })
           setImageFiles([])
           setVideoFiles([])
-          await loadMedia(productId)
+          await loadMedia(productId, true)
         } catch (error) {
+          await loadMedia(productId, true)
           setMediaError(error.message)
           setSaving(false)
           return
@@ -292,11 +338,11 @@ function ProductForm({ product, categories, onClose, onDone }) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <form className="admin-modal admin-modal-wide" onSubmit={submit}>
-        <button type="button" className="modal-close" onClick={onClose}>×</button>
+    <div className="modal-backdrop product-modal-backdrop">
+      <form className="admin-modal admin-modal-wide" onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <button type="button" className="modal-close" aria-label="Fechar formulário do produto" onClick={onClose}>×</button>
         <span className="eyebrow">{editing ? 'PRODUTO / EDITAR' : 'PRODUTO / NOVO'}</span>
-        <h2>{editing ? 'Editar produto' : 'Cadastrar produto'}</h2>
+        <h2 id={titleId}>{editing ? 'Editar produto' : 'Cadastrar produto'}</h2>
 
         <div className="admin-form-grid">
           <label>Nome<input value={form.name} onChange={(e) => set('name', e.target.value)} required /></label>
@@ -311,9 +357,26 @@ function ProductForm({ product, categories, onClose, onDone }) {
 
         <label>Descrição<textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows="4" placeholder="Descrição, composição, medidas, cuidados…" /></label>
 
+        <section className="product-cover-selection" aria-label="Capa do produto">
+          <div className="product-cover-preview media-checkerboard" data-testid="product-cover-preview">
+            {form.image ? <>
+              <img key={form.image} src={form.image} alt="Capa atual do produto" onLoad={() => setCoverFailedUrl('')} onError={() => setCoverFailedUrl(form.image)} />
+              {coverFailedUrl === form.image && <p className="media-preview-state" role="status">Não foi possível carregar a capa atual.</p>}
+            </> : <p className="media-preview-state">Nenhuma capa selecionada.</p>}
+          </div>
+          <div className="product-cover-details">
+            <h3>Capa atual</h3>
+            <p>Escolha uma foto e compare as versões Original e Sem fundo antes de aplicar.</p>
+            {form.image_asset_id && <p className="media-cover-status" role="status">Capa selecionada: {form.image_variant === 'ai' ? 'Sem fundo' : 'Original'}. Salve o produto para aplicar.</p>}
+            <button type="button" className="button button-ghost" ref={libraryTrigger} aria-expanded={libraryOpen} disabled={saving || uploading} onClick={() => setLibraryOpen((open) => !open)}>Escolher da biblioteca</button>
+          </div>
+        </section>
+
+        {libraryOpen && <MediaLibraryPicker api={api} currentUrl={form.image} disabled={saving || uploading} onChoose={chooseLibraryImage} onCancel={closeLibrary} />}
+
         <div className="admin-form-grid">
-          <label>URL da foto principal<input value={form.image} onChange={(e) => set('image', e.target.value)} placeholder="https://..." /></label>
-          <label>URL do vídeo<input value={form.video} onChange={(e) => set('video', e.target.value)} placeholder="https://..." /></label>
+          <label>URL da foto principal<input value={form.image} disabled={saving || uploading} onChange={(e) => setManualImage(e.target.value)} placeholder="https://..." /></label>
+          <label>URL do vídeo<input value={form.video} disabled={saving || uploading} onChange={(e) => { manualVideoPending.current = true; set('video', e.target.value) }} placeholder="https://..." /></label>
         </div>
 
         <div className="admin-media-upload">
@@ -369,7 +432,7 @@ function ProductForm({ product, categories, onClose, onDone }) {
         </div>
 
         {mediaError && (
-          <div className="admin-media-note admin-media-error">
+          <div className="admin-media-note admin-media-error" role="alert">
             {mediaError}
           </div>
         )}

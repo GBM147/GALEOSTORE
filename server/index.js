@@ -19,6 +19,7 @@ import multer from 'multer'
 import { Readable } from 'node:stream'
 import cron from 'node-cron'
 import { registerMediaLibrary } from './media-library.js'
+import { ProductImageSelectionError, resolveProductImage } from './product-image-selection.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -2343,6 +2344,7 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const image = await resolveProductImage(b, (sql, params) => query(sql, params, conn))
 
     const [result] = await conn.execute(
       `INSERT INTO products
@@ -2357,7 +2359,7 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
         Number(b.cost || 0),
         Number(b.stock || 0),
         Number(b.min_stock || 0),
-        String(b.image || ''),
+        image,
         String(b.video || '')
       ]
     )
@@ -2382,6 +2384,7 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
     res.status(201).json(rows[0])
   } catch (error) {
     await conn.rollback()
+    if (error instanceof ProductImageSelectionError) return res.status(error.status).json({ error: error.message })
     console.error('Erro ao criar produto:', error)
     res.status(500).json({ error: 'Não foi possível criar o produto.' })
   } finally {
@@ -2465,6 +2468,7 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
       await conn.rollback()
       return res.status(404).json({ error: 'Produto não encontrado.' })
     }
+    const image = await resolveProductImage(b, (sql, params) => query(sql, params, conn))
     await conn.execute(
       `UPDATE products SET
        name=?,brand=?,category_id=?,description=?,price=?,cost=?,stock=?,min_stock=?,image=?,video=?,active=?
@@ -2478,7 +2482,7 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
         Number(b.cost || 0),
         newStock,
         Number(b.min_stock || 0),
-        String(b.image || ''),
+        image,
         String(b.video || ''),
         b.active === false ? 0 : 1,
         productId
@@ -2508,6 +2512,7 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
     res.json(rows[0])
   } catch (error) {
     await conn.rollback()
+    if (error instanceof ProductImageSelectionError) return res.status(error.status).json({ error: error.message })
     console.error('Erro ao editar produto:', error)
     res.status(500).json({ error: 'Não foi possível editar o produto.' })
   } finally {

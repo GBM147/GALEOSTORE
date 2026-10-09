@@ -4,6 +4,17 @@ import { addToCart, STORE_API_BASE } from './storeApi'
 
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 
+const productGallery = (product) => {
+  const uploaded = Array.isArray(product?.media) ? product.media : []
+  const cover = product?.image ? { id:'cover', media_type:'image', url:product.image } : null
+  const urls = new Set()
+  return [cover, ...uploaded].filter((item) => {
+    if (!item?.url || urls.has(item.url)) return false
+    urls.add(item.url)
+    return true
+  })
+}
+
 export default function ProductPage() {
   const { id } = useParams()
   const [product, setProduct] = useState(null)
@@ -28,8 +39,8 @@ export default function ProductPage() {
         if (!alive) return
         setProduct(data.product || null)
         setRelated(Array.isArray(data.related) ? data.related : [])
-        const firstImage = Array.isArray(data.product?.media) ? data.product.media.find((item) => item.media_type === 'image') : null
-        setSelectedMedia(firstImage || (data.product?.image ? { id:'cover', media_type:'image', url:data.product.image } : null))
+        const media = productGallery(data.product)
+        setSelectedMedia(media.find((item) => item.media_type === 'image') || media[0] || null)
         setQuantity(1)
       })
       .catch((err) => { if (alive) setError(err.message) })
@@ -37,11 +48,7 @@ export default function ProductPage() {
     return () => { alive = false }
   }, [id])
 
-  const gallery = useMemo(() => {
-    const media = Array.isArray(product?.media) ? product.media : []
-    if (media.length) return media
-    return product?.image ? [{ id:'cover', media_type:'image', url:product.image }] : []
-  }, [product])
+  const gallery = useMemo(() => productGallery(product), [product])
 
   function handleAdd() {
     if (!product || Number(product.stock || 0) <= 0) return
@@ -67,7 +74,7 @@ export default function ProductPage() {
               ? <video src={currentMedia.url} controls playsInline className="product-detail-media" />
               : <img src={image} alt={product.name} className="product-detail-media" />}
           </div>
-          {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((media) => <button className={currentMedia?.id === media.id ? 'product-thumb active' : 'product-thumb'} type="button" key={media.id || media.url} onClick={() => setSelectedMedia(media)}>{media.media_type === 'video' ? <span className="product-thumb-video">▶</span> : <img src={media.url} alt="" loading="lazy" />}</button>)}</div>}
+          {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((media, index) => <button className={currentMedia?.url === media.url ? 'product-thumb active' : 'product-thumb'} type="button" key={media.url} aria-label={(media.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={currentMedia?.url === media.url} onClick={() => setSelectedMedia(media)}>{media.media_type === 'video' ? <span className="product-thumb-video">▶</span> : <img src={media.url} alt="" loading="lazy" />}</button>)}</div>}
         </section>
 
         <section className="product-info">
