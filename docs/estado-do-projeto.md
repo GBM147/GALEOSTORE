@@ -16,6 +16,14 @@ na produção depende da chave segura, TLS validado, backup conferido e uma jane
 sem escritas de versões anteriores. A documentação do Aiven sobre criptografia
 do armazenamento e dos backups está em [segurança dos provedores](provedores-seguranca.md).
 
+A [limpeza dos dados de teste](limpeza-dados-de-teste.md) teve seu escopo
+confirmado: remover todos os dados operacionais, preservando donos e Home.
+A ferramenta de manutenção inspeciona por padrão, executa com backup e
+escritores interrompidos e compara os registros preservados antes do commit.
+O bootstrap deixou de substituir automaticamente frases da Home em cada
+reinício. A remoção na produção continua pendente do acesso seguro e do backup;
+o token Aiven vinculado respondeu HTTP 401 na última conferência.
+
 ## Escopo e forma de trabalho confirmados
 
 - Integração com maquininha e frete automático estão adiados por decisão do usuário até a contratação dos serviços. O PDV atual registra pagamentos confirmados manualmente.

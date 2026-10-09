@@ -125,4 +125,6 @@ Essas consultas não verificam criptografia em repouso nem backups da Aiven.
 
 O procedimento solicitado de remoção dos testes está em
 [limpeza dos dados de teste](limpeza-dados-de-teste.md). A remoção na produção
-permanece pendente de acesso seguro e da definição do escopo.
+permanece pendente de acesso seguro e de backup recuperável. O proprietário
+confirmou a remoção de todos os dados operacionais de teste, preservando donos
+e Home, em 9 de outubro de 2026.

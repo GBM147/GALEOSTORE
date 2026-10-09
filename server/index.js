@@ -606,6 +606,7 @@ async function init() {
   await query(
     "INSERT INTO financial_accounts(name) VALUES('Caixa da loja') ON DUPLICATE KEY UPDATE name=name"
   )
+  // Seed only missing Home records; preserve the owner's existing content.
   const homeDefaults = [
     { key: 'hero', type: 'hero', order: 10, content: { eyebrow: 'GALEO / MULTIBRAND STORE', title: 'Vista o que representa você', description: 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho', button_label: 'Explorar coleção', button_url: '/shop', desktop_media_id: null, mobile_media_id: null, video_media_id: null } },
     { key: 'utility', type: 'utility', order: 20, content: { items: ['Curadoria multimarcas', 'Compra segura', 'Envio para todo o Brasil', 'Novas peças toda semana'] } },
@@ -636,24 +637,6 @@ async function init() {
     "INSERT INTO home_settings(setting_key,setting_value) VALUES('storefront_visual_defaults',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
     [JSON.stringify({"visual_direction":"editorial_multibrand","theme":"dark","palette":{"background":"#050505","surface":"#0d0c0b","surface_alt":"#15120f","text":"#f2eadb","muted":"#978b78","accent":"#c4934c","accent_soft":"#e2c27f","accent_deep":"#72501f","line":"rgba(224,189,125,.19)"},"typography":{"display":{"family":"Inter","weight":850,"tracking":"-0.075em","line_height":0.88},"editorial":{"family":"Georgia","weight":400,"style":"italic"},"ui":{"family":"Inter","weight":700,"tracking":"0.11em","transform":"uppercase"}},"layout":{"max_width":1440,"side_gutter":28,"section_spacing":128,"borders":"hairline","corners":"minimal","shadows":"restrained"},"interaction":{"smooth_scroll":{"enabled":true,"library":"Lenis","duration":1.05,"wheel_multiplier":0.95,"sync_with_scroll_animations":true},"scroll_reveal":{"enabled":true,"library":"GSAP ScrollTrigger","duration":0.8,"stagger":0.06,"distance":24,"once":true},"hero_text_reveal":{"enabled":true,"duration":0.9,"stagger":0.08,"style":"line-rise"},"image_hover":{"enabled":true,"duration":0.45,"scale":1.035,"directional_overlay":true},"product_hover":{"enabled":true,"image_scale":1.04,"lift_px":6}},"accessibility":{"respect_reduced_motion":true,"preserve_native_scroll":true,"no_motion_only_information":true},"guardrails":{"no_neon":true,"no_heavy_glassmorphism":true,"no_excessive_gradients":true,"no_permanent_cursor_effects":true,"no_animation_on_every_element":true,"prioritize_content_and_product_images":true},"inspiration":{"component_language":"Inspira UI","smooth_scroll":"Lenis","animation_system":"GSAP"}})]
   )
-
-  const legacyTextMigrations = [
-    ['Vista o que representa você.', 'Vista o que representa você'],
-    ['Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho.', 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho'],
-    ['Escolha seu movimento.', 'Escolha seu movimento'],
-    ['Seleção multimarcas.', 'Seleção multimarcas'],
-    ['Peças que marcam presença.', 'Peças que marcam presença'],
-    ['Seu estilo, sem rótulo.', 'Seu estilo, sem rótulo'],
-    ['Feito para ser notado.', 'Feito para ser notado'],
-    ['Não seguimos o padrão. Criamos o nosso.', 'Não seguimos o padrão Criamos o nosso'],
-    ['Entre para a próxima fase.', 'Entre para a próxima fase']
-  ]
-  for (const [legacyText, cleanText] of legacyTextMigrations) {
-    await query(
-      'UPDATE home_sections SET draft_content=REPLACE(draft_content,?,?), published_content=REPLACE(published_content,?,?) WHERE draft_content LIKE ? OR published_content LIKE ?',
-      [legacyText, cleanText, legacyText, cleanText, '%' + legacyText + '%', '%' + legacyText + '%']
-    )
-  }
 
   await query(
     "INSERT INTO home_settings(setting_key,setting_value) VALUES('navigation',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
