@@ -20,6 +20,10 @@ existentes não entram no painel; contas de clientes usam acesso separado à loj
 Clientes precisam confirmar o e-mail por link de uso único antes do login e
 de fazer pedidos, incluindo contas existentes. Configure Resend e remetente
 verificado conforme [verificação de e-mail](docs/verificacao-email.md).
+O remetente permanece pendente até os donos definirem o endereço e verificarem
+seu domínio no Resend. Confirmação, boas-vindas, pedido e atualizações do Admin
+estão integrados; `GET /api/admin/email-status` mostra as pendências ao OWNER
+sem expor chaves ou endereços. A configuração do banco Aiven é independente.
 
 A proteção adicional dos dados pessoais e sua ativação segura estão em
 [proteção dos dados](docs/protecao-dados.md). Não habilite a migração sem chave
@@ -78,8 +82,10 @@ A suíte inicia sua própria API local, usa contas temporárias e remove os dado
 ao terminar. Ela confere reinício com contas desativadas, política de novas
 senhas e compatibilidade com senhas antigas, sem cobranças ou testes de frete.
 
-`npm run test:email` verifica confirmação, reenvio, expiração, uso único e falhas
-de entrega com Resend simulado e API/MySQL locais. `npm run build` seguido de
+`npm run test:email` verifica confirmação, reenvio, expiração, uso único,
+boas-vindas, pedido, mudanças de status e falhas de entrega com Resend simulado
+e API/MySQL locais. As duas suítes executam em sequência para compartilhar a
+porta 10006 com segurança. `npm run build` seguido de
 `node --test --test-isolation=none tests/email-verification.browser.mjs` testa
 o mesmo fluxo no Chromium contra a API real. Execute as duas suítes em sequência;
 elas usam a porta 10006. Configure `APP_URL` loopback, os parâmetros do MySQL

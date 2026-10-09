@@ -135,7 +135,7 @@ export class VerificationRuntime {
     return client
   }
 
-  async startApi({ provider = true } = {}) {
+  async startApi({ provider = true, sender = true } = {}) {
     await this.stopApi()
     this.child = spawn(process.execPath, ['--import', './tests/helpers/resend-fetch.mjs', 'server/index.js'], {
       cwd: projectDirectory,
@@ -143,7 +143,7 @@ export class VerificationRuntime {
         ...process.env, PORT: '10006', NODE_ENV: 'test',
         APP_URL: baseUrl, ALLOWED_ORIGINS: baseUrl,
         RESEND_API_KEY: provider ? 'local-email-verification-fixture' : '',
-        EMAIL_FROM: provider ? 'fixture@example.invalid' : '',
+        EMAIL_FROM: provider && sender ? 'fixture@example.invalid' : '',
         STORE_NOTIFICATION_EMAIL: 'notification@example.invalid',
         GALEO_TEST_RESEND_FIXTURES: this.fixturePath,
         MERCADO_PAGO_ACCESS_TOKEN: '', MERCADO_PAGO_POINT_TERMINAL_ID: '',

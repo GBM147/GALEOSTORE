@@ -90,5 +90,5 @@ export async function consumeEmailVerification(conn, token, password) {
   if (!tokens.length || !(await bcrypt.compare(password, customer.password_hash))) return false
   await conn.execute('UPDATE customers SET email_verified_at=UTC_TIMESTAMP() WHERE id=? AND email_verified_at IS NULL', [customer.id])
   await conn.execute('DELETE FROM customer_email_verifications WHERE customer_id=?', [customer.id])
-  return true
+  return { id: customer.id }
 }

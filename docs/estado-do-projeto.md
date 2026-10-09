@@ -37,7 +37,7 @@ do armazenamento e dos backups está em [segurança dos provedores](provedores-s
 | PDV físico | Tela de caixa adicionada ao Admin: produtos, quantidades, total, confirmação manual, venda, estoque, financeiro e comprovante |
 | Cobrança automática na maquininha | Adiada até contratação dos serviços; o adaptador Point existente ainda não compõe um fluxo de caixa automático |
 | Pagamento online | Lógica local de checkout, aprovação, venda, receita e estorno validada com Mercado Pago simulado; contrato e operação reais precisam de teste com a conta do provedor |
-| E-mails transacionais | Resend já ligado a cadastro, pedido, pagamento e atualização de entrega; envio real não validado neste ambiente |
+| E-mails transacionais | Resend ligado a confirmação de cadastro, boas-vindas após confirmação, pedido e mudanças de status no Admin; diagnóstico restrito ao OWNER; remetente pendente e envio real ainda não validado |
 | Frete automático | Adiado até contratação dos serviços; o pedido atualmente grava frete zero, sem cotação automática |
 
 ## Conferência das nove fases do plano completo

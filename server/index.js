@@ -8,6 +8,7 @@ import { createDataProtection } from './data-protection.js'
 import { createDatabasePrivacy } from './database-privacy.js'
 import { protectSessionStore } from './protected-session-store.js'
 import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
+import { createTransactionalEmail } from './transactional-email.js'
 import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
@@ -89,6 +90,9 @@ app.set('trust proxy', 1)
 
 const PORT = Number(process.env.PORT || 10000)
 const NODE_ENV = process.env.NODE_ENV || 'production'
+// Public Git revision from Render, used to confirm which deployment is serving
+// requests. Never return arbitrary environment variable contents.
+const deployRevision = /^[a-f0-9]{40}$/i.test(process.env.RENDER_GIT_COMMIT || '') ? process.env.RENDER_GIT_COMMIT.toLowerCase() : null
 const DB_PORT = Number(process.env.DB_PORT || 3306)
 const DB_SSL = process.env.DB_SSL !== 'false'
 const DB_SSL_REJECT_UNAUTHORIZED = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
@@ -132,46 +136,11 @@ const allowedOrigins = String(process.env.ALLOWED_ORIGINS || appUrl)
   .split(',')
   .map((x) => x.trim())
   .filter(Boolean)
-const emailFrom = String(process.env.EMAIL_FROM || '').trim()
-const storeNotificationEmail = String(process.env.STORE_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL || '').trim()
-
-function confirmationEmailConfigured() {
-  if (!String(process.env.RESEND_API_KEY || '').trim() || !emailFrom) return false
-  try {
-    const url = new URL(appUrl)
-    return url.protocol === 'https:' || (NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
-  } catch { return false }
-}
-
-async function sendTransactionalEmail({ to, subject, html, text = '', idempotencyKey = '' }) {
-  const apiKey = String(process.env.RESEND_API_KEY || '').trim()
-  if (!apiKey || !emailFrom) {
-    throw new Error('Provedor de e-mail não configurado.')
-  }
-  const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean)
-  if (!recipients.length) throw new Error('Destinatário de e-mail não configurado.')
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
-      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
-    },
-    body: JSON.stringify({ from: emailFrom, to: recipients, subject, html, ...(text ? { text } : {}) })
-  })
-  const raw = await response.text()
-  let data = null
-  try { data = raw ? JSON.parse(raw) : null } catch {}
-  if (!response.ok) throw new Error('Resend HTTP ' + response.status)
-  if (typeof data?.id !== 'string' || !data.id) throw new Error('Resposta do serviço de e-mail inválida.')
-  return data
-}
-
-async function sendEmailSafely(payload) {
-  try { return await sendTransactionalEmail(payload) }
-  catch (error) { console.error('EMAIL ERROR:', error.message); return { error: error.message } }
-}
+const storeNotificationEmail = String(process.env.STORE_NOTIFICATION_EMAIL || '').trim() || String(process.env.ADMIN_EMAIL || '').trim()
+const transactionalEmail = createTransactionalEmail()
+const sendTransactionalEmail = transactionalEmail.send
+const sendEmailSafely = transactionalEmail.sendSafely
+const confirmationEmailConfigured = transactionalEmail.confirmationConfigured
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[char]))
@@ -284,11 +253,12 @@ async function audit(userId, action, entity, entityId, details = null, executor 
   const conn = executor === db ? await db.getConnection() : executor
   try {
     if (executor === db) await conn.beginTransaction()
-    await insertPrivateBusiness(conn, 'audit_logs',
+    const result = await insertPrivateBusiness(conn, 'audit_logs',
       'INSERT INTO audit_logs(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
       [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null],
       { details: 4 })
     if (executor === db) await conn.commit()
+    return result.insertId
   } catch (error) {
     if (executor === db) await conn.rollback().catch(() => {})
     throw error
@@ -1035,13 +1005,15 @@ app.get('/health', async (req, res) => {
     return res.status(200).json({
       status: 'ok',
       service: 'galeo-api',
-      database: 'ok'
+      database: 'ok',
+      revision: deployRevision
     })
   } catch {
     return res.status(503).json({
       status: 'indisponivel',
       service: 'galeo-api',
-      database: 'erro'
+      database: 'erro',
+      revision: deployRevision
     })
   }
 })
@@ -1422,7 +1394,16 @@ app.post('/api/customer/verify-email', limitarConfirmacaoEmail, async (req,res) 
       await conn.rollback()
       return res.status(400).json({success:false,code:'VERIFY_EMAIL_INVALID',error:'Link inválido, expirado ou já utilizado, ou senha incorreta. Confira a senha ou solicite uma nova confirmação.'})
     }
+    const [customerRows] = await conn.execute('SELECT id,name,email,private_data FROM customers WHERE id=? LIMIT 1', [verified.id])
+    const customer = customerRows[0] ? privacy.decodeRow('customers', customerRows[0]) : null
     await conn.commit()
+    if (customer?.email) void sendEmailSafely({
+      to: customer.email,
+      subject: 'Boas-vindas à GALEO Store',
+      idempotencyKey: 'welcome-customer-' + verified.id,
+      text: 'Olá, ' + customer.name + '. Seu e-mail foi confirmado. Agora você pode entrar na sua conta na GALEO Store para acompanhar seus pedidos.',
+      html: '<div style="font-family:Arial,sans-serif"><h1>Boas-vindas à GALEO</h1><p>Olá, ' + escapeHtml(customer.name) + '</p><p>Seu e-mail foi confirmado. Agora você pode entrar na sua conta para acompanhar seus pedidos.</p></div>'
+    })
     // Confirmation never grants or revives a customer login, including an old
     // session from before verification became mandatory. Preserve owner login.
     if (req.session.customerId) {
@@ -1710,6 +1691,12 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
 })
 
 app.use('/api/admin', exigirLogin, exigirOwner)
+app.get('/api/admin/email-status', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  // Presence and format are local checks, not evidence of a verified Resend
+  // domain or a message arriving in a recipient's inbox.
+  res.json({ ...transactionalEmail.status(), provider_validation: 'PENDING', delivery_validation: 'PENDING' })
+})
 app.get('/api/admin/security-status', (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   res.json({
@@ -1767,8 +1754,18 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
     }
 
     await conn.execute("UPDATE store_orders SET status=?,payment_status=CASE WHEN ?='CANCELLED' THEN 'CANCELLED' ELSE payment_status END WHERE id=?",[status,status,id])
-    await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status},conn)
+    const eventId = await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status},conn)
     await conn.commit()
+    const label = ({ CONFIRMED:'confirmado', PREPARING:'em preparação', SHIPPED:'a caminho', DELIVERED:'entregue', CANCELLED:'cancelado' })[status]
+    if (order.status !== status && label && order.customer_email) void sendEmailSafely({
+      to: order.customer_email,
+      subject: 'Pedido ' + order.code + ' — ' + label,
+      // A repeated HTTP request with an unchanged status sends nothing. A new
+      // committed transition has its own stable, unique administrative event.
+      idempotencyKey: 'order-status-event-' + eventId,
+      text: 'Olá, ' + order.customer_name + '. O pedido ' + order.code + ' está ' + label + '.',
+      html: '<div style="font-family:Arial,sans-serif"><h1>Atualização do pedido</h1><p>Olá, ' + escapeHtml(order.customer_name) + '</p><p>O pedido <strong>' + escapeHtml(order.code) + '</strong> está ' + label + '</p></div>'
+    })
     res.json({success:true,id,status})
   }catch(error){
     await conn.rollback().catch(()=>{})
