@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import MediaComparison from './MediaComparison'
 
 const estado = (item) => (
@@ -6,6 +6,57 @@ const estado = (item) => (
     : item.ai_status === 'processing' ? 'IA processando…'
       : item.ai_status === 'failed' ? 'IA falhou' : 'Original em uso'
 )
+
+const referenceLocation = (reference) => {
+  if (reference.type === 'product_media') return 'Galeria do produto'
+  if (reference.type === 'product') {
+    const fields = Array.isArray(reference.fields) ? reference.fields : []
+    const locations = []
+    if (fields.some((field) => ['image', 'image_asset_id'].includes(field))) locations.push('Capa do produto')
+    if (fields.includes('video')) locations.push('Vídeo do produto')
+    return locations.join(' · ') || 'Produto'
+  }
+  return reference.type === 'home_setting' ? 'Configuração da Home' : 'Seção da Home'
+}
+
+function MediaUsagePanel({ item, usage, onRefresh, onClose, disabled, panelId }) {
+  const titleId = useId()
+  const panel = useRef(null)
+  const heading = useRef(null)
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true })
+    panel.current?.scrollIntoView({ block: 'nearest' })
+  }, [item.id])
+
+  return (
+    <section className="media-usage-panel" id={panelId} ref={panel} aria-labelledby={titleId} aria-busy={Boolean(usage?.loading)} data-testid="media-usage-panel">
+      <div className="media-comparison-heading">
+        <div>
+          <h3 id={titleId} ref={heading} tabIndex="-1">Onde esta mídia é usada</h3>
+          <p>{item.title || (item.media_type === 'video' ? 'Vídeo' : 'Foto')}</p>
+        </div>
+        <button type="button" className="text-button" disabled={disabled} onClick={onClose}>Fechar lista de uso</button>
+      </div>
+      {usage?.loading && <p className="page-note" role="status">Consultando onde a mídia é usada…</p>}
+      {usage?.error && <p className="admin-error" role="alert">{usage.error}</p>}
+      {usage?.in_use && <p className="media-usage-warning" role="status">Esta mídia está em uso e não pode ser excluída. Remova os vínculos nos locais abaixo e atualize a consulta.</p>}
+      {Boolean(usage?.references?.length) && <ul className="media-usage-list">
+        {usage.references.map((reference, index) => <li key={[reference.type, reference.id, reference.state, index].join('-')}>
+          <div>
+            <strong>{reference.name || (String(reference.type || '').startsWith('product') ? 'Produto' : 'Home')}</strong>
+            <span>{referenceLocation(reference)}</span>
+          </div>
+          <div className="media-usage-labels">
+            {reference.state && <span className="media-in-use">{reference.state === 'published' ? 'Publicado' : 'Rascunho'}</span>}
+            {reference.active === false && <span className="media-usage-hidden">Produto oculto</span>}
+          </div>
+        </li>)}
+      </ul>}
+      {usage?.checked && !usage.loading && !usage.error && !usage.in_use && <p className="page-note" role="status">Nenhum uso encontrado.</p>}
+      <button type="button" className="text-button" disabled={disabled || usage?.loading} onClick={onRefresh}>Atualizar uso</button>
+    </section>
+  )
+}
 
 export default function MediaLibrary({ api, csrf, role }) {
   const [items, setItems] = useState([])
@@ -16,7 +67,15 @@ export default function MediaLibrary({ api, csrf, role }) {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [selectedId, setSelectedId] = useState(null)
+  const [usageId, setUsageId] = useState(null)
+  const [usageById, setUsageById] = useState({})
   const compareTrigger = useRef(null)
+  const usageTrigger = useRef(null)
+  const usageButtons = useRef(new Map())
+  const refreshTrigger = useRef(null)
+  const usageRequests = useRef(new Map())
+  const operationInFlight = useRef(false)
+  const usagePanelId = useId()
   const owner = String(role).toLowerCase() === 'owner'
 
   const load = async (offset = 0) => {
@@ -42,12 +101,54 @@ export default function MediaLibrary({ api, csrf, role }) {
     if (item) setItems((current) => current.map((old) => old.id === item.id ? item : old))
   }
   const run = async (key, job) => {
-    if (busy) return
+    if (operationInFlight.current) return
+    operationInFlight.current = true
     setBusy(key)
     setMsg('')
     setError('')
     try { await job() } catch (err) { setError(err.message || 'Não foi possível concluir a ação.') }
-    finally { setBusy('') }
+    finally { operationInFlight.current = false; setBusy('') }
+  }
+
+  const requestUsage = (item) => {
+    if (usageRequests.current.has(item.id)) return usageRequests.current.get(item.id)
+    setUsageById((current) => ({ ...current, [item.id]: { ...current[item.id], loading: true, error: '' } }))
+    const request = (async () => {
+      try {
+        const data = await api('/api/admin/media-library/' + item.id + '/usage')
+        if (!Array.isArray(data?.references) || typeof data.in_use !== 'boolean') {
+          throw new Error('Não foi possível confirmar onde esta mídia é usada. Atualize a consulta antes de excluir.')
+        }
+        const usage = { references: data.references, in_use: data.in_use || data.references.length > 0, checked: true, loading: false, error: '' }
+        setUsageById((current) => ({ ...current, [item.id]: usage }))
+        return usage
+      } catch (err) {
+        setUsageById((current) => ({ ...current, [item.id]: {
+          ...current[item.id], loading: false,
+          error: err.message || 'Não foi possível consultar o uso. Atualize a consulta antes de excluir.'
+        } }))
+        throw err
+      } finally {
+        usageRequests.current.delete(item.id)
+      }
+    })()
+    usageRequests.current.set(item.id, request)
+    return request
+  }
+
+  function showUsage(item, trigger) {
+    if (trigger) usageTrigger.current = trigger
+    setUsageId(item.id)
+    requestUsage(item).catch(() => {})
+  }
+
+  function closeUsage() {
+    const currentUsageId = usageId
+    setUsageId(null)
+    window.requestAnimationFrame(() => {
+      const targets = [usageTrigger.current, usageButtons.current.get(currentUsageId), refreshTrigger.current]
+      targets.find((target) => target?.isConnected && !target.disabled)?.focus()
+    })
   }
 
   const upload = (files) => run('up', async () => {
@@ -79,15 +180,36 @@ export default function MediaLibrary({ api, csrf, role }) {
     setMsg((variant === 'ai' ? 'Sem fundo' : 'Original') + ' em uso na biblioteca. As capas dos produtos são escolhidas no cadastro ou na edição de cada produto.')
   })
 
-  const remove = (item) => {
-    if (window.confirm('Excluir esta mídia definitivamente (original e versão IA)?')) run('d' + item.id, async () => {
-      await api('/api/admin/media-library/' + item.id, { method: 'DELETE' })
+  const remove = (item, trigger) => {
+    if (operationInFlight.current || usageById[item.id]?.in_use) return
+    if (trigger) usageTrigger.current = trigger
+    run('d' + item.id, async () => {
+      setUsageId(item.id)
+      const usage = await requestUsage(item)
+      if (usage.in_use) return
+      if (!window.confirm('Excluir esta mídia definitivamente (original e versão IA)?')) return
+      try {
+        await api('/api/admin/media-library/' + item.id, { method: 'DELETE' })
+      } catch (err) {
+        if (err.status === 409 && (err.code === 'MEDIA_IN_USE' || err.data?.in_use === true)) {
+          setUsageById((current) => ({ ...current, [item.id]: {
+            references: Array.isArray(err.data?.references) ? err.data.references : [],
+            in_use: true, checked: true, loading: false, error: ''
+          } }))
+          setUsageId(item.id)
+        }
+        throw err
+      }
       if (selectedId === item.id) setSelectedId(null)
+      setUsageId(null)
+      setUsageById((current) => { const next = { ...current }; delete next[item.id]; return next })
       await load()
+      window.requestAnimationFrame(() => refreshTrigger.current?.focus())
     })
   }
 
   const selected = items.find((item) => item.id === selectedId)
+  const usageItem = items.find((item) => item.id === usageId)
   function closeComparison() {
     setSelectedId(null)
     window.requestAnimationFrame(() => compareTrigger.current?.focus())
@@ -109,6 +231,14 @@ export default function MediaLibrary({ api, csrf, role }) {
       {busy === 'up' && <p className="page-note" role="status">Enviando…</p>}
       {error && <p className="admin-error" role="alert">{error}</p>}
       {msg && <p className="media-library-status" role="status">{msg}</p>}
+      {usageItem && <MediaUsagePanel
+        panelId={usagePanelId}
+        item={usageItem}
+        usage={usageById[usageItem.id]}
+        onRefresh={() => showUsage(usageItem)}
+        onClose={closeUsage}
+        disabled={Boolean(busy) || loading}
+      />}
       {selected && <MediaComparison
         item={selected}
         activeVariant={selected.use_ai && selected.ai_status === 'done' && selected.ai_url ? 'ai' : 'original'}
@@ -133,19 +263,24 @@ export default function MediaLibrary({ api, csrf, role }) {
                 onClick={(event) => { compareTrigger.current = event.currentTarget; setSelectedId(item.id) }}
               ><img src={item.url} alt={item.title || 'Foto ' + item.id} loading="lazy" /></button>}
             <div><span>{item.title || 'Sem título'}</span><span>{estado(item)}</span></div>
+            <div className="media-library-usage-action">
+              <button type="button" ref={(node) => { if (node) usageButtons.current.set(item.id, node); else usageButtons.current.delete(item.id) }} disabled={Boolean(busy) || loading || usageById[item.id]?.loading} aria-expanded={usageId === item.id} aria-controls={usageId === item.id ? usagePanelId : undefined} data-testid={'media-usage-' + item.id} onClick={(event) => showUsage(item, event.currentTarget)}>Onde esta mídia é usada</button>
+              {usageById[item.id]?.in_use && <span className="media-in-use">Em uso</span>}
+            </div>
             <div className="media-library-tile-actions">
               {item.media_type === 'image' && owner && item.ai_status !== 'done' && (
                 <button type="button" disabled={Boolean(busy) || loading} onClick={() => ai(item)}>{busy === 'ai' + item.id ? 'Verificando…' : item.ai_status === 'processing' ? 'Verificar resultado' : 'Remover fundo (IA)'}</button>
               )}
-              {owner && <button type="button" disabled={Boolean(busy) || loading} onClick={() => remove(item)}>Excluir</button>}
+              {owner && <button type="button" disabled={Boolean(busy) || loading || usageById[item.id]?.loading || usageById[item.id]?.in_use} data-testid={'media-delete-' + item.id} onClick={(event) => remove(item, event.currentTarget)}>{busy === 'd' + item.id ? 'Verificando uso…' : 'Excluir'}</button>}
             </div>
+            {usageById[item.id]?.in_use && <p className="media-library-delete-note">Vinculada a produtos ou à Home. Consulte os locais de uso antes de remover os vínculos.</p>}
           </div>
         ))}
       </div>
       {loading && <p className="page-note" role="status">Carregando biblioteca…</p>}
       {!loading && !error && !items.length && <p className="page-note">Nenhuma mídia na biblioteca ainda.</p>}
       <div className="media-picker-actions">
-        <button type="button" className="text-button" disabled={Boolean(busy) || loading} onClick={() => { setError(''); load() }}>Atualizar biblioteca</button>
+        <button type="button" className="text-button" ref={refreshTrigger} disabled={Boolean(busy) || loading} onClick={() => { setError(''); load() }}>Atualizar biblioteca</button>
         {nextOffset < total && <button type="button" className="text-button" disabled={Boolean(busy) || loading} onClick={() => load(nextOffset)}>Carregar mais</button>}
       </div>
     </section>

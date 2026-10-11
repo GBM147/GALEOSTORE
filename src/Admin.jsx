@@ -31,6 +31,7 @@ const api = async (path, options = {}) => {
     const error = new Error(data?.error || 'Erro na comunicação com o servidor.')
     error.status = response.status
     error.code = data?.code
+    error.data = data
     if (path !== '/api/auth/login' && (error.status === 401 || error.code === 'ADMIN_OWNER_REQUIRED')) {
       window.dispatchEvent(new Event('galeo-admin-auth-required'))
     }

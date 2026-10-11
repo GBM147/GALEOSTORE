@@ -1,3 +1,5 @@
+import { loadMediaUsage } from './media-usage.js'
+
 // Fase 3 + 3A — Biblioteca de mídia e tratamento de fotos por IA (Cloudinary)
 const DDL = `CREATE TABLE IF NOT EXISTS media_assets (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -56,6 +58,17 @@ export function registerMediaLibrary(app, deps) {
       const [{ total }] = await query('SELECT COUNT(*) AS total FROM media_assets')
       res.json({ items: rows.map(view), total: Number(total) })
     } catch (e) { fail(res, e, 'Não foi possível carregar a biblioteca de mídia.') }
+  })
+
+  app.get(base + '/:id/usage', exigirLogin, exigirOwner, async (req, res) => {
+    try {
+      const asset = await find(req, res); if (!asset) return
+      const references = await loadMediaUsage(asset, query)
+      res.json({ in_use: references.length > 0, references })
+    } catch (error) {
+      console.error('Erro ao verificar uso da mídia:', error?.message || 'Falha desconhecida')
+      res.status(500).json({ error: 'Não foi possível verificar onde esta mídia está em uso.', code: 'MEDIA_USAGE_CHECK_FAILED' })
+    }
   })
 
   app.post(base, exigirLogin, mediaUpload.array('media', 8), async (req, res) => {
@@ -146,15 +159,54 @@ export function registerMediaLibrary(app, deps) {
   })
 
   app.delete(base + '/:id', exigirLogin, exigirOwner, async (req, res) => {
+    let conn
+    let phase = 'verification'
     try {
-      const a = await find(req, res); if (!a) return
-      if (cloudinaryConfigurado()) {
-        await cloudinary.uploader.destroy(a.public_id, { resource_type: a.media_type, invalidate: true }).catch((e) => console.error('Cloudinary destroy:', e))
+      const id = Number(req.params.id)
+      if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Mídia inválida.' })
+      await ensure()
+      conn = await deps.db.getConnection()
+      await conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+      await conn.beginTransaction()
+      const [assets] = await conn.execute('SELECT * FROM media_assets WHERE id=? FOR UPDATE', [id])
+      const asset = assets[0]
+      if (!asset) {
+        await conn.rollback()
+        return res.status(404).json({ error: 'Mídia não encontrada.' })
       }
-      await query('DELETE FROM media_assets WHERE id=?', [a.id])
-      await audit(req.admin.id, 'LIBRARY_DELETE', 'media_assets', a.id, { public_id: a.public_id })
+      const references = await loadMediaUsage(asset, (sql, params = []) => query(sql, params, conn), { lock: true })
+      if (references.length) {
+        await conn.rollback()
+        return res.status(409).json({ error: 'Esta mídia está em uso. Retire as referências antes de excluí-la.', code: 'MEDIA_IN_USE', in_use: true, references })
+      }
+      if (asset.ai_status === 'processing') {
+        await conn.rollback()
+        return res.status(409).json({ error: 'Aguarde a conclusão do processamento antes de excluir esta mídia.', code: 'MEDIA_PROCESSING' })
+      }
+      if (!cloudinaryConfigurado()) {
+        await conn.rollback()
+        return res.status(503).json({ error: 'Cloudinary não configurado no servidor. A mídia foi mantida na biblioteca.', code: 'MEDIA_PROVIDER_UNAVAILABLE' })
+      }
+      // Verify the audit write before an irreversible remote deletion; commit it together.
+      phase = 'audit'
+      await audit(req.admin.id, 'LIBRARY_DELETE', 'media_assets', asset.id, { public_id: asset.public_id }, conn)
+      phase = 'provider'
+      const result = await cloudinary.uploader.destroy(asset.public_id, { resource_type: asset.media_type, type: 'upload', invalidate: true, timeout: 15000 })
+      if (!['ok', 'not found'].includes(result?.result)) throw new Error('Exclusão remota não confirmada.')
+      phase = 'commit'
+      const deleted = await query('DELETE FROM media_assets WHERE id=?', [asset.id], conn)
+      if (deleted.affectedRows !== 1) throw new Error('A mídia não pôde ser removida da biblioteca.')
+      await conn.commit()
       res.json({ success: true })
-    } catch (e) { fail(res, e, 'Não foi possível excluir a mídia.') }
+    } catch (error) {
+      if (conn) await conn.rollback().catch(() => {})
+      console.error('Erro ao excluir mídia:', error?.message || 'Falha desconhecida')
+      if (phase === 'verification') return res.status(500).json({ error: 'Não foi possível verificar onde esta mídia está em uso. A exclusão foi bloqueada.', code: 'MEDIA_USAGE_CHECK_FAILED' })
+      if (phase === 'provider') return res.status(502).json({ error: 'O Cloudinary não confirmou a exclusão. A mídia foi mantida na biblioteca.', code: 'MEDIA_PROVIDER_DELETE_FAILED' })
+      res.status(500).json({ error: 'Não foi possível concluir a exclusão da mídia.', code: 'MEDIA_DELETE_FAILED' })
+    } finally {
+      if (conn) conn.release()
+    }
   })
 
   ensure().catch((e) => console.error('media_assets:', e))

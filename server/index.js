@@ -2463,12 +2463,13 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    // Library deletion locks the asset before products; keep the same order.
+    const image = await resolveProductImage(b, (sql, params) => query(sql, params, conn))
     const [oldRows] = await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE', [productId])
     if (!oldRows.length) {
       await conn.rollback()
       return res.status(404).json({ error: 'Produto não encontrado.' })
     }
-    const image = await resolveProductImage(b, (sql, params) => query(sql, params, conn))
     await conn.execute(
       `UPDATE products SET
        name=?,brand=?,category_id=?,description=?,price=?,cost=?,stock=?,min_stock=?,image=?,video=?,active=?
@@ -2755,7 +2756,7 @@ app.get('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
 })
 
 const dist = path.join(__dirname, '..', 'dist')
-registerMediaLibrary(app, { query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary })
+registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary })
 app.use(express.static(dist, {
   setHeaders(res, filePath) {
     if (String(filePath).endsWith('/index.html')) {

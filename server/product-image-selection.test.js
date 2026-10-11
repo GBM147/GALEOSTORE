@@ -11,7 +11,7 @@ function assetQuery(overrides = {}) {
   return {
     asset, calls,
     query: async (sql, params) => {
-      assert.match(sql, /^SELECT .* FROM media_assets WHERE id=\?$/)
+      assert.match(sql, /^SELECT .* FROM media_assets WHERE id=\? FOR SHARE$/)
       assert.deepEqual(params, [7])
       calls.push({ sql, params })
       return [{ ...asset }]

@@ -17,7 +17,7 @@ export async function resolveProductImage(input, query) {
   if (!['original', 'ai'].includes(input.image_variant)) {
     throw new ProductImageSelectionError('Escolha a versão original ou a versão sem fundo da imagem principal.')
   }
-  const [asset] = await query('SELECT id,media_type,url,ai_url,ai_status FROM media_assets WHERE id=?', [assetId])
+  const [asset] = await query('SELECT id,media_type,url,ai_url,ai_status FROM media_assets WHERE id=? FOR SHARE', [assetId])
   if (!asset) throw new ProductImageSelectionError('Mídia da imagem principal não encontrada.', 404)
   if (asset.media_type !== 'image') throw new ProductImageSelectionError('A imagem principal deve ser uma foto.')
   if (input.image_variant === 'ai' && (asset.ai_status !== 'done' || !asset.ai_url)) {
