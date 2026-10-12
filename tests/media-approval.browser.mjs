@@ -93,6 +93,7 @@ async function fixture(t, { viewport, processingFirst = false, readyPhoto = fals
       }
       return json(product)
     }
+    if (path === '/api/admin/media-library-preferences' && method === 'GET') return json({ auto_prepare:false })
     if (path === '/api/admin/media-library' && method === 'GET') return json({ items, total:items.length })
     if (/^\/api\/admin\/media-library\/\d+\/ai-background$/.test(path) && method === 'POST') {
       const item = items.find(asset => asset.id === Number(path.split('/')[4]))

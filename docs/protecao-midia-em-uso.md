@@ -26,6 +26,7 @@ galeria e salve. Consulte novamente o uso antes de excluir.
 - Fotos e vídeos da galeria dos produtos, por URL ou identificação do arquivo.
 - Seções da Home publicadas e rascunhos, inclusive seções ocultas.
 - Campos de mídia nas configurações da Home, publicados e rascunhos.
+- Referências das cinco versões retidas da Home.
 - Imagem original, versão sem fundo e variantes do mesmo arquivo no Cloudinary.
 
 Texto comum, títulos, descrições e IDs de produtos não são tratados como
@@ -49,4 +50,4 @@ URLs digitadas manualmente depois de uma exclusão concluída continuam sendo
 URLs manuais; esta etapa não cria um histórico de arquivos já excluídos.
 
 Não há alteração dos dados operacionais de produção, nova coluna ou serviço.
-Substituição, nomes e ordenação da biblioteca ficam para os próximos incrementos.
+Substituição, nomes e ordenação foram concluídos no incremento descrito em [conclusão das etapas](conclusao-etapas-cms.md).

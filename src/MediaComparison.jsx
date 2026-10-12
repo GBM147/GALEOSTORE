@@ -6,6 +6,7 @@ export function selectedMediaVariant(item, currentUrl) {
   if (!currentUrl) return null
   if (currentUrl === originalMediaUrl(item)) return 'original'
   if (currentUrl === item?.ai_url) return 'ai'
+  if (currentUrl === item?.galeo_url) return 'galeo'
   return null
 }
 
@@ -13,14 +14,15 @@ function MediaVersion({ item, variant, active, onSelect, disabled, pending }) {
   const [failedUrl, setFailedUrl] = useState('')
   const [loadedUrl, setLoadedUrl] = useState('')
   const [previewAttempt, setPreviewAttempt] = useState(0)
-  const label = variant === 'ai' ? 'Sem fundo' : 'Original'
-  const url = variant === 'ai' ? item.ai_url : originalMediaUrl(item)
-  const ready = Boolean(url) && (variant !== 'ai' || item.ai_status === 'done')
+  const label = variant === 'galeo' ? 'Fundo GALEO' : variant === 'ai' ? 'Sem fundo' : 'Original'
+  const url = variant === 'galeo' ? item.galeo_url : variant === 'ai' ? item.ai_url : originalMediaUrl(item)
+  const ready = Boolean(url) && (variant === 'original' || item.ai_status === 'done')
   const failed = Boolean(url) && failedUrl === url
   let unavailable = 'Esta versão ainda não está disponível. Remova o fundo na biblioteca para gerar a imagem.'
   if (item.ai_status === 'processing') unavailable = 'A remoção de fundo está processando. Verifique o resultado na biblioteca.'
   if (item.ai_status === 'failed') unavailable = 'A remoção de fundo falhou. Tente novamente na biblioteca.'
   if (variant === 'original') unavailable = 'A imagem original não está disponível.'
+  if (variant === 'galeo' && item.ai_status === 'done' && !item.galeo_url) unavailable = 'O Fundo GALEO usa a versão sem fundo hospedada no Cloudinary. Esta foto ainda não oferece esse acabamento.'
 
   return (
     <article className="media-version-card" data-testid={'media-version-' + variant}>
@@ -28,7 +30,7 @@ function MediaVersion({ item, variant, active, onSelect, disabled, pending }) {
         <h4>{label}</h4>
         {active && <span className="media-in-use">Em uso</span>}
       </div>
-      <div className="media-version-preview media-checkerboard">
+      <div className={'media-version-preview ' + (variant === 'galeo' ? 'media-galeo-canvas' : 'media-checkerboard')}>
         {ready ? <>
           <img
             key={url + ':' + previewAttempt}
@@ -74,7 +76,7 @@ export default function MediaComparison({ item, activeVariant, onSelect, onClose
         <button type="button" className="text-button" disabled={disabled} onClick={onClose}>Voltar à biblioteca</button>
       </div>
       <div className="media-comparison-grid">
-        {['original', 'ai'].map((variant) => <MediaVersion
+        {['original', 'ai', 'galeo'].map((variant) => <MediaVersion
           key={variant}
           item={item}
           variant={variant}

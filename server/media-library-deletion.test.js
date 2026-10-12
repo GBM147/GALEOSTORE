@@ -3,7 +3,7 @@ import test from 'node:test'
 import { registerMediaLibrary } from './media-library.js'
 
 function createLibrary(t, {
-  asset: override = {}, missing = false, products = [], productMedia = [], homeSections = [], homeSettings = [],
+  asset: override = {}, missing = false, products = [], productMedia = [], homeSections = [], homeSettings = [], homeVersions = [],
   configured = true, readError, auditError, destroyError, destroyResult = { result: 'ok' },
   deleteError, affectedRows = 1, commitError
 } = {}) {
@@ -14,7 +14,7 @@ function createLibrary(t, {
     ...override
   }
   const routes = new Map()
-  const app = Object.fromEntries(['get', 'post', 'patch', 'delete'].map(method => [method,
+  const app = Object.fromEntries(['get', 'post', 'put', 'patch', 'delete'].map(method => [method,
     (path, ...handlers) => routes.set(method + ' ' + path, handlers.at(-1))
   ]))
   const calls = { operations: [], reads: [], audits: [], destroyed: [], committed: 0, rolledBack: 0, released: 0, acquired: 0 }
@@ -53,6 +53,8 @@ function createLibrary(t, {
   }
   const query = async (sql, params = [], executor) => {
     if (sql.startsWith('CREATE TABLE')) return {}
+    if (sql.startsWith('SELECT COLUMN_NAME')) return ['sort_order','presentation','replaces_id'].map(name => ({name}))
+    if (sql.startsWith('INSERT IGNORE INTO media_library_preferences')) return {}
     if (sql.startsWith('SELECT') && sql.includes('FROM media_assets ')) {
       assert.equal(executor, undefined)
       return state.exists && Number(params[0]) === asset.id ? [{ ...asset }] : []
@@ -69,7 +71,8 @@ function createLibrary(t, {
     const table = sql.includes('FROM product_media ') ? 'productMedia'
       : sql.includes('FROM products ') ? 'products'
         : sql.includes('FROM home_sections ') ? 'homeSections'
-          : sql.includes('FROM home_settings ') ? 'homeSettings' : null
+          : sql.includes('FROM home_settings ') ? 'homeSettings'
+            : sql.includes('FROM home_versions ') ? 'homeVersions' : null
     assert.ok(table, 'Unexpected query: ' + sql)
     if (executor !== undefined) {
       assert.equal(executor, conn)
@@ -79,7 +82,7 @@ function createLibrary(t, {
     calls.operations.push('read-' + table)
     calls.reads.push({ table, transactional: executor === conn })
     if (readError === table) throw new Error('Fake reference read failure')
-    return { products, productMedia, homeSections, homeSettings }[table]
+    return { products, productMedia, homeSections, homeSettings, homeVersions }[table]
   }
   registerMediaLibrary(app, {
     query, db: { async getConnection() { calls.acquired++; return conn } },
@@ -91,7 +94,7 @@ function createLibrary(t, {
       if (auditError) throw auditError
       state.pendingAudits.push(args.slice(0, 5))
     },
-    exigirLogin() {}, exigirOwner() {}, mediaUpload: { array: () => () => {} },
+    exigirLogin() {}, exigirOwner() {}, mediaUpload: { array: () => () => {}, single: () => () => {} },
     cloudinaryConfigurado: () => configured,
     cloudinary: { uploader: {
       async destroy(publicId, options) {
@@ -139,7 +142,7 @@ test('usage and DELETE return the same actionable references and keep an asset u
   assertPreserved(library)
   assert.equal(library.calls.rolledBack, 1)
   assert.equal(library.calls.released, 1)
-  assert.equal(library.calls.reads.filter(read => read.transactional).length, 4)
+  assert.equal(library.calls.reads.filter(read => read.transactional).length, 5)
 })
 
 for (const [name, fixture] of [
@@ -181,7 +184,7 @@ test('DELETE retains an unused asset when the provider is not configured', async
   assert.equal(library.calls.released, 1)
 })
 
-for (const table of ['products', 'productMedia', 'homeSections', 'homeSettings']) {
+for (const table of ['products', 'productMedia', 'homeSections', 'homeSettings', 'homeVersions']) {
   test('a failed ' + table + ' reference read blocks DELETE and rolls back before audit or provider calls', async t => {
     const library = createLibrary(t, { readError: table })
     const response = await library.remove()
@@ -246,7 +249,7 @@ for (const result of ['ok', 'not found']) {
     assert.equal(library.calls.rolledBack, 0)
     assert.equal(library.calls.released, 1)
     assert.deepEqual(library.calls.operations, [
-      'repeatable-read', 'begin', 'lock-asset', 'read-products', 'read-productMedia', 'read-homeSections', 'read-homeSettings',
+      'repeatable-read', 'begin', 'lock-asset', 'read-products', 'read-productMedia', 'read-homeSections', 'read-homeSettings', 'read-homeVersions',
       'audit', 'destroy', 'delete-row', 'commit', 'release'
     ])
   })
@@ -305,5 +308,5 @@ test('unused usage inspection reports an empty list without a transaction, audit
   assert.equal(library.calls.acquired, 0)
   assert.equal(library.calls.audits.length, 0)
   assert.equal(library.calls.destroyed.length, 0)
-  assert.equal(library.calls.reads.length, 4)
+  assert.equal(library.calls.reads.length, 5)
 })

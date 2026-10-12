@@ -1,5 +1,7 @@
 # GALEO Store — revisão do plano
 
+Atualização de 12/10/2026: [conclusão das etapas técnicas do CMS](conclusao-etapas-cms.md). Biblioteca, campanhas, ordenação visual, comparação e histórico limitado estão implementados e testados. As pendências externas de e-mail, criptografia em produção e limpeza estão discriminadas nesse documento.
+
 Revisão do código comparada aos dois trechos do histórico fornecido da conversa “Continuar Galeo Store”, em 8 de outubro de 2026. As etapas implementadas foram publicadas no serviço Render existente, incluindo a integração transacional com Resend. As pendências abaixo distinguem a validação dos donos, a configuração dos provedores e as funcionalidades ainda não implementadas.
 
 A rodada posterior de [verificação real no navegador](verificacao-no-navegador.md) usa a API e o MySQL locais sem mocks e registra funções aprovadas, falhas reproduzidas e pendências das nove fases. Pagamento e frete foram excluídos dessa rodada conforme solicitado.
@@ -36,10 +38,10 @@ exclusão no painel e na API.
 ## Escopo e forma de trabalho confirmados
 
 - Integração com maquininha e frete automático estão adiados por decisão do usuário até a contratação dos serviços. O PDV atual registra pagamentos confirmados manualmente.
-- Executar uma ação por vez, explicar antes e apresentar o resultado para o usuário testar e validar antes da próxima etapa.
+- A autorização atual permite concluir todas as pendências técnicas, comunicar as ações e publicar sem interromper para aprovações entre etapas.
 - A autorização para aplicar uma etapa inclui fazer o deploy no serviço existente e verificar o resultado publicado antes da validação do usuário. Pagamento e frete continuam fora do escopo até nova autorização.
 - Preservar a identidade editorial da GALEO, incluindo Inter pesada e Georgia em itálico; manter senhas com bcrypt e arquivos grandes no Cloudinary.
-- Para alterações visuais, seguir a skill [img-to-html](https://github.com/rtadewald/skills/blob/main/img-to-html/SKILL.md): referência, wireframe e plano, fundo, componentes/fontes, assets e revisão, com aprovação entre etapas. Aplicar o fluxo ao projeto React existente conforme o escopo pedido.
+- Para alterações visuais, seguir a skill [img-to-html](https://github.com/rtadewald/skills/blob/main/img-to-html/SKILL.md): referência, wireframe e plano, fundo, componentes/fontes, assets e revisão, adaptado ao projeto React existente. A autorização atual dispensa interrupções para aprovação entre etapas, mantendo referência, wireframe e revisão.
 
 ## Etapas combinadas
 
@@ -63,14 +65,14 @@ exclusão no painel e na API.
 | --- | --- | --- |
 | 1 — Segurança e permissões | Admin exclusivo OWNER conforme decisão atual; STAFF não inicia sessão e sessões antigas são revogadas; clientes separados; CSRF, bcrypt, renovação de sessão, bloqueio de contas desativadas e limites de login; reinício não reativa contas e novas senhas respeitam o limite do bcrypt; sem gestão de usuários | Validação final dos donos no ambiente publicado |
 | 2 — CMS da Home | Sete blocos no MySQL, conteúdo editável, dados de mídia, ordem e visibilidade | Conferir todos os campos e o uso no editor com o proprietário; alterações de texto não podem perder a formatação editorial |
-| 3 — Biblioteca de mídia | Upload e visualização no Cloudinary, metadados no MySQL, exclusão protegida com consulta de uso em produtos/Home, seleção original/IA e ordenação de mídia de produtos; escolha explícita da capa original ou tratada no cadastro/edição do produto | Renomear pela interface, substituir e ordenar arquivos da biblioteca geral |
-| 3A — Tratamento de imagens | Original preservado, remoção de fundo e resultado salvo/reutilizado; comparação Original/Sem fundo e aprovação explícita antes de usar | Configurar o padrão para novas fotos de produtos; opção visual Fundo GALEO; validação dos donos deste incremento |
-| 4 — Campanhas com movimento | Presets de efeito, velocidade/duração, GSAP e configurações de movimento | Carrossel real com Fade/Slide/Crossfade, opção explícita Usar padrão da GALEO e escolha de mídia móvel na edição da campanha |
-| 5 — Ordenação | Ordem numérica editável, respeitada pela Home, visível/oculto | Arrastar e soltar seções no editor |
-| 6 — Rascunho e publicação | Conteúdo, metadados e configurações separados; publicação transacional | Comparação visual clara entre rascunho e última publicação, além das datas e prévia atuais |
+| 3 — Biblioteca de mídia | Upload e visualização no Cloudinary, metadados no MySQL, exclusão protegida com consulta de uso em produtos/Home, seleção original/IA e ordenação de mídia de produtos; escolha explícita da capa original ou tratada no cadastro/edição do produto | Implementado: renomear, substituição independente e ordenação persistente; conferir uso com os donos |
+| 3A — Tratamento de imagens | Original preservado, remoção de fundo e resultado salvo/reutilizado; comparação Original/Sem fundo e aprovação explícita antes de usar | Implementado: preferência para novas fotos e Fundo GALEO sem nova transformação; validação dos donos |
+| 4 — Campanhas com movimento | Presets de efeito, velocidade/duração, GSAP e configurações de movimento | Implementado: carrossel Fade/Slide/Crossfade, padrão GALEO, mídia móvel e movimento reduzido |
+| 5 — Ordenação | Ordem numérica editável, respeitada pela Home, visível/oculto | Implementado: arrastar, teclado e botões no celular |
+| 6 — Rascunho e publicação | Conteúdo, metadados e configurações separados; publicação transacional | Implementado: comparação com texto/mídia, datas e identificação de alterações ainda não salvas |
 | 7 — Preview | Home de rascunho protegida para OWNER | Validação visual do usuário em cada alteração de interface |
-| 8 — Auditoria econômica | Registro de ações administrativas relevantes | Edição/salvamento do conteúdo ainda não é auditado; limitar tamanho dos detalhes e implementar retenção automática por prazo/quantidade. Hoje não há limpeza de `audit_logs` |
-| 9 — Versionamento | Publicação atual e rascunho | Snapshot compacto da publicação anterior, histórico limitado e restauração. Hoje não há versão anterior recuperável |
+| 8 — Auditoria econômica | Registro de ações administrativas relevantes | Implementado: edição auditada, detalhes até 4 KB, retenção de 90 dias/5.000 eventos |
+| 9 — Versionamento | Publicação atual e rascunho | Implementado: cinco snapshots, publicação transacional e restauração somente no rascunho |
 
 Os limites numéricos citados para planos gratuitos vieram do histórico fornecido e não foram revalidados com os provedores nesta revisão. A política de retenção e versionamento deve continuar conservadora independentemente desses valores.
 

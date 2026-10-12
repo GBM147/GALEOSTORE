@@ -202,11 +202,12 @@ test('usage loading includes every product and both Home states without an activ
     queries.push(sql)
     if (sql.includes('FROM products ')) return [product(1, { active: 0, image: asset.url })]
     if (sql.includes('FROM product_media ')) return []
+    if (sql.includes('FROM home_versions ')) return []
     if (sql.includes('FROM home_sections ')) return [{ section_key: 'hero', draft_content: {}, published_content: { media_id: asset.id } }]
     if (sql.includes('FROM home_settings ')) return [{ setting_key: 'visual', draft_value: { media_id: asset.id }, setting_value: {} }]
     throw new Error('Unexpected query')
   })
-  assert.equal(queries.length, 4)
+  assert.equal(queries.length, 5)
   assert.ok(queries.every(sql => !/\bWHERE\b|FOR UPDATE/i.test(sql)))
   assert.deepEqual(result.map(({ type, state }) => ({ type, ...(state ? { state } : {}) })), [
     { type: 'product' }, { type: 'home_section', state: 'published' }, { type: 'home_setting', state: 'draft' }
@@ -216,8 +217,24 @@ test('usage loading includes every product and both Home states without an activ
 test('deletion usage loading locks all reference tables and propagates read errors', async () => {
   const queries = []
   assert.deepEqual(await loadMediaUsage(asset, async sql => { queries.push(sql); return [] }, { lock: true }), [])
-  assert.equal(queries.length, 4)
+  assert.equal(queries.length, 5)
   assert.ok(queries.every(sql => sql.endsWith(' FOR UPDATE')))
   const error = new Error('Reference table unavailable')
   await assert.rejects(loadMediaUsage(asset, async () => { throw error }, { lock: true }), error)
+})
+
+
+test('retained Home versions protect media referenced by section URLs, IDs and settings', () => {
+  const snapshot = { schema: 1, sections: [{ key: 'hero', content: { image_url: asset.url } }, { key: 'campaigns', content: { items: [{ media_id: asset.id }] } }], settings: [{ key: 'footer', value: { image_url: asset.ai_url || asset.url } }] }
+  const references = findMediaUsage(asset, { homeVersions: [{ id: 90, version_number: 4, snapshot: JSON.stringify(snapshot) }] })
+  assert.equal(references.length, 1)
+  assert.equal(references[0].type, 'home_version')
+  assert.equal(references[0].name, 'Versão 4 da Home')
+  assert.equal(references[0].state, 'version')
+  assert.equal(references[0].fields.length, 3)
+  assert.deepEqual(findMediaUsage(asset, { homeVersions: [{ id: 90, version_number: 4, snapshot: { sections: [{ content: { title: asset.url } }] } }] }), [])
+})
+
+test('a malformed retained Home snapshot blocks usage inspection', () => {
+  assert.throws(() => findMediaUsage(asset, { homeVersions: [{ id: 90, version_number: 4, snapshot: '{broken' }] }), SyntaxError)
 })

@@ -10,6 +10,7 @@ import { protectSessionStore } from './protected-session-store.js'
 import { inspectMySqlSecurity } from './mysql-security-status.js'
 import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
 import { createTransactionalEmail } from './transactional-email.js'
+import { createNewsletter, registerNewsletter } from './newsletter.js'
 import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
@@ -19,6 +20,8 @@ import multer from 'multer'
 import { Readable } from 'node:stream'
 import cron from 'node-cron'
 import { registerMediaLibrary } from './media-library.js'
+import { ensureHomeWorkflowSchema, createHomeWorkflow, registerHomeWorkflow } from './home-workflow.js'
+import { compactAuditDetails, createAuditRetentionQueue } from './audit-retention.js'
 import { ProductImageSelectionError, resolveProductImage } from './product-image-selection.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -143,6 +146,7 @@ const transactionalEmail = createTransactionalEmail()
 const sendTransactionalEmail = transactionalEmail.send
 const sendEmailSafely = transactionalEmail.sendSafely
 const confirmationEmailConfigured = transactionalEmail.confirmationConfigured
+const newsletter = createNewsletter({ db, emailService: transactionalEmail, appUrl, protection: dataProtection })
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[char]))
@@ -251,15 +255,20 @@ async function query(sql, params = [], executor = db) {
   return rows
 }
 
+const auditRetention = createAuditRetentionQueue(query, { onError: error => console.error('Erro na retenção de auditoria:', error?.code || 'INTERNAL_ERROR') })
+const homeWorkflow = createHomeWorkflow({ db, query, audit })
+cron.schedule('15 * * * *', () => auditRetention.run(), { timezone: 'America/Sao_Paulo' })
+
 async function audit(userId, action, entity, entityId, details = null, executor = db) {
   const conn = executor === db ? await db.getConnection() : executor
   try {
     if (executor === db) await conn.beginTransaction()
     const result = await insertPrivateBusiness(conn, 'audit_logs',
       'INSERT INTO audit_logs(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
-      [userId || null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null],
+      [userId || null, action, entity, entityId == null ? null : String(entityId), details == null ? null : JSON.stringify(compactAuditDetails(details))],
       { details: 4 })
     if (executor === db) await conn.commit()
+    auditRetention.schedule()
     return result.insertId
   } catch (error) {
     if (executor === db) await conn.rollback().catch(() => {})
@@ -548,6 +557,7 @@ async function init() {
   ]
 
   for (const statement of schema) await query(statement)
+  await ensureHomeWorkflowSchema(query)
   // Existing customers retain their data, but must confirm ownership of their
   // email before a new or previously issued customer session can be used.
   await ensureColumn('customers', 'email_verified_at', 'DATETIME NULL')
@@ -652,6 +662,9 @@ async function init() {
     "INSERT INTO home_settings(setting_key,setting_value) VALUES('footer',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
     [JSON.stringify({ brand: 'GALEO STORE', location: 'São Paulo / BR', year: '2026' })]
   )
+
+  await homeWorkflow.seedPublishedVersion()
+  await auditRetention.run()
 
   await query("UPDATE admin_users SET role='staff' WHERE role='manager'")
   await query("ALTER TABLE admin_users MODIFY role ENUM('owner','staff') NOT NULL DEFAULT 'owner'")
@@ -1773,10 +1786,13 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
 })
 
 
+registerHomeWorkflow(app, { workflow: homeWorkflow, exigirLogin, exigirOwner })
+registerNewsletter(app, { newsletter })
+
 app.get('/api/admin/home', exigirLogin, exigirOwner, async (req, res) => {
   try {
-    const rows = await query('SELECT section_key,section_type,sort_order,visible,draft_content,published_content,updated_by,published_by,updated_at,published_at FROM home_sections ORDER BY sort_order,id')
-    res.json({ sections: rows.map((row) => ({ key: row.section_key, type: row.section_type, order: Number(row.sort_order), visible: Boolean(row.visible), draft: typeof row.draft_content === 'string' ? JSON.parse(row.draft_content) : row.draft_content, published: typeof row.published_content === 'string' ? JSON.parse(row.published_content) : row.published_content, updated_by: row.updated_by, published_by: row.published_by, updated_at: row.updated_at, published_at: row.published_at })) })
+    const rows = await query('SELECT section_key,section_type,sort_order,visible,published_sort_order,published_visible,draft_content,published_content,updated_by,published_by,updated_at,published_at FROM home_sections ORDER BY sort_order,id')
+    res.json({ sections: rows.map((row) => ({ key: row.section_key, type: row.section_type, order: Number(row.sort_order), visible: Boolean(row.visible), published_order: Number(row.published_sort_order), published_visible: Boolean(row.published_visible), draft: typeof row.draft_content === 'string' ? JSON.parse(row.draft_content) : row.draft_content, published: typeof row.published_content === 'string' ? JSON.parse(row.published_content) : row.published_content, updated_by: row.updated_by, published_by: row.published_by, updated_at: row.updated_at, published_at: row.published_at })) })
   } catch (error) {
     console.error('Erro ao carregar CMS da home:', error)
     res.status(500).json({ error: 'Não foi possível carregar o conteúdo administrativo da home.' })
@@ -1791,59 +1807,33 @@ app.put('/api/admin/home/:key', exigirLogin, exigirOwner, async (req, res) => {
   if (!content || typeof content !== 'object' || Array.isArray(content)) return res.status(400).json({ error: 'O conteúdo da seção deve ser um objeto JSON válido.' })
   const payload = JSON.stringify(content)
   if (Buffer.byteLength(payload, 'utf8') > 100 * 1024) return res.status(413).json({ error: 'O conteúdo desta seção excede o limite de 100 KB.' })
-  try {
-    const rows = await query('SELECT id FROM home_sections WHERE section_key=? LIMIT 1', [key])
-    if (!rows.length) return res.status(404).json({ error: 'Seção de home não encontrada.' })
-    const nextVisible = req.body?.visible === undefined ? null : (req.body.visible ? 1 : 0)
-    const nextOrderRaw = req.body?.order
-    const nextOrder = nextOrderRaw === undefined ? null : Number(nextOrderRaw)
-    if (nextOrder !== null && (!Number.isInteger(nextOrder) || nextOrder < 0 || nextOrder > 999)) return res.status(400).json({ error: 'A ordem da seção deve ficar entre 0 e 999.' })
-    if (nextVisible === null && nextOrder === null) {
-      await query('UPDATE home_sections SET draft_content=?, updated_by=? WHERE section_key=?', [payload, req.admin.id, key])
-    } else {
-      await query(
-        `UPDATE home_sections
-         SET draft_content=?,
-             visible=COALESCE(?, visible),
-             sort_order=COALESCE(?, sort_order),
-             updated_by=?
-         WHERE section_key=?`,
-        [payload, nextVisible, nextOrder, req.admin.id, key]
-      )
-    }
-    res.json({ success: true, key, saved_as: 'draft' })
-  } catch (error) {
-    console.error('Erro ao salvar rascunho da home:', error)
-    res.status(500).json({ error: 'Não foi possível salvar o conteúdo da home.' })
-  }
-})
-
-
-app.post('/api/admin/home/publish', exigirLogin, exigirOwner, async (req, res) => {
+  if (req.body?.visible !== undefined && typeof req.body.visible !== 'boolean') return res.status(400).json({ error: 'A visibilidade da seção deve ser uma escolha válida.' })
+  const nextVisible = req.body?.visible === undefined ? null : (req.body.visible ? 1 : 0)
+  const nextOrder = req.body?.order === undefined ? null : Number(req.body.order)
+  if (nextOrder !== null && (!Number.isInteger(nextOrder) || nextOrder < 0 || nextOrder > 999)) return res.status(400).json({ error: 'A ordem da seção deve ficar entre 0 e 999.' })
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    await conn.execute(
-      'UPDATE home_sections SET published_content=draft_content, published_sort_order=sort_order, published_visible=visible, published_by=?, published_at=NOW() WHERE id IS NOT NULL',
-      [req.admin.id]
-    )
-    await conn.execute('UPDATE home_settings SET setting_value=draft_value WHERE draft_value IS NOT NULL')
-    await audit(req.admin.id, 'PUBLICAR', 'home', null, { sections:'all' }, conn)
+    const rows = await query('SELECT id FROM home_sections WHERE section_key=? FOR UPDATE', [key], conn)
+    if (!rows.length) {
+      await conn.rollback()
+      return res.status(404).json({ error: 'Seção de home não encontrada.' })
+    }
+    await query('UPDATE home_sections SET draft_content=?,visible=COALESCE(?,visible),sort_order=COALESCE(?,sort_order),updated_by=? WHERE section_key=?', [payload, nextVisible, nextOrder, req.admin.id, key], conn)
+    await audit(req.admin.id, 'EDITAR_CONTEUDO', 'home', key, { saved_as: 'draft' }, conn)
     await conn.commit()
-    res.json({ success:true, published_at:new Date().toISOString() })
+    res.json({ success: true, key, saved_as: 'draft' })
   } catch (error) {
     await conn.rollback().catch(() => {})
-    console.error('Erro ao publicar Home:', error)
-    res.status(500).json({ error: 'Não foi possível publicar a Home.' })
-  } finally {
-    conn.release()
-  }
+    console.error('Erro ao salvar rascunho da home:', error?.code || 'INTERNAL_ERROR')
+    res.status(500).json({ error: 'Não foi possível salvar o conteúdo da home.' })
+  } finally { conn.release() }
 })
 
 app.get('/api/admin/home/settings', exigirLogin, exigirOwner, async (req, res) => {
   try {
-    const rows = await query('SELECT setting_key,COALESCE(draft_value,setting_value) AS setting_value FROM home_settings ORDER BY setting_key')
-    res.json({ settings: rows.map((row) => ({ key: row.setting_key, value: typeof row.setting_value === 'string' ? JSON.parse(row.setting_value) : row.setting_value })) })
+    const rows = await query('SELECT setting_key,COALESCE(draft_value,setting_value) AS draft_value,setting_value,updated_at FROM home_settings ORDER BY setting_key')
+    res.json({ settings: rows.map((row) => ({ key: row.setting_key, value: typeof row.draft_value === 'string' ? JSON.parse(row.draft_value) : row.draft_value, published: typeof row.setting_value === 'string' ? JSON.parse(row.setting_value) : row.setting_value, updated_at: row.updated_at })) })
   } catch (error) {
     console.error('Erro ao carregar configurações do CMS:', error)
     res.status(500).json({ error: 'Não foi possível carregar as configurações do CMS.' })
@@ -1893,13 +1883,20 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
     setting = { brand:String(value.brand || 'GALEO STORE').trim().slice(0,120), location:String(value.location || 'São Paulo / BR').trim().slice(0,120), year:String(value.year || '2026').trim().slice(0,12) }
   }
 
+  const payload = JSON.stringify(setting)
+  if (Buffer.byteLength(payload, 'utf8') > 100 * 1024) return res.status(413).json({ error: 'Esta configuração excede o limite de 100 KB.' })
+  const conn = await db.getConnection()
   try {
-    await query("INSERT INTO home_settings(setting_key,setting_value,draft_value,updated_by) VALUES(?,JSON_OBJECT(),?,?) ON DUPLICATE KEY UPDATE draft_value=VALUES(draft_value), updated_by=VALUES(updated_by)", [key, JSON.stringify(setting), req.admin.id])
+    await conn.beginTransaction()
+    await query("INSERT INTO home_settings(setting_key,setting_value,draft_value,updated_by) VALUES(?,JSON_OBJECT(),?,?) ON DUPLICATE KEY UPDATE draft_value=VALUES(draft_value), updated_by=VALUES(updated_by)", [key, payload, req.admin.id], conn)
+    await audit(req.admin.id, 'EDITAR_CONTEUDO', 'home_setting', key, { saved_as: 'draft' }, conn)
+    await conn.commit()
     res.json({ success:true, key, value:setting, saved_as:'draft' })
   } catch (error) {
-    console.error('Erro ao salvar configuração do CMS:', error)
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao salvar configuração do CMS:', error?.code || 'INTERNAL_ERROR')
     res.status(500).json({ error:'Não foi possível salvar a configuração do CMS.' })
-  }
+  } finally { conn.release() }
 })
 
 app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
@@ -2239,6 +2236,7 @@ app.post('/api/admin/products/:id/media', exigirLogin, mediaUpload.array('media'
       }
     }
 
+    await mediaLibrary.rememberProductMedia(inserted, req.admin.id)
     await audit(req.admin.id, 'MEDIA_UPLOAD', 'produto', productId, {
       count: inserted.length,
       media: inserted.map((item) => ({ id: item.id, type: item.media_type }))
@@ -2257,57 +2255,33 @@ app.post('/api/admin/products/:id/media', exigirLogin, mediaUpload.array('media'
 })
 
 app.delete('/api/admin/products/:productId/media/:mediaId', exigirLogin, async (req, res) => {
-  const productId = Number(req.params.productId)
-  const mediaId = Number(req.params.mediaId)
-
+  const productId = Number(req.params.productId), mediaId = Number(req.params.mediaId)
+  if (![productId, mediaId].every(id => Number.isSafeInteger(id) && id > 0)) return res.status(400).json({ error:'Mídia inválida.' })
+  const conn = await db.getConnection()
   try {
-    const rows = await query(
-      'SELECT * FROM product_media WHERE id=? AND product_id=? LIMIT 1',
-      [mediaId, productId]
-    )
-    if (!rows.length) return res.status(404).json({ error: 'Mídia não encontrada.' })
-
+    await conn.beginTransaction()
+    const product = await query('SELECT image,video FROM products WHERE id=? FOR UPDATE', [productId], conn)
+    const rows = await query('SELECT * FROM product_media WHERE id=? AND product_id=? FOR UPDATE', [mediaId, productId], conn)
+    if (!rows.length || !product.length) {
+      await conn.rollback()
+      return res.status(404).json({ error:'Mídia não encontrada.' })
+    }
     const media = rows[0]
-    if (cloudinaryConfigurado()) {
-      try {
-        await cloudinary.uploader.destroy(media.public_id, {
-          resource_type: media.media_type === 'video' ? 'video' : 'image',
-          type: 'upload'
-        })
-      } catch (cloudinaryError) {
-        console.error('Aviso ao remover mídia no Cloudinary:', cloudinaryError)
-      }
+    // Only unlink this product. Actual file deletion uses the protected library.
+    await query('DELETE FROM product_media WHERE id=?', [mediaId], conn)
+    for (const [field, type] of [['image','image'],['video','video']]) {
+      if (product[0][field] !== media.url) continue
+      const replacement = await query('SELECT url FROM product_media WHERE product_id=? AND media_type=? ORDER BY sort_order,id LIMIT 1', [productId,type], conn)
+      await query('UPDATE products SET ' + field + '=? WHERE id=?', [replacement[0]?.url || '',productId], conn)
     }
-
-    await query('DELETE FROM product_media WHERE id=?', [mediaId])
-
-    const product = await query('SELECT image,video FROM products WHERE id=? LIMIT 1', [productId])
-    if (product.length) {
-      if (product[0].image === media.url) {
-        const replacement = await query(
-          "SELECT url FROM product_media WHERE product_id=? AND media_type='image' ORDER BY sort_order,id LIMIT 1",
-          [productId]
-        )
-        await query('UPDATE products SET image=? WHERE id=?', [replacement[0]?.url || '', productId])
-      }
-      if (product[0].video === media.url) {
-        const replacement = await query(
-          "SELECT url FROM product_media WHERE product_id=? AND media_type='video' ORDER BY sort_order,id LIMIT 1",
-          [productId]
-        )
-        await query('UPDATE products SET video=? WHERE id=?', [replacement[0]?.url || '', productId])
-      }
-    }
-
-    await audit(req.admin.id, 'MEDIA_DELETE', 'produto', productId, {
-      mediaId,
-      mediaType: media.media_type
-    })
-    res.json({ success: true })
+    await audit(req.admin.id, 'MEDIA_DELETE', 'produto', productId, { mediaId, mediaType:media.media_type }, conn)
+    await conn.commit()
+    res.json({ success:true })
   } catch (error) {
-    console.error('Erro ao excluir mídia:', error)
-    res.status(500).json({ error: 'Não foi possível excluir a mídia.' })
-  }
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao remover associação da mídia:', error?.code || 'INTERNAL_ERROR')
+    res.status(500).json({ error:'Não foi possível remover a mídia do produto.' })
+  } finally { conn.release() }
 })
 
 app.get('/api/admin/products', exigirLogin, async (req, res) => {
@@ -2415,29 +2389,18 @@ app.delete('/api/admin/products/:id', exigirLogin, async (req, res) => {
 
     if (hasHistory) {
       await conn.execute('UPDATE products SET active=0 WHERE id=?', [productId])
+      await audit(req.admin.id, 'OCULTAR', 'produto', productId, { reason: 'possui_historico' }, conn)
       await conn.commit()
-      await audit(req.admin.id, 'OCULTAR', 'produto', productId, { reason: 'possui_historico' })
       return res.json({ success: true, mode: 'hidden' })
     }
 
-    const [mediaRows] = await conn.execute('SELECT id,media_type,public_id FROM product_media WHERE product_id=?', [productId])
     await conn.execute('DELETE FROM product_media WHERE product_id=?', [productId])
     await conn.execute('DELETE FROM products WHERE id=?', [productId])
+    await audit(req.admin.id, 'EXCLUIR', 'produto', productId, { name: product.name }, conn)
     await conn.commit()
 
-    for (const media of mediaRows) {
-      if (!cloudinaryConfigurado()) continue
-      try {
-        await cloudinary.uploader.destroy(media.public_id, {
-          resource_type: media.media_type === 'video' ? 'video' : 'image',
-          type: 'upload'
-        })
-      } catch (cloudinaryError) {
-        console.error('Aviso ao remover mídia do produto no Cloudinary:', cloudinaryError)
-      }
-    }
+    // Files remain in the library for Home, other products and retained versions.
 
-    await audit(req.admin.id, 'EXCLUIR', 'produto', productId, { name: product.name })
     res.json({ success: true, mode: 'deleted' })
   } catch (error) {
     try { await conn.rollback() } catch {}
@@ -2756,7 +2719,7 @@ app.get('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
 })
 
 const dist = path.join(__dirname, '..', 'dist')
-registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary })
+const mediaLibrary = registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary })
 app.use(express.static(dist, {
   setHeaders(res, filePath) {
     if (String(filePath).endsWith('/index.html')) {
@@ -2780,6 +2743,8 @@ app.use((error, req, res, next) => {
 
 async function bootstrap() {
   await init()
+  await newsletter.initialize()
+  await mediaLibrary.initialize()
   await seedAndScheduleRecurring()
 
   const productHealth = await query(`

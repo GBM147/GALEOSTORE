@@ -69,7 +69,7 @@ function jsonFields(value, asset, matchesUrl) {
 }
 
 // Inspect only reference fields; titles and prose containing IDs or URLs are not uses.
-export function findMediaUsage(asset, { products = [], productMedia = [], homeSections = [], homeSettings = [] } = {}) {
+export function findMediaUsage(asset, { products = [], productMedia = [], homeSections = [], homeSettings = [], homeVersions = [] } = {}) {
   const references = []
   const matchesUrl = urlMatcher(asset)
   for (const product of products) {
@@ -94,6 +94,10 @@ export function findMediaUsage(asset, { products = [], productMedia = [], homeSe
       if (fields.length) references.push({ type: 'home_setting', id: setting.setting_key, name: Object.hasOwn(SETTING_NAMES, setting.setting_key) ? SETTING_NAMES[setting.setting_key] : 'Configuração da Home', state, fields })
     }
   }
+  for (const version of homeVersions) {
+    const fields = jsonFields(version.snapshot, asset, matchesUrl)
+    if (fields.length) references.push({ type: 'home_version', id: Number(version.id), name: 'Versão ' + Number(version.version_number) + ' da Home', state: 'version', fields })
+  }
   return references
 }
 
@@ -104,5 +108,6 @@ export async function loadMediaUsage(asset, query, { lock = false } = {}) {
   const productMedia = await query('SELECT pm.id,pm.product_id,pm.media_type,pm.url,pm.public_id,p.name AS product_name,p.active FROM product_media pm LEFT JOIN products p ON p.id=pm.product_id ORDER BY pm.id' + suffix)
   const homeSections = await query('SELECT section_key,draft_content,published_content FROM home_sections ORDER BY id' + suffix)
   const homeSettings = await query('SELECT setting_key,setting_value,draft_value FROM home_settings ORDER BY setting_key' + suffix)
-  return findMediaUsage(asset, { products, productMedia, homeSections, homeSettings })
+  const homeVersions = await query('SELECT id,version_number,snapshot FROM home_versions ORDER BY id' + suffix)
+  return findMediaUsage(asset, { products, productMedia, homeSections, homeSettings, homeVersions })
 }

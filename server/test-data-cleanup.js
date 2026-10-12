@@ -9,18 +9,20 @@ export const DELETE_TABLES = Object.freeze([
   'recurring_expenses', 'payments', 'store_order_items', 'sale_items',
   'stock_movements', 'financial_entries', 'store_orders', 'sales',
   'customer_email_verifications', 'customers', 'product_media', 'products',
-  'integration_events'
+  'integration_events', 'newsletter_subscriptions'
 ])
 export const PRESERVED_TABLES = Object.freeze([
   'admin_users', 'categories', 'financial_categories', 'financial_accounts',
-  'home_sections', 'home_settings', 'media_assets', 'sessions'
+  'home_sections', 'home_settings', 'home_versions', 'media_library_preferences', 'media_assets', 'sessions'
 ])
 export const OPERATIONAL_AUDIT_ENTITIES = Object.freeze([
   'produto', 'estoque', 'venda', 'pedido_online',
   'lancamento_financeiro', 'despesa_recorrente'
 ])
 
+const optionalTables = new Set(['media_assets', 'home_versions', 'media_library_preferences', 'newsletter_subscriptions'])
 const expectedForeignKeys = Object.freeze([
+  ['fk_home_version_user', 'home_versions', 'published_by', 'admin_users', 'id', 'SET NULL'],
   ['fk_products_category', 'products', 'category_id', 'categories', 'id', 'SET NULL'],
   ['fk_media_product', 'product_media', 'product_id', 'products', 'id', 'CASCADE'],
   ['fk_stock_product', 'stock_movements', 'product_id', 'products', 'id', 'RESTRICT'],
@@ -144,12 +146,12 @@ export function validateCleanupSchema({ tables, foreignKeys, triggers = [], even
     }
     names.add(name)
   }
-  if (allTables.some(name => name !== 'media_assets' && !names.has(name))) {
+  if (allTables.some(name => !optionalTables.has(name) && !names.has(name))) {
     fail('CLEANUP_SCHEMA_MISSING', 'Uma tabela esperada está ausente; revise o schema antes de continuar.')
   }
   if (triggers.length) fail('CLEANUP_TRIGGER_UNKNOWN', 'Há trigger não prevista; revise seus efeitos antes de continuar.')
   if (events.length) fail('CLEANUP_EVENT_UNKNOWN', 'Há evento agendado no banco; revise suas escritas antes de continuar.')
-  const expected = new Map(expectedForeignKeys.map(fk => [fk[0], fk]))
+  const expected = new Map(expectedForeignKeys.filter(fk => names.has(fk[1])).map(fk => [fk[0], fk]))
   const found = new Set()
   for (const row of foreignKeys) {
     const key = row.CONSTRAINT_NAME ?? row.constraint_name
@@ -458,14 +460,14 @@ export async function runTestDataCleanup({ connection, targetDatabase, execute =
       }
     }
     await rows(connection, 'DELETE FROM audit_logs WHERE ' + auditPredicate, auditParameters)
-    for (const table of DELETE_TABLES) await rows(connection, 'DELETE FROM ' + tableIdentifier(table))
+    for (const table of DELETE_TABLES.filter(name => schema.names.includes(name))) await rows(connection, 'DELETE FROM ' + tableIdentifier(table))
     await rows(connection, 'UPDATE financial_accounts SET initial_balance=0 WHERE initial_balance<>0')
     for (const [id, record] of sessionChanges) {
       if (record === null) await rows(connection, 'DELETE FROM sessions WHERE session_id=?', [id])
       else await rows(connection, 'UPDATE sessions SET data=? WHERE session_id=?', [record.data, id])
     }
     const after = await summarize(connection, schema.names)
-    if (DELETE_TABLES.some(table => after.counts[table] !== 0) || after.operational_audit_logs !== 0 ||
+    if (DELETE_TABLES.some(table => schema.names.includes(table) && after.counts[table] !== 0) || after.operational_audit_logs !== 0 ||
         after.accounts_with_test_balance !== 0 || after.stock_units !== 0) {
       fail('CLEANUP_NOT_EMPTY', 'A verificação encontrou dados operacionais remanescentes; a transação será revertida.')
     }

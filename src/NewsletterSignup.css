@@ -1,0 +1,18 @@
+.newsletter-signup { min-width: 0; width: 100%; }
+.newsletter-signup form { width: 100%; }
+.newsletter-signup form input { min-width: 0; }
+.newsletter-signup-notice { min-height: 1.5em; margin: 10px 0 5px; font-size: .82rem; line-height: 1.5; }
+.newsletter-signup-notice[role="alert"], .newsletter-confirmation-error { color: var(--text); }
+.newsletter-signup small { display: block; color: var(--muted); font-size: .73rem; line-height: 1.5; }
+.newsletter-signup button:disabled { opacity: .65; cursor: wait; }
+.newsletter-confirmation { min-height: 60vh; padding-top: 150px; padding-bottom: 90px; max-width: 840px; }
+.newsletter-confirmation h1 { font-size: clamp(2rem, 5vw, 3.5rem); margin: 16px 0 24px; line-height: 1.12; }
+.newsletter-confirmation p { line-height: 1.6; margin-bottom: 24px; }
+.newsletter-confirmation > a { display: block; margin-top: 30px; text-decoration: underline; text-underline-offset: 4px; }
+.newsletter-confirmation button { cursor: pointer; }
+@media (max-width: 640px) {
+  .newsletter-signup { margin-top: 20px; }
+  .newsletter-signup form { display: flex; min-width: 0; }
+  .newsletter-signup form button { flex-shrink: 0; }
+  .newsletter-confirmation { padding-top: 110px; }
+}

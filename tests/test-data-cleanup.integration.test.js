@@ -6,6 +6,8 @@ import { spawn } from 'node:child_process'
 import mysql from 'mysql2/promise'
 import bcrypt from 'bcrypt'
 import { createDataProtection } from '../server/data-protection.js'
+import { NEWSLETTER_DDL } from '../server/newsletter.js'
+import { ensureHomeWorkflowSchema } from '../server/home-workflow.js'
 import { createDatabasePrivacy } from '../server/database-privacy.js'
 import { DELETE_TABLES, PRESERVED_TABLES, buildCleanupConnectionConfig, runTestDataCleanup } from '../server/test-data-cleanup.js'
 
@@ -51,6 +53,9 @@ before(async () => {
   const mediaDDL = mediaSource.match(/const DDL = `(CREATE TABLE IF NOT EXISTS [\s\S]*?)`/)?.[1]
   assert.ok(mediaDDL, 'the preserved media library schema must be available')
   ddl.push(mediaDDL)
+  ddl.push(NEWSLETTER_DDL)
+  const managementSource = await readFile(new URL('../server/media-management.js', import.meta.url), 'utf8')
+  ddl.push(managementSource.match(/const PREFERENCES_DDL = `(CREATE TABLE IF NOT EXISTS [\s\S]*?)`/)?.[1])
   ddl.push('CREATE TABLE sessions (session_id VARCHAR(128) NOT NULL PRIMARY KEY,expires INT UNSIGNED NOT NULL,data MEDIUMTEXT) ENGINE=InnoDB')
 })
 
@@ -76,6 +81,7 @@ async function fixture(fn) {
   const connection = await mysql.createConnection({ ...connectionConfig, database: name })
   try {
     for (const statement of ddl) await connection.query(statement)
+    await ensureHomeWorkflowSchema((statement, params) => sql(connection, statement, params))
     await connection.query('ALTER TABLE admin_users ADD private_data JSON NULL')
     await connection.query('ALTER TABLE audit_logs ADD private_data JSON NULL')
     await seed(connection)
@@ -95,6 +101,7 @@ async function sql(connection, statement, values = []) {
 
 async function seed(connection) {
   const privacy = createDatabasePrivacy({ db: connection, enabled: true })
+  await sql(connection, "INSERT INTO newsletter_subscriptions(email,email_lookup) VALUES('newsletter@example.invalid',?)", ['f'.repeat(64)])
   await sql(connection, 'INSERT INTO admin_users(id,email,password_hash,role,active,private_data) VALUES(5,?,?,?,1,NULL),(6,?,?,?,1,NULL),(7,?,?,?,0,NULL)', [
     'owner@example.invalid', ownerHash, 'owner',
     'staff@example.invalid', inactiveHash, 'staff', 'inactive-owner@example.invalid', inactiveHash, 'owner'

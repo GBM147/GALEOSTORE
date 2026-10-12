@@ -1,0 +1,27 @@
+.media-library-preferences,.media-management{border:1px solid var(--line);padding:20px;margin:20px 0;background:var(--panel,#10100f)}
+.media-library-preferences h3,.media-management h3{margin:0 0 12px;font-size:17px}
+.media-library-preferences p,.media-management p{font-size:13px;line-height:1.7;color:var(--muted);max-width:780px}
+.media-preferences-checkbox{display:flex;gap:12px;align-items:flex-start;font-size:14px;line-height:1.6}
+.media-preferences-checkbox input{margin-top:5px;flex:0 0 auto;accent-color:var(--accent)}
+.media-management-actions{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.media-rename-form{display:flex;gap:16px;align-items:flex-end;padding:16px 0;border-bottom:1px solid var(--line)}
+.media-rename-form label{flex:1;display:grid;gap:8px;font-size:13px;min-width:0}
+.media-rename-form input{width:100%;min-width:0;border:1px solid var(--line);background:transparent;color:var(--text);padding:12px;font:inherit}
+.media-rename-form button{min-height:44px}
+.media-replacement-form{padding-top:16px}
+.media-replacement-form h4{font-size:15px;margin:0 0 10px}
+.media-replacement-form label{display:grid;gap:10px;font-size:13px;margin-bottom:16px}
+.media-replacement-form input{max-width:100%;font-size:13px}
+.media-order-actions{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
+.media-order-actions button{min-height:38px;border:1px solid var(--line);padding:6px 10px;background:transparent;color:var(--text);font-size:11px;cursor:pointer}
+.media-order-actions button:disabled{opacity:.45;cursor:default}
+.media-library-tile.is-dragging{opacity:.5}
+.media-library-tile.is-drag-target{outline:2px solid var(--accent);outline-offset:2px}
+.media-order-note{font-size:12px;color:var(--muted);line-height:1.6}
+.media-replacement-label{font-size:11px;color:var(--accent);line-height:1.6;padding:0 8px}
+.media-comparison-grid:has(.media-version-card:nth-child(3)){grid-template-columns:repeat(3,minmax(0,1fr))}
+.media-version-preview.media-galeo-canvas{background:#0b0b0b}
+@media(max-width:800px){.media-comparison-grid:has(.media-version-card:nth-child(3)){grid-template-columns:1fr}.media-rename-form{align-items:stretch;flex-direction:column}.media-library-preferences,.media-management{padding:16px}}
+
+/* The same cached transparent photo is displayed on the brand canvas. */
+img[src$="#_galeo_background"]{background-color:#0b0b0b}

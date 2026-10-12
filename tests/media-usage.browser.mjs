@@ -76,6 +76,7 @@ async function fixture(t, { viewport = desktop, handle, confirm = false } = {}) 
     if (path === '/api/store') return json({ products:[], categories:[] })
     if (path === '/api/store/home') return json({ sections:[] })
     if (path === '/api/store/home/settings') return json({ settings:[] })
+    if (path === '/api/admin/media-library-preferences' && method === 'GET') return json({ auto_prepare:false })
     if (path === '/api/admin/media-library' && method === 'GET') return json({ items, total:items.length })
     if (/^\/api\/admin\/media-library\/\d+\/usage$/.test(path)) {
       return json(Number(path.split('/')[4]) === usedId ? { in_use:true, references } : { in_use:false, references:[] })

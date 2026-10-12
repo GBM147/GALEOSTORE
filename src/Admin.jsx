@@ -2,6 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import MediaLibrary from './MediaLibrary'
 import { MediaLibraryPicker } from './MediaComparison'
 import PointOfSale from './PointOfSale'
+import { HomeDraftComparison, HomeSectionOrder, HomeVersionHistory } from './HomeWorkflow'
+import HomeCampaignEditor from './HomeCampaignEditor'
 let csrfToken = ''
 
 const api = async (path, options = {}) => {
@@ -247,7 +249,8 @@ function ProductForm({ product, categories, onClose, onDone }) {
     if (!window.confirm('Excluir esta mídia do produto?')) return
     try {
       await api('/api/admin/products/' + item.product_id + '/media/' + item.id, { method: 'DELETE' })
-      await loadMedia(item.product_id)
+      setForm(current => ({...current, image: !manualImagePending.current && current.image === item.url ? '' : current.image, video: !manualVideoPending.current && current.video === item.url ? '' : current.video}))
+      await loadMedia(item.product_id, true)
     } catch (error) {
       alert(error.message)
     }
@@ -264,6 +267,9 @@ function ProductForm({ product, categories, onClose, onDone }) {
     try {
       await uploadMedia(savedProductId, files, (done, total) => {
         setUploadProgress({ done, total })
+        const completed = new Set(files.slice(0, done))
+        setImageFiles(current => current.filter(file => !completed.has(file)))
+        setVideoFiles(current => current.filter(file => !completed.has(file)))
       })
       setImageFiles([])
       setVideoFiles([])
@@ -313,6 +319,9 @@ function ProductForm({ product, categories, onClose, onDone }) {
         try {
           await uploadMedia(productId, files, (done, total) => {
             setUploadProgress({ done, total })
+        const completed = new Set(files.slice(0, done))
+        setImageFiles(current => current.filter(file => !completed.has(file)))
+        setVideoFiles(current => current.filter(file => !completed.has(file)))
           })
           setImageFiles([])
           setVideoFiles([])
@@ -368,7 +377,7 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <div className="product-cover-details">
             <h3>Capa atual</h3>
             <p>Escolha uma foto e compare as versões Original e Sem fundo antes de aplicar.</p>
-            {form.image_asset_id && <p className="media-cover-status" role="status">Capa selecionada: {form.image_variant === 'ai' ? 'Sem fundo' : 'Original'}. Salve o produto para aplicar.</p>}
+            {form.image_asset_id && <p className="media-cover-status" role="status">Capa selecionada: {form.image_variant === 'galeo' ? 'Fundo GALEO' : form.image_variant === 'ai' ? 'Sem fundo' : 'Original'}. Salve o produto para aplicar.</p>}
             <button type="button" className="button button-ghost" ref={libraryTrigger} aria-expanded={libraryOpen} disabled={saving || uploading} onClick={() => setLibraryOpen((open) => !open)}>Escolher da biblioteca</button>
           </div>
         </section>
@@ -781,6 +790,7 @@ const HOME_EDITOR_META = {
 function HomeEditor({ user }) {
   const [sections, setSections] = useState([])
   const [settings, setSettings] = useState({})
+  const [settingRecords, setSettingRecords] = useState({})
   const [mediaItems, setMediaItems] = useState([])
   const [products, setProducts] = useState([])
   const [selectedKey, setSelectedKey] = useState('hero')
@@ -794,6 +804,8 @@ function HomeEditor({ user }) {
   const [campaignDefaults, setCampaignDefaults] = useState(null)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState('')
+  const [historyRefresh, setHistoryRefresh] = useState(0)
+  const operationPending = useRef(false)
 
   async function loadHome() {
     const [homeData, settingsData, mediaData, productData] = await Promise.all([
@@ -812,6 +824,7 @@ function HomeEditor({ user }) {
       setSelectedKey(selected.key)
     }
     const nextSettings = Object.fromEntries((settingsData?.settings || []).map((item) => [item.key, item.value]))
+    setSettingRecords(Object.fromEntries((settingsData?.settings || []).map((item) => [item.key, item])))
     setSettings(nextSettings)
     setVisual(nextSettings.storefront_visual_defaults || null)
     setNavigation(nextSettings.navigation || { items: [] })
@@ -832,10 +845,14 @@ function HomeEditor({ user }) {
       setVisible(Boolean(section.visible))
       setOrder(Number(section.order || 0))
     }
-  }, [selectedKey, sections])
+  }, [selectedKey])
 
   function setField(key, value) {
-    setDraft((current) => ({ ...(current || {}), [key]: value }))
+    setDraft((current) => {
+      const next = { ...(current || {}), [key]: value }
+      if (key.endsWith('_media_url') && value !== current?.[key]) next[key.replace(/_url$/, '_id')] = null
+      return next
+    })
   }
   function setArrayItem(key, index, value) {
     setDraft((current) => ({ ...(current || {}), [key]: (current?.[key] || []).map((item, itemIndex) => itemIndex === index ? value : item) }))
@@ -857,7 +874,8 @@ function HomeEditor({ user }) {
   }
 
   async function saveSection() {
-    if (!draft) return
+    if (!draft || operationPending.current) return
+    operationPending.current = true
     setSaving(true)
     setStatus('')
     try {
@@ -866,22 +884,27 @@ function HomeEditor({ user }) {
       setStatus('Rascunho salvo')
     } catch (error) {
       setStatus(error.message)
-    } finally { setSaving(false) }
+    } finally { setSaving(false); operationPending.current = false }
   }
 
   async function publishAll() {
+    if (operationPending.current || hasUnsavedChanges) return
+    operationPending.current = true
     setSaving(true)
     setStatus('')
     try {
       await api('/api/admin/home/publish', { method: 'POST' })
       await loadHome()
+      setHistoryRefresh((current) => current + 1)
       setStatus('Home publicada')
     } catch (error) {
       setStatus(error.message)
-    } finally { setSaving(false) }
+    } finally { setSaving(false); operationPending.current = false }
   }
 
   async function saveSetting(key, value) {
+    if (operationPending.current) return
+    operationPending.current = true
     setSaving(true)
     setStatus('')
     try {
@@ -890,7 +913,27 @@ function HomeEditor({ user }) {
       setStatus('Configuração salva no rascunho. Visualize antes de publicar a Home.')
     } catch (error) {
       setStatus(error.message)
-    } finally { setSaving(false) }
+    } finally { setSaving(false); operationPending.current = false }
+  }
+
+  async function reorderSections(keys) {
+    if (operationPending.current) return
+    operationPending.current = true
+    setSaving(true)
+    try {
+      await api('/api/admin/home/order', { method:'PUT', body:{ keys } })
+      setSections((current) => keys.map((key, index) => ({ ...current.find((section) => section.key === key), order:(index + 1) * 10 })))
+      setOrder((keys.indexOf(selectedKey) + 1) * 10)
+      setStatus('Ordem salva no rascunho. Publique a Home para aplicar na loja.')
+    } catch (error) {
+      setStatus(error.message)
+      throw error
+    } finally { setSaving(false); operationPending.current = false }
+  }
+
+  async function restoreHome(result) {
+    await loadHome()
+    setStatus('Versão ' + result.restored_from.version + ' restaurada no rascunho. Confira a prévia antes de publicar.')
   }
 
   function mediaOptions(type) { return mediaItems.filter((item) => !type || item.media_type === type) }
@@ -901,6 +944,12 @@ function HomeEditor({ user }) {
   const selected = sections.find((section) => section.key === selectedKey)
   const selectedMeta = HOME_EDITOR_META[selectedKey] || [selectedKey, 'Conteúdo da seção']
   const featuredIds = Array.isArray(draft?.product_ids) ? draft.product_ids.map(Number) : []
+  const changed = (left, right) => JSON.stringify(left || {}) !== JSON.stringify(right || {})
+  const sectionUnsaved = selected && (changed(draft, selected.draft) || visible !== Boolean(selected.visible) || Number(order) !== Number(selected.order))
+  const settingKeys = { visual:'storefront_visual_defaults', navigation:'navigation', footer:'footer', campaign:'campaign_defaults' }
+  const settingValues = { visual, navigation, footer, campaign:campaignDefaults }
+  const settingUnsaved = Object.keys(settingKeys).some((key) => settingValues[key] && settings[settingKeys[key]] && changed(settingValues[key], settings[settingKeys[key]]))
+  const hasUnsavedChanges = Boolean(sectionUnsaved || settingUnsaved)
 
   if (user?.role !== 'owner') return <div className="admin-panel empty-state">O editor da loja é exclusivo do proprietário</div>
 
@@ -909,14 +958,7 @@ function HomeEditor({ user }) {
       <div className="home-editor-main">
         <aside className="home-editor-sidebar">
           <div className="home-editor-sidebar-title"><span className="eyebrow">EDITOR DA LOJA</span><strong>Conteúdo da Home</strong><small>Você está editando um rascunho</small></div>
-          {sections.map((section) => {
-            const meta = HOME_EDITOR_META[section.key] || [section.key, 'Seção']
-            return (
-              <button type="button" key={section.key} className={area === 'content' && selectedKey === section.key ? 'home-editor-nav active' : 'home-editor-nav'} onClick={() => { setArea('content'); setSelectedKey(section.key) }}>
-                <span>{meta[0]}</span><small>{section.visible ? 'Visível' : 'Oculta'}</small>
-              </button>
-            )
-          })}
+          <HomeSectionOrder sections={sections} meta={HOME_EDITOR_META} selectedKey={selectedKey} active={area === 'content'} disabled={saving} onSelect={(key) => { setArea('content'); setSelectedKey(key) }} onReorder={reorderSections} />
           <div className="home-editor-divider" />
           <span className="eyebrow home-editor-nav-label">CONFIGURAÇÕES</span>
           {[['visual','Visual'],['navigation','Menu principal'],['footer','Rodapé'],['campaign','Animações']].map(([key,label]) => (
@@ -933,7 +975,7 @@ function HomeEditor({ user }) {
               <h2>{area === 'content' ? selectedMeta[0] : ({ visual: 'Visual da loja', navigation: 'Menu principal', footer: 'Rodapé', campaign: 'Animações das campanhas' }[area] || 'Editor')}</h2>
               <p>{area === 'content' ? selectedMeta[1] : 'Configurações aplicadas à experiência pública da GALEO'}</p>
             </div>
-            {status && <span className="home-editor-status">{status}</span>}
+            {status && <span className="home-editor-status" role="status">{status}</span>}
           </div>
 
           {area === 'content' && draft && (
@@ -942,10 +984,11 @@ function HomeEditor({ user }) {
                 <label>Visibilidade<select value={visible ? '1' : '0'} onChange={(event) => setVisible(event.target.value === '1')}><option value="1">Visível</option><option value="0">Oculta</option></select></label>
                 <label>Ordem<input type="number" min="0" max="999" value={order} onChange={(event) => setOrder(Number(event.target.value))} /></label>
               </div>
+              <HomeDraftComparison section={selected} title={selectedMeta[0]} products={products} mediaItems={mediaItems} unsaved={sectionUnsaved} />
 
               {selectedKey === 'hero' && (
                 <div className="home-editor-form">
-                  <label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
+                  <label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
                   <label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label>
                   <label className="home-editor-full">Descrição<textarea rows="4" value={draft.description || ''} onChange={(e) => setField('description', e.target.value)} /></label>
                   <label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label>
@@ -986,7 +1029,7 @@ function HomeEditor({ user }) {
 
               {selectedKey === 'featured_products' && (
                 <div className="home-editor-form">
-                  <label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
+                  <label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
                   <label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label>
                   <label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label>
                   <label>Link do botão<input value={draft.button_url || ''} onChange={(e) => setField('button_url', e.target.value)} /></label>
@@ -1001,30 +1044,17 @@ function HomeEditor({ user }) {
               )}
 
               {selectedKey === 'campaigns' && (
-                <div className="home-editor-list">
-                  <div className="home-editor-inline-settings">Os efeitos são configurados em Animações</div>
-                  {(draft.items || []).map((item, index) => (
-                    <div className="home-editor-card-row" key={index}>
-                      <div className="home-editor-card-grid">
-                        <label>Eyebrow<input value={item.eyebrow || ''} onChange={(e) => setArrayItem('items', index, { ...item, eyebrow: e.target.value })} /></label>
-                        <label>Título<input value={item.title || ''} onChange={(e) => setArrayItem('items', index, { ...item, title: e.target.value })} /></label>
-                        <label>Botão<input value={item.button_label || ''} onChange={(e) => setArrayItem('items', index, { ...item, button_label: e.target.value })} /></label>
-                        <label>Link<input value={item.button_url || ''} onChange={(e) => setArrayItem('items', index, { ...item, button_url: e.target.value })} /></label>
-                        <label className="home-editor-full">Imagem / vídeo<input value={item.media_url || ''} onChange={(e) => setArrayItem('items', index, { ...item, media_url: e.target.value })} placeholder="URL da mídia" /></label>
-                      </div>
-                      <div className="home-editor-row-actions"><button type="button" onClick={() => moveArrayItem('items', index, -1)}>↑</button><button type="button" onClick={() => moveArrayItem('items', index, 1)}>↓</button><button type="button" onClick={() => removeArrayItem('items', index)}>Excluir</button></div>
-                    </div>
-                  ))}
-                  <button className="text-button" type="button" onClick={() => addArrayItem('items',{ eyebrow:'NOVA CAMPANHA', title:'Nova campanha', button_label:'Explorar', button_url:'/shop', media_url:'' })}>+ adicionar campanha</button>
-                </div>
+                <HomeCampaignEditor draft={draft} mediaItems={mediaItems} defaults={campaignDefaults}
+                  onChange={(index, item) => setArrayItem('items', index, item)} onRemove={(index) => removeArrayItem('items', index)} onMove={(index, direction) => moveArrayItem('items', index, direction)}
+                  onAdd={() => addArrayItem('items', { eyebrow:'NOVA CAMPANHA', title:'Nova campanha', button_label:'Explorar', button_url:'/shop', animation:{ use_default:true }, slides:[{ media_url:'', media_type:'image', mobile_media_url:'' }] })} />
               )}
 
-              {selectedKey === 'manifesto' && <div className="home-editor-form single"><label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Texto<textarea rows="6" value={draft.text || ''} onChange={(e) => setField('text', e.target.value)} /></label></div>}
-              {selectedKey === 'newsletter' && <div className="home-editor-form single"><label>Eyebrow<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label><label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label></div>}
+              {selectedKey === 'manifesto' && <div className="home-editor-form single"><label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Texto<textarea rows="6" value={draft.text || ''} onChange={(e) => setField('text', e.target.value)} /></label></div>}
+              {selectedKey === 'newsletter' && <div className="home-editor-form single"><label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label><label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label></div>}
 
               <div className="home-editor-savebar">
                 <div className="home-editor-save-status">
-                  <strong>Rascunho</strong>
+                  <strong>{sectionUnsaved ? 'Alterações ainda não salvas' : 'Último rascunho salvo'}</strong>
                   <small>{selected?.updated_at ? 'Salvo em ' + new Date(selected.updated_at).toLocaleString('pt-BR') : 'Ainda não salvo'}</small>
                   <small>{selected?.published_at ? 'Publicado em ' + new Date(selected.published_at).toLocaleString('pt-BR') : 'Ainda não publicado'}</small>
                 </div>
@@ -1035,6 +1065,8 @@ function HomeEditor({ user }) {
               </div>
             </>
           )}
+
+          {area !== 'content' && settingRecords[settingKeys[area]] && <HomeDraftComparison setting={settingRecords[settingKeys[area]]} title={{visual:'Visual da loja',navigation:'Menu principal',footer:'Rodapé',campaign:'Animações'}[area]} unsaved={changed(settingValues[area], settings[settingKeys[area]])} mediaItems={mediaItems} />}
 
           {area === 'visual' && visual && (
             <div className="home-editor-form visual-grid">
@@ -1079,9 +1111,11 @@ function HomeEditor({ user }) {
               <span>3. Visualizar</span>
               <span>4. Publicar</span>
             </div>
-            <button className="button button-primary home-editor-publish-button" type="button" onClick={publishAll} disabled={saving}>{saving ? 'Publicando…' : 'Publicar Home'}</button>
+            {hasUnsavedChanges && <p>Salve suas alterações antes de publicar. A prévia mostra o último rascunho salvo.</p>}
+            <button className="button button-primary home-editor-publish-button" type="button" onClick={publishAll} disabled={saving || hasUnsavedChanges}>{saving ? 'Publicando…' : 'Publicar Home'}</button>
           </div>
-          {selected && <div className="home-editor-publish-card"><span className="eyebrow">SEÇÃO ATUAL</span><strong>{selectedMeta[0]}</strong><small>{selected.visible ? 'Visível na vitrine' : 'Oculta na vitrine'}</small><small>Ordem {selected.order}</small><small>Atualizado {selected.updated_at ? new Date(selected.updated_at).toLocaleString('pt-BR') : '—'}</small></div>}
+          {selected && <div className="home-editor-publish-card"><span className="eyebrow">SEÇÃO ATUAL</span><strong>{selectedMeta[0]}</strong><small>{selected.visible ? 'Visível no rascunho' : 'Oculta no rascunho'}</small><small>Ordem {selected.order}</small><small>Atualizado {selected.updated_at ? new Date(selected.updated_at).toLocaleString('pt-BR') : '—'}</small></div>}
+          <HomeVersionHistory api={api} disabled={saving || hasUnsavedChanges} refreshKey={historyRefresh} onRestore={restoreHome} onBusy={(busy) => { operationPending.current = busy; setSaving(busy) }} />
           <div className="home-editor-publish-card"><span className="eyebrow">MÍDIA</span><strong>{mediaItems.length}</strong><small>arquivos disponíveis na biblioteca</small></div>
         </aside>
       </div>

@@ -7,6 +7,8 @@ import AdminGate from './Admin'
 import ProductPage from './ProductPage'
 import CartPage from './CartPage'
 import AccountPage from './AccountPage'
+import CampaignCarousel from './CampaignCarousel'
+import NewsletterSignup, { NewsletterConfirmation } from './NewsletterSignup'
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 
 const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
@@ -195,7 +197,7 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
         delay: 0.3
       })
 
-      gsap.utils.toArray('.hero-full .campaign-visual, .campaign-card .campaign-visual').forEach((visual) => {
+      gsap.utils.toArray('.hero-full .campaign-visual, .campaign-card .campaign-visual:not([data-managed-motion])').forEach((visual) => {
         if (effect === 'static') return
         const motions = {
           zoom: [{ scale:1 }, { scale:1.055 }],
@@ -358,8 +360,6 @@ function EditorialTitle({ text, type = 'generic' }) {
   return value
 }
 
-const isVideoUrl = (url) => /\.(mp4|webm|mov)(?:[?#]|$)|\/video\/upload\//i.test(String(url || ''))
-
 function CampaignVisual({ variant = 0, mediaUrl = '', mobileUrl = '', videoUrl = '', alt = '', effect = 'zoom' }) {
   const imageUrl = mediaUrl || mobileUrl
   return (
@@ -392,11 +392,11 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
     ? featured.product_ids.map((id) => products.find((product) => Number(product.id) === Number(id))).filter(Boolean).slice(0, 8)
     : products.slice(0, 8)
 
-  const campaignItems = Array.isArray(campaigns.items) ? campaigns.items : [
+  const campaignItems = (Array.isArray(campaigns.items) ? campaigns.items : [
     { eyebrow:'NEW DROPS', title:'Peças que marcam presença', button_label:'Descobrir agora', button_url:'/shop', media_url:'' },
     { eyebrow:'PREMIUM SELECTION', title:'Seu estilo, sem rótulo', button_label:'Ver seleção', button_url:'/shop', media_url:'' },
     { eyebrow:'LIMITED EDITION', title:'Feito para ser notado', button_label:'Explorar', button_url:'/shop', media_url:'' }
-  ]
+  ]).filter((item) => item && typeof item === 'object' && !Array.isArray(item))
 
   const heroTitle = hero.title || 'Vista o que representa você'
   const heroDescription = hero.description || 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho'
@@ -432,15 +432,16 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       </section>,
 
     campaigns: campaigns.__visible !== false && <section key="campaigns" data-home-section="campaigns" className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
-        {campaignItems.slice(0,3).map((item,index) => (
-          <Link className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} to={item.button_url || '/shop'} key={index}>
-            <CampaignVisual variant={index + 1} mediaUrl={isVideoUrl(item.media_url) ? '' : item.media_url || ''} mobileUrl={item.mobile_media_url || ''} videoUrl={item.video_media_url || (isVideoUrl(item.media_url) ? item.media_url : '')} effect={effect} />
+        {campaignItems.map((item,index) => (
+          <article className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} key={index}>
+            <CampaignCarousel item={item} variant={index + 1} defaults={campaignDefaults} sectionDefaults={campaigns.defaults}>
             <div className="campaign-card-copy">
               <span>{item.eyebrow || 'GALEO / CAMPANHA'}</span>
               <strong><EditorialTitle text={item.title || 'Nova campanha'} type="campaign" /></strong>
               <small>{item.button_label || 'Explorar'} ↗</small>
             </div>
-          </Link>
+            </CampaignCarousel>
+          </article>
         ))}
       </section>,
 
@@ -454,7 +455,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
     newsletter: newsletter.__visible !== false && (
         <section key="newsletter" data-home-section="newsletter" className="newsletter section-shell" data-reveal>
           <div><span className="eyebrow">{newsletter.eyebrow || 'GALEO / INSIDER'}</span><h2>{newsletter.title || 'Entre para a próxima fase'}</h2></div>
-          <form onSubmit={event => event.preventDefault()}><input type="email" placeholder="Seu melhor e-mail" aria-label="Seu melhor e-mail" /><button type="submit">{newsletter.button_label || 'Entrar'} ↗</button></form>
+          <NewsletterSignup buttonLabel={newsletter.button_label || 'Entrar'} />
         </section>
       )
   }
@@ -648,6 +649,8 @@ function PlaceholderPage({ title, label }) {
 }
 
 export default function App() {
+  const { pathname } = useLocation()
+  const adminRoute = /^\/admin(?:\/|$)/i.test(pathname)
   const previewMode = new URLSearchParams(window.location.search).get('preview') === 'draft'
   const [previewDenied, setPreviewDenied] = useState(false)
   const [themePreference, setThemePreference] = useState(() => {
@@ -760,7 +763,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="scroll-progress" aria-hidden="true"><span /></div>
+      {!adminRoute && <div className="scroll-progress" aria-hidden="true"><span /></div>}
       {catalogError && <div className="catalog-global-error" role="status">{catalogError}</div>}
       {previewDenied && previewMode && (
         <div className="draft-preview-denied" role="alert">
@@ -776,27 +779,28 @@ export default function App() {
       )}
 
       <KeepAliveSocket />
-      <StorefrontMotion catalog={catalog} homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />
-      <Header
+      {!adminRoute && <StorefrontMotion catalog={catalog} homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
+      {!adminRoute && <Header
         theme={theme}
         categories={categories}
         navigation={siteSettings.navigation}
         cartItemsCount={cartItemsCount}
         onToggle={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}
-      />
+      />}
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
         <Route path="/" element={<Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} />} />
         <Route path="/shop" element={<Shop products={catalog} categories={categories} />} />
         <Route path="/produto/:id" element={<ProductPage />} />
         <Route path="/conta" element={<AccountPage />} />
+        <Route path="/newsletter" element={<NewsletterConfirmation />} />
         <Route path="/carrinho" element={<CartPage />} />
       </Routes>
-      <footer className="site-footer">
+      {!adminRoute && <footer className="site-footer">
         <span>{siteSettings.footer?.brand || 'GALEO STORE'}</span>
         <span>{siteSettings.footer?.location || 'São Paulo / BR'}</span>
         <span>© {siteSettings.footer?.year || '2026'}</span>
-      </footer>
+      </footer>}
     </div>
   )
 }

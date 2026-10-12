@@ -1,4 +1,7 @@
 import { loadMediaUsage } from './media-usage.js'
+import { mediaAssetView } from './media-presentation.js'
+import { createMediaManagement } from './media-management.js'
+import { MediaBackgroundError, prepareMediaBackground } from './media-background.js'
 
 // Fase 3 + 3A — Biblioteca de mídia e tratamento de fotos por IA (Cloudinary)
 const DDL = `CREATE TABLE IF NOT EXISTS media_assets (
@@ -19,11 +22,7 @@ const DDL = `CREATE TABLE IF NOT EXISTS media_assets (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
 
-const view = (r) => ({
-  id: r.id, title: r.title, media_type: r.media_type, width: r.width, height: r.height,
-  original_url: r.url, ai_url: r.ai_url, ai_status: r.ai_status, use_ai: !!r.use_ai,
-  url: r.use_ai && r.ai_url ? r.ai_url : r.url, created_at: r.created_at
-})
+const view = mediaAssetView
 
 export function registerMediaLibrary(app, deps) {
   const { query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary } = deps
@@ -38,6 +37,19 @@ export function registerMediaLibrary(app, deps) {
   const base = '/api/admin/media-library'
   let ready
   const ensure = () => (ready ??= query(DDL).catch((e) => { ready = undefined; throw e }))
+  let management
+  const prepareNewPhotos = async (rows) => {
+    if (!management || !(await management.preferences()).auto_prepare) return
+    for (const asset of rows.filter(row => row.media_type === 'image')) {
+      try {
+        await prepareMediaBackground(asset, { ...deps, verifyAiResult, actorId:asset.created_by, automatic:true })
+      } catch (error) { console.error('Preparação automática da foto:', error?.message || 'Falha desconhecida') }
+    }
+  }
+  if (deps.db) {
+    management = createMediaManagement({ ...deps, ensureLibrary:ensure, prepareNewPhotos })
+    management.register(app)
+  }
   const fail = (res, e, msg) => { console.error(msg, e); res.status(500).json({ error: msg }) }
   const semCloudinary = (res) => res.status(503).json({ error: 'Cloudinary não configurado no servidor.' })
   const find = async (req, res) => {
@@ -51,10 +63,10 @@ export function registerMediaLibrary(app, deps) {
 
   app.get(base, exigirLogin, async (req, res) => {
     try {
-      await ensure()
+      await (management ? management.ensure() : ensure())
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 48, 1), 100)
       const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0)
-      const rows = await query(`SELECT * FROM media_assets ORDER BY id DESC LIMIT ${limit} OFFSET ${offset}`)
+      const rows = await query(`SELECT * FROM media_assets ORDER BY sort_order,id DESC LIMIT ${limit} OFFSET ${offset}`)
       const [{ total }] = await query('SELECT COUNT(*) AS total FROM media_assets')
       res.json({ items: rows.map(view), total: Number(total) })
     } catch (e) { fail(res, e, 'Não foi possível carregar a biblioteca de mídia.') }
@@ -75,8 +87,9 @@ export function registerMediaLibrary(app, deps) {
     if (!req.files?.length) return res.status(400).json({ error: 'Selecione pelo menos um arquivo.' })
     if (!cloudinaryConfigurado()) return semCloudinary(res)
     try {
-      await ensure()
+      await (management ? management.ensure() : ensure())
       const items = []
+      const insertedRows = []
       for (const f of req.files) {
         const type = String(f.mimetype).startsWith('video/') ? 'video' : 'image'
         const r = await enviarParaCloudinary(f.buffer, { folder: 'galeo-store/library', resource_type: type, type: 'upload' })
@@ -87,9 +100,11 @@ export function registerMediaLibrary(app, deps) {
         )
         const [row] = await query('SELECT * FROM media_assets WHERE id=?', [ins.insertId])
         items.push(view(row))
+        insertedRows.push(row)
       }
       await audit(req.admin.id, 'LIBRARY_UPLOAD', 'media_assets', null, { count: items.length })
       res.status(201).json({ success: true, items })
+      void prepareNewPhotos(insertedRows).catch(error => console.error('Preparação automática:', error?.message || 'Falha desconhecida'))
     } catch (e) { fail(res, e, 'Não foi possível enviar para a biblioteca de mídia.') }
   })
 
@@ -102,10 +117,12 @@ export function registerMediaLibrary(app, deps) {
         if (typeof b.use_ai !== 'boolean') return res.status(400).json({ error: 'Escolha explicitamente a versão original ou a versão sem fundo.' })
         if (b.use_ai && a.media_type !== 'image') return res.status(400).json({ error: 'A versão sem fundo está disponível apenas para fotos.' })
         if (b.use_ai && !(a.ai_status === 'done' && a.ai_url)) return res.status(409).json({ error: 'Esta mídia ainda não tem versão tratada pela IA.' })
+        await (management ? management.ensure() : ensure())
+        const presentation = management ? ", presentation='" + (b.use_ai ? 'ai' : 'original') + "'" : ''
         if (b.title === undefined) {
-          await query('UPDATE media_assets SET use_ai=? WHERE id=?', [b.use_ai ? 1 : 0, a.id])
+          await query('UPDATE media_assets SET use_ai=?' + presentation + ' WHERE id=?', [b.use_ai ? 1 : 0, a.id])
         } else {
-          await query('UPDATE media_assets SET title=?, use_ai=? WHERE id=?', [title, b.use_ai ? 1 : 0, a.id])
+          await query('UPDATE media_assets SET title=?, use_ai=?' + presentation + ' WHERE id=?', [title, b.use_ai ? 1 : 0, a.id])
         }
       } else {
         // Editing a title must not replace a version chosen by another request.
@@ -121,41 +138,12 @@ export function registerMediaLibrary(app, deps) {
   app.post(base + '/:id/ai-background', exigirLogin, exigirOwner, async (req, res) => {
     try {
       const a = await find(req, res); if (!a) return
-      if (a.media_type !== 'image') return res.status(400).json({ error: 'A IA só trata fotos.' })
-      if (a.ai_status === 'done' && a.ai_url) return res.json({ success: true, reused: true, item: view(a) })
-      if (!cloudinaryConfigurado()) return semCloudinary(res)
-
-      let aiUrl = a.ai_url
-      if (!aiUrl) {
-        const claim = await query(
-          "UPDATE media_assets SET ai_status='processing', ai_started_at=NOW(), ai_url=NULL WHERE id=? AND (ai_status IN ('none','failed') OR (ai_status='processing' AND ai_started_at < NOW() - INTERVAL 10 MINUTE))",
-          [a.id]
-        )
-        if (!claim.affectedRows) return res.status(409).json({ error: 'Esta foto já está sendo tratada. Aguarde alguns segundos.' })
-        try {
-          const r = await cloudinary.uploader.explicit(a.public_id, {
-            type: 'upload', resource_type: 'image', eager: [{ effect: 'background_removal', fetch_format: 'png' }], eager_async: false
-          })
-          aiUrl = r?.eager?.[0]?.secure_url
-          if (!aiUrl) throw new Error('O Cloudinary não devolveu a versão tratada.')
-          await query('UPDATE media_assets SET ai_url=? WHERE id=?', [aiUrl, a.id])
-        } catch (e) {
-          await query("UPDATE media_assets SET ai_status='failed' WHERE id=?", [a.id])
-          throw e
-        }
-      }
-
-      if (!await verifyAiResult(aiUrl)) {
-        const [row] = await query('SELECT * FROM media_assets WHERE id=?', [a.id])
-        return res.status(202).json({ success: true, processing: true, item: view(row), message: 'A IA ainda está processando. Aguarde um pouco e clique em "Verificar resultado". Não gasta crédito extra.' })
-      }
-
-      // Processing prepares a preview; only an explicit version choice activates it.
-      await query("UPDATE media_assets SET ai_status='done', ai_done_at=NOW() WHERE id=?", [a.id])
-      await audit(req.admin.id, 'LIBRARY_AI_BACKGROUND', 'media_assets', a.id, { public_id: a.public_id })
-      const [row] = await query('SELECT * FROM media_assets WHERE id=?', [a.id])
-      res.json({ success: true, item: view(row) })
-    } catch (e) { fail(res, e, 'Não foi possível tratar a foto com IA.') }
+      const result = await prepareMediaBackground(a, { ...deps, verifyAiResult, actorId:req.admin.id })
+      res.status(result.status).json(result.body)
+    } catch (e) {
+      if (e instanceof MediaBackgroundError) return res.status(e.status).json({ error:e.message })
+      fail(res, e, 'Não foi possível tratar a foto com IA.')
+    }
   })
 
   app.delete(base + '/:id', exigirLogin, exigirOwner, async (req, res) => {
@@ -209,5 +197,26 @@ export function registerMediaLibrary(app, deps) {
     }
   })
 
-  ensure().catch((e) => console.error('media_assets:', e))
+  ;(management ? management.ensure() : ensure()).catch((e) => console.error('media_assets:', e?.message || 'Falha desconhecida'))
+  const rememberProductMedia = async (items, userId, prepare = true) => {
+    await (management ? management.ensure() : ensure())
+    const remembered = []
+    for (const item of items) {
+      if (!item.public_id || !item.url) continue
+      await query('INSERT IGNORE INTO media_assets(public_id,url,media_type,width,height,title,created_by) VALUES(?,?,?,?,?,?,?)', [item.public_id,item.url,item.media_type,item.width || null,item.height || null,'Foto de produto',userId || null])
+      const [row] = await query('SELECT * FROM media_assets WHERE public_id=?', [item.public_id])
+      if (row) remembered.push(row)
+    }
+    if (prepare) prepareNewPhotos(remembered).catch(error => console.error('Preparação automática:', error?.code || 'MEDIA_PREPARATION_FAILED'))
+    return remembered
+  }
+  return {
+    async initialize() {
+      await (management ? management.ensure() : ensure())
+      // Retain existing product files in the library before any destructive action.
+      await query("INSERT IGNORE INTO media_assets(public_id,url,media_type,width,height,title) SELECT public_id,url,media_type,width,height,'Foto de produto' FROM product_media WHERE public_id IS NOT NULL AND public_id<>'' AND url<>'' ORDER BY id")
+    },
+    rememberProductMedia
+  }
+
 }
