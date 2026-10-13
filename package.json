@@ -12,7 +12,7 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/test-data-cleanup.js && node --check scripts/cleanup-test-data.mjs && node --check server/mercado-pago.js && node --check server/media-library.js && node --check server/media-usage.js && node --check server/product-image-selection.js && node --check session-policy.js && node --check server/home-workflow.js && node --check server/audit-retention.js && node --check server/media-management.js && node --check server/media-background.js && node --check server/newsletter.js && node --check server/media-presentation.js",
+    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/test-data-cleanup.js && node --check scripts/cleanup-test-data.mjs && node --check server/mercado-pago.js && node --check server/media-library.js && node --check server/media-usage.js && node --check server/product-image-selection.js && node --check session-policy.js && node --check server/home-workflow.js && node --check server/audit-retention.js && node --check server/media-management.js && node --check server/media-background.js && node --check server/newsletter.js && node --check server/media-presentation.js && node --check server/schema-recovery.js",
     "test": "node --test --test-isolation=none server/*.test.js src/campaign-model.test.js",
     "test:integration": "node --test --test-isolation=none tests/backend.integration.test.js tests/mercado-pago.integration.test.js",
     "test:security": "node --test --test-isolation=none tests/auth-security.integration.test.js",
@@ -23,7 +23,8 @@
     "test:browser": "node --test --test-isolation=none tests/frontend.browser.mjs tests/media-approval.browser.mjs tests/media-usage.browser.mjs tests/home-workflow.browser.mjs",
     "test:media": "node --test --test-concurrency=1 tests/media-approval.integration.test.mjs tests/media-usage.integration.test.mjs tests/media-management.integration.test.mjs",
     "test:home": "node --test tests/home-workflow.integration.test.mjs",
-    "test:newsletter": "node --test tests/newsletter.integration.test.js"
+    "test:newsletter": "node --test tests/newsletter.integration.test.js",
+    "test:recovery": "node --test tests/schema-recovery.integration.test.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

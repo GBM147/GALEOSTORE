@@ -1,5 +1,5 @@
 export const STORE_API_BASE = String(import.meta.env?.VITE_STORE_API_URL || '').trim().replace(/\/+$/, '')
-export const CART_STORAGE_KEY = 'galeo-cart-v1'
+export const CART_STORAGE_KEY = 'galeo-cart-v2'
 let customerCsrfToken = ''
 
 export function readCart() {

@@ -10,7 +10,8 @@ import { protectSessionStore } from './protected-session-store.js'
 import { inspectMySqlSecurity } from './mysql-security-status.js'
 import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
 import { createTransactionalEmail } from './transactional-email.js'
-import { createNewsletter, registerNewsletter } from './newsletter.js'
+import { createNewsletter, registerNewsletter, NEWSLETTER_DDL } from './newsletter.js'
+import { inspectOperationalRecovery, restoreOperationalReferences, recoverOperationalSequences } from './schema-recovery.js'
 import { rateLimit } from 'express-rate-limit'
 import session from 'express-session'
 import MySQLStoreFactory from 'express-mysql-session'
@@ -307,6 +308,8 @@ async function ensureIndex(table, indexName, createSql) {
 }
 
 async function init() {
+  const recovery = await inspectOperationalRecovery(query)
+  const recoveryResult = await restoreOperationalReferences({ db, query, state: recovery, protection: dataProtection })
   const schema = [
     `CREATE TABLE IF NOT EXISTS admin_users (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -556,7 +559,12 @@ async function init() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   ]
 
-  for (const statement of schema) await query(statement)
+  for (const statement of schema) {
+    const table = statement.match(/^CREATE TABLE IF NOT EXISTS ([a-z_]+)/)?.[1]
+    const floor = recovery.missingTables.includes(table) && /\bAUTO_INCREMENT\b/.test(statement) ? ' AUTO_INCREMENT=' + recovery.nextId : ''
+    await query(statement + floor)
+  }
+  await recoverOperationalSequences(query, { ...recovery, missingTables: recovery.missingTables.filter(table => table !== 'newsletter_subscriptions') })
   await ensureHomeWorkflowSchema(query)
   // Existing customers retain their data, but must confirm ownership of their
   // email before a new or previously issued customer session can be used.
@@ -693,6 +701,8 @@ async function init() {
       } finally { connection.release() }
     }
   }
+  if (recovery.missingTables.length) console.log('OPERATIONAL SCHEMA RECOVERED:', JSON.stringify({ tables: recovery.missingTables, nextId: recovery.nextId, ...recoveryResult }))
+  return recovery
 }
 async function exigirLogin(req, res, next) {
   if (!req.session.userId) {
@@ -2742,8 +2752,10 @@ app.use((error, req, res, next) => {
 })
 
 async function bootstrap() {
-  await init()
+  const recovery = await init()
+  if (recovery.missingTables.includes('newsletter_subscriptions')) await query(NEWSLETTER_DDL + ' AUTO_INCREMENT=' + recovery.nextId)
   await newsletter.initialize()
+  if (recovery.missingTables.includes('newsletter_subscriptions')) await recoverOperationalSequences(query, { ...recovery, missingTables: ['newsletter_subscriptions'] })
   await mediaLibrary.initialize()
   await seedAndScheduleRecurring()
 
