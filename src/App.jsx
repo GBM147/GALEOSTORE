@@ -8,6 +8,7 @@ import ProductPage from './ProductPage'
 import CartPage from './CartPage'
 import AccountPage from './AccountPage'
 import CampaignCarousel from './CampaignCarousel'
+import RevealGrid from './RevealGrid'
 import NewsletterSignup, { NewsletterConfirmation } from './NewsletterSignup'
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 
@@ -129,29 +130,6 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
             scrollTrigger: {
               trigger: element,
               start: 'top 86%',
-              once: reveal.once !== false
-            }
-          }
-        )
-      })
-
-      const staggerGroups = ['.category-card', '.product-card', '.campaign-card']
-      if (reveal.enabled !== false) staggerGroups.forEach((selector) => {
-        const elements = gsap.utils.toArray(selector)
-        if (!elements.length) return
-        gsap.fromTo(
-          elements,
-          { autoAlpha: 0, y: boundedNumber(reveal.distance, 26, 0, 100) },
-          {
-            autoAlpha: 1,
-            y: 0,
-            duration: boundedNumber(reveal.duration, 0.75, 0.1, 3),
-            stagger: boundedNumber(reveal.stagger, 0.06, 0, 0.5),
-            ease: 'power2.out',
-            clearProps: 'transform',
-            scrollTrigger: {
-              trigger: elements[0],
-              start: 'top 88%',
               once: reveal.once !== false
             }
           }
@@ -371,7 +349,7 @@ function CampaignVisual({ variant = 0, mediaUrl = '', mobileUrl = '', videoUrl =
   )
 }
 
-function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults }) {
+function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults, visualDefaults }) {
   const hero = homeSectionContent(homeSections, 'hero', homeLoaded)
   const utility = homeSectionContent(homeSections, 'utility', homeLoaded)
   const categorySection = homeSectionContent(homeSections, 'categories', homeLoaded)
@@ -394,6 +372,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
   const heroDescription = hero.description || 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho'
   const categoryItems = Array.isArray(categorySection.items) ? categorySection.items : MALE_CATEGORIES.slice(0,3).map((title) => ({ title, url:'/shop?category=' + encodeURIComponent(title) }))
   const effect = campaignDefaults?.effect || campaigns.defaults?.effect || 'zoom'
+  const reveal = visualDefaults?.interaction?.scroll_reveal
   const defaultOrder = ['hero','utility','categories','featured_products','campaigns','manifesto','newsletter']
   const sections = {
     hero: hero.__visible !== false && <section key="hero" data-home-section="hero" className="hero-full section-shell">
@@ -415,15 +394,15 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
 
     categories: categorySection.__visible !== false && <section key="categories" data-home-section="categories" className="section-shell section-block">
         <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{categorySection.eyebrow || '01 / CATEGORIAS'}</span><h2>{categorySection.title || 'Escolha seu movimento'}</h2></div><Link className="text-link" to={categorySection.button_url || '/shop'}>{categorySection.button_label || 'Ver catálogo'} ↗</Link></div>
-        <div className="category-grid">{categoryItems.map((item,index) => <Link key={item.id || index} className={'category-card category-card-' + (index % 3)} to={item.url || '/shop'}>{item.media_url && <img className="category-media" src={item.media_url} alt="" loading="lazy" />}<span>{String(index + 1).padStart(2,'0')} / GALEO</span><strong>{item.title || 'Categoria'}</strong><small>Explorar ↗</small></Link>)}</div>
+        <RevealGrid className="category-grid" items={categoryItems} reveal={reveal}>{categoryItems.map((item,index) => <Link key={item.id || index} className={'category-card category-card-' + (index % 3)} to={item.url || '/shop'}>{item.media_url && <img className="category-media" src={item.media_url} alt="" loading="lazy" />}<span>{String(index + 1).padStart(2,'0')} / GALEO</span><strong>{item.title || 'Categoria'}</strong><small>Explorar ↗</small></Link>)}</RevealGrid>
       </section>,
 
-    featured_products: featured.__visible !== false && <section key="featured_products" data-home-section="featured_products" className="section-shell section-block featured-selection" id="destaques">
+    featured_products: featured.__visible !== false && shownProducts.length > 0 && <section key="featured_products" data-home-section="featured_products" className="section-shell section-block featured-selection" id="destaques">
         <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{featured.eyebrow || '01 / SELEÇÃO GALEO'}</span><h2><EditorialTitle text={featured.title || 'Seleção multimarcas'} type="featured" /></h2></div><Link className="text-link" to={featured.button_url || '/shop'}>{featured.button_label || 'Ver todos'} ↗</Link></div>
-        <div className="product-grid product-grid-editorial">{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</div>
+        <RevealGrid className="product-grid product-grid-editorial" items={shownProducts} reveal={reveal}>{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</RevealGrid>
       </section>,
 
-    campaigns: campaigns.__visible !== false && <section key="campaigns" data-home-section="campaigns" className="section-shell campaign-grid" aria-label="Campanhas" data-reveal>
+    campaigns: campaigns.__visible !== false && <RevealGrid as="section" key="campaigns" data-home-section="campaigns" className="section-shell campaign-grid" aria-label="Campanhas" items={campaignItems} reveal={reveal}>
         {campaignItems.map((item,index) => (
           <article className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} key={index}>
             <CampaignCarousel item={item} variant={index + 1} defaults={campaignDefaults} sectionDefaults={campaigns.defaults}>
@@ -435,7 +414,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
             </CampaignCarousel>
           </article>
         ))}
-      </section>,
+      </RevealGrid>,
 
     manifesto: manifesto.__visible !== false && (
         <section key="manifesto" data-home-section="manifesto" className="manifesto section-shell" id="sobre" data-reveal>
@@ -482,7 +461,7 @@ const normalizeSearchText = (value) => String(value || '')
   .toLowerCase()
   .trim()
 
-function Shop({ products = fallbackProducts, categories = [] }) {
+function Shop({ products = fallbackProducts, categories = [], visualDefaults }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedCategory = searchParams.get('category') || 'Todos'
   const query = searchParams.get('q') || ''
@@ -610,9 +589,9 @@ function Shop({ products = fallbackProducts, categories = [] }) {
       </div>
 
       {filteredProducts.length > 0 ? (
-        <div className="product-grid" data-reveal>
+        <RevealGrid className="product-grid" items={filteredProducts} reveal={visualDefaults?.interaction?.scroll_reveal}>
           {filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)}
-        </div>
+        </RevealGrid>
       ) : (
         <div className="empty-catalog" data-reveal>
           <span className="eyebrow">GALEO / SEM RESULTADOS</span>
@@ -781,8 +760,8 @@ export default function App() {
       />}
       <Routes>
         <Route path="/admin/*" element={<AdminGate />} />
-        <Route path="/" element={<Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} />} />
-        <Route path="/shop" element={<Shop products={catalog} categories={categories} />} />
+        <Route path="/" element={<Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} visualDefaults={siteSettings.storefront_visual_defaults} />} />
+        <Route path="/shop" element={<Shop products={catalog} categories={categories} visualDefaults={siteSettings.storefront_visual_defaults} />} />
         <Route path="/produto/:id" element={<ProductPage />} />
         <Route path="/conta" element={<AccountPage />} />
         <Route path="/newsletter" element={<NewsletterConfirmation />} />
