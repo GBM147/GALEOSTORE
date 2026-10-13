@@ -1270,14 +1270,29 @@ body {
 }
 @media (max-width: 760px) {
   .site-header {
-    grid-template-columns: auto 1fr auto;
-    padding: 0 18px;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 12px;
+    padding: 0 14px;
   }
   .desktop-nav a:nth-child(n+3) { display: none; }
   .desktop-nav { justify-content: center; gap: 14px; }
-  .header-actions { gap: 12px; }
-  .bag-link, .header-link { display: none; }
-  .header-search { right: 0; width: calc(100vw - 36px); }
+  .header-actions { min-width: 0; gap: 4px; font-size: 10px; letter-spacing: .08em; }
+  .bag-link, .header-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding-inline: 4px;
+  }
+  .header-actions .search-trigger,
+  .header-actions .mode-button {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .header-search { right: 14px; width: calc(100vw - 28px); }
   .catalog-search {
     grid-template-columns: auto 1fr;
   }
