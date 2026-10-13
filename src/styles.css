@@ -888,7 +888,6 @@ body {
 }
 
 .hero-full-media {
-  will-change: transform;
   transform-origin: 50% 42%;
 }
 
@@ -1393,6 +1392,10 @@ body {
 .campaign-mobile-image { display:none; }
 .campaign-visual[data-campaign-effect="static"] *,
 .campaign-visual[data-campaign-effect="static"]::before { animation:none!important; }
+.hero-full .campaign-visual[data-paused="true"] *,
+.hero-full .campaign-visual[data-paused="true"]::before { animation-play-state:paused!important; }
+.hero-full .campaign-visual[data-paused="false"]:not([data-campaign-effect="static"]) { will-change:transform; }
+.hero-full .campaign-visual[data-paused="true"] { will-change:auto; }
 @media (max-width:700px) {
   .campaign-desktop-video { display:none; }
   .campaign-mobile-image { display:block; }

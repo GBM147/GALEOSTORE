@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -9,6 +9,7 @@ import CartPage from './CartPage'
 import AccountPage from './AccountPage'
 import CampaignCarousel from './CampaignCarousel'
 import RevealGrid from './RevealGrid'
+import HeroVisual from './HeroVisual'
 import NewsletterSignup, { NewsletterConfirmation } from './NewsletterSignup'
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 
@@ -76,14 +77,12 @@ function KeepAliveSocket() {
 const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(value))
   ? Math.min(max, Math.max(min, Number(value))) : fallback
 
-function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefaults }) {
+function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
   const { pathname } = useLocation()
+  const introducedHeroes = useRef(new WeakSet())
   useLayoutEffect(() => {
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduceMotion) return undefined
-
     gsap.registerPlugin(ScrollTrigger)
-
+    const root = document.querySelector('.app')
     const interaction = visualDefaults?.interaction || {}
     const smoothScroll = interaction.smooth_scroll || {}
     const reveal = interaction.scroll_reveal || {}
@@ -91,33 +90,49 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
     const campaignSection = homeSections.find((section) => section.key === 'campaigns')
     const campaign = { ...(campaignSection?.content?.defaults || {}), ...(campaignDefaults || {}) }
     const effect = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns'].includes(campaign.effect) ? campaign.effect : 'zoom'
-    const speedFactor = { slow:1.4, normal:1, fast:0.7 }[campaign.speed] || 1
-    const campaignDuration = boundedNumber(campaign.duration_seconds, 6, 2, 30) * speedFactor
-    const lenis = smoothScroll.enabled === false ? null : new Lenis({
-      duration: boundedNumber(smoothScroll.duration, 1.05, 0.1, 3),
-      wheelMultiplier: boundedNumber(smoothScroll.wheel_multiplier, 0.95, 0.1, 3),
-      smoothWheel: true,
-      autoRaf: false
-    })
-
-    const header = document.querySelector('.site-header')
+    const header = root.querySelector('.site-header')
     const updateScrollChrome = ({ scroll }) => {
-      if (header) header.classList.toggle('is-scrolled', scroll > 24)
-
       const documentHeight = document.documentElement.scrollHeight - window.innerHeight
       const progress = documentHeight > 0 ? Math.min(1, Math.max(0, scroll / documentHeight)) : 0
+      if (header) header.classList.toggle('is-scrolled', scroll > 24)
       document.documentElement.style.setProperty('--scroll-progress', String(progress))
     }
 
     const nativeScroll = () => updateScrollChrome({ scroll:window.scrollY })
-    lenis?.on('scroll', updateScrollChrome)
-    const raf = (time) => lenis?.raf(time * 1000)
-    if (lenis) gsap.ticker.add(raf)
-    else window.addEventListener('scroll', nativeScroll, { passive:true })
+    window.addEventListener('scroll', nativeScroll, { passive:true })
     nativeScroll()
-    gsap.ticker.lagSmoothing(0)
 
-    const ctx = gsap.context(() => {
+    let active = true
+    let refreshFrame = null
+    const refreshAfterLoad = () => {
+      if (!active || refreshFrame != null) return
+      refreshFrame = window.requestAnimationFrame(() => {
+        refreshFrame = null
+        if (active) {
+          ScrollTrigger.refresh()
+          nativeScroll()
+        }
+      })
+    }
+    root.addEventListener('load', refreshAfterLoad, true)
+    root.addEventListener('loadedmetadata', refreshAfterLoad, true)
+    document.fonts?.ready.then(refreshAfterLoad).catch(() => {})
+
+    const media = gsap.matchMedia()
+    media.add('(prefers-reduced-motion: no-preference)', () => {
+      const lenis = smoothScroll.enabled === false ? null : new Lenis({
+        duration: boundedNumber(smoothScroll.duration, 1.05, 0.1, 3),
+        wheelMultiplier: boundedNumber(smoothScroll.wheel_multiplier, 0.95, 0.1, 3),
+        smoothWheel: true,
+        autoRaf: false
+      })
+      const raf = (time) => lenis?.raf(time * 1000)
+      if (lenis) {
+        lenis.on('scroll', ScrollTrigger.update)
+        gsap.ticker.add(raf)
+        gsap.ticker.lagSmoothing(0)
+      }
+
       if (reveal.enabled !== false) gsap.utils.toArray('[data-reveal]').forEach((element) => {
         gsap.fromTo(
           element,
@@ -136,31 +151,24 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
         )
       })
 
-      if (document.querySelector('.hero-full') && effect === 'parallax') gsap.to('.hero-full-media', {
-        yPercent: 5,
-        scale: 1.045,
+      if (root.querySelector('.hero-full-content') && effect !== 'static') gsap.to('.hero-full-content', {
+        y: () => window.innerWidth <= 760 ? -10 : -22,
         ease: 'none',
         scrollTrigger: {
           trigger: '.hero-full',
           start: 'top top',
           end: 'bottom top',
-          scrub: true
+          scrub: true,
+          invalidateOnRefresh: true
         }
       })
 
-      if (document.querySelector('.hero-full-content') && effect !== 'static') gsap.to('.hero-full-content', {
-        y: -22,
-        ease: 'none',
-        scrollTrigger: {
-          trigger: '.hero-full',
-          start: 'top top',
-          end: 'bottom top',
-          scrub: true
-        }
-      })
-
-      if (textReveal.enabled !== false && document.querySelector('.hero-full')) {
-        const intro = gsap.timeline({ defaults: { ease: 'power3.out', clearProps: 'transform,opacity,visibility' } })
+      const hero = root.querySelector('.hero-full')
+      if (textReveal.enabled !== false && hero && !introducedHeroes.current.has(hero)) {
+        const intro = gsap.timeline({
+          onStart: () => introducedHeroes.current.add(hero),
+          defaults: { ease: 'power3.out', clearProps: 'transform,opacity,visibility' }
+        })
         intro.from('.hero-full .eyebrow, .hero-full-meta', {
           autoAlpha: 0,
           y: 10,
@@ -176,32 +184,23 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
         intro.from('.hero-full-actions', { autoAlpha: 0, y: 12, duration: 0.65 }, 0.44)
       }
 
-      gsap.utils.toArray('.hero-full .campaign-visual, .campaign-card .campaign-visual:not([data-managed-motion])').forEach((visual) => {
-        if (effect === 'static') return
-        const motions = {
-          zoom: [{ scale:1 }, { scale:1.055 }],
-          'pan-horizontal': [{ scale:1.06, xPercent:-1.5 }, { scale:1.06, xPercent:1.5 }],
-          'pan-vertical': [{ scale:1.06, yPercent:-1.5 }, { scale:1.06, yPercent:1.5 }],
-          'ken-burns': [{ scale:1.015, xPercent:-1, yPercent:-1 }, { scale:1.065, xPercent:1.5, yPercent:1.5 }],
-          parallax: [{ scale:1.025, yPercent:-1.5 }, { scale:1.055, yPercent:1.5 }]
-        }
-        const [from, to] = motions[effect]
-        gsap.fromTo(visual, from, effect === 'parallax'
-          ? { ...to, ease:'none', scrollTrigger:{ trigger:visual.closest('.campaign-card, .hero-full'), start:'top bottom', end:'bottom top', scrub:speedFactor } }
-          : { ...to, duration:campaignDuration, repeat:-1, yoyo:true, ease:'sine.inOut' })
-      })
-
       ScrollTrigger.refresh()
-    }, document.querySelector('.app'))
+      return () => {
+        lenis?.off('scroll', ScrollTrigger.update)
+        if (lenis) gsap.ticker.remove(raf)
+        lenis?.destroy()
+      }
+    }, root)
 
     return () => {
-      lenis?.off('scroll', updateScrollChrome)
-      if (lenis) gsap.ticker.remove(raf)
+      active = false
+      if (refreshFrame != null) window.cancelAnimationFrame(refreshFrame)
+      root.removeEventListener('load', refreshAfterLoad, true)
+      root.removeEventListener('loadedmetadata', refreshAfterLoad, true)
+      media.revert()
       window.removeEventListener('scroll', nativeScroll)
-      lenis?.destroy()
-      ctx.revert()
     }
-  }, [pathname, catalog, homeSections, visualDefaults, campaignDefaults])
+  }, [pathname, homeSections, visualDefaults, campaignDefaults])
 
   return null
 }
@@ -330,25 +329,6 @@ function HeroTitle({ text }) {
   return <span className="hero-title-mask"><EditorialTitle text={text} type="hero" /></span>
 }
 
-function CampaignVisual({ variant = 0, mediaUrl = '', mobileUrl = '', videoUrl = '', alt = '', effect = 'zoom' }) {
-  const imageUrl = mediaUrl || mobileUrl
-  return (
-    <div className={'campaign-visual campaign-visual-' + variant} data-campaign-effect={effect} aria-hidden={alt ? undefined : 'true'}>
-      <div className="campaign-orb" />
-      <div className="campaign-line campaign-line-a" />
-      <div className="campaign-line campaign-line-b" />
-      {videoUrl ? <>
-        <video className={'campaign-media campaign-video' + (mobileUrl ? ' campaign-desktop-video' : '')} src={videoUrl} autoPlay muted loop playsInline />
-        {mobileUrl && <img src={mobileUrl} alt={alt} className="campaign-media campaign-mobile-image" loading="lazy" />}
-      </> : imageUrl ? <picture>
-        {mobileUrl && <source media="(max-width: 700px)" srcSet={mobileUrl} />}
-        <img src={imageUrl} alt={alt} className="campaign-media" loading="lazy" />
-      </picture> : <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />}
-      <div className="campaign-scan" />
-    </div>
-  )
-}
-
 function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults, visualDefaults }) {
   const hero = homeSectionContent(homeSections, 'hero', homeLoaded)
   const utility = homeSectionContent(homeSections, 'utility', homeLoaded)
@@ -376,7 +356,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
   const defaultOrder = ['hero','utility','categories','featured_products','campaigns','manifesto','newsletter']
   const sections = {
     hero: hero.__visible !== false && <section key="hero" data-home-section="hero" className="hero-full section-shell">
-        <div className="hero-full-media"><CampaignVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} /><div className="hero-full-shade" /></div>
+        <div className="hero-full-media"><HeroVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} speed={campaignDefaults?.speed ?? campaigns.defaults?.speed ?? 'slow'} durationSeconds={campaignDefaults?.duration_seconds ?? campaigns.defaults?.duration_seconds ?? 6} /><div className="hero-full-shade" /></div>
         <div className="hero-full-content">
           <span className="eyebrow">{hero.eyebrow || 'GALEO / MULTIBRAND STORE'}</span>
           <h1 className="hero-title">
@@ -750,7 +730,7 @@ export default function App() {
       )}
 
       <KeepAliveSocket />
-      {!adminRoute && <StorefrontMotion catalog={catalog} homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
+      {!adminRoute && <StorefrontMotion homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
       {!adminRoute && <Header
         theme={theme}
         categories={categories}
