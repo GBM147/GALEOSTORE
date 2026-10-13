@@ -898,7 +898,7 @@ body {
 
 .hero-title-line {
   display: block;
-  overflow: hidden;
+  overflow: visible;
   padding: .03em 0 .07em;
 }
 

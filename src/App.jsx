@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import Lenis from 'lenis'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -77,7 +77,7 @@ const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(valu
 
 function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefaults }) {
   const { pathname } = useLocation()
-  useEffect(() => {
+  useLayoutEffect(() => {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reduceMotion) return undefined
 
@@ -148,6 +148,7 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
             duration: boundedNumber(reveal.duration, 0.75, 0.1, 3),
             stagger: boundedNumber(reveal.stagger, 0.06, 0, 0.5),
             ease: 'power2.out',
+            clearProps: 'transform',
             scrollTrigger: {
               trigger: elements[0],
               start: 'top 88%',
@@ -180,22 +181,22 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
         }
       })
 
-      if (textReveal.enabled !== false && document.querySelector('.hero-full .hero-title-mask')) gsap.from('.hero-full .hero-title-mask', {
-        yPercent: 120,
-        duration: boundedNumber(textReveal.duration, 0.9, 0.1, 3),
-        stagger: boundedNumber(textReveal.stagger, 0.08, 0, 0.5),
-        ease: 'power4.out',
-        delay: 0.12
-      })
-
-      if (textReveal.enabled !== false && document.querySelector('.hero-full')) gsap.from('.hero-full .eyebrow, .hero-full p, .hero-full-actions, .hero-full-meta', {
-        autoAlpha: 0,
-        y: 18,
-        duration: 0.7,
-        stagger: 0.08,
-        ease: 'power2.out',
-        delay: 0.3
-      })
+      if (textReveal.enabled !== false && document.querySelector('.hero-full')) {
+        const intro = gsap.timeline({ defaults: { ease: 'power3.out', clearProps: 'transform,opacity,visibility' } })
+        intro.from('.hero-full .eyebrow, .hero-full-meta', {
+          autoAlpha: 0,
+          y: 10,
+          duration: 0.45
+        }, 0)
+        intro.from('.hero-full .hero-title-mask', {
+          autoAlpha: 0,
+          y: 18,
+          duration: boundedNumber(textReveal.duration, 0.9, 0.1, 3),
+          stagger: boundedNumber(textReveal.stagger, 0.08, 0, 0.5)
+        }, 0.08)
+        intro.from('.hero-full p', { autoAlpha: 0, y: 12, duration: 0.65 }, 0.32)
+        intro.from('.hero-full-actions', { autoAlpha: 0, y: 12, duration: 0.65 }, 0.44)
+      }
 
       gsap.utils.toArray('.hero-full .campaign-visual, .campaign-card .campaign-visual:not([data-managed-motion])').forEach((visual) => {
         if (effect === 'static') return
@@ -212,25 +213,8 @@ function StorefrontMotion({ catalog, homeSections, visualDefaults, campaignDefau
           : { ...to, duration:campaignDuration, repeat:-1, yoyo:true, ease:'sine.inOut' })
       })
 
-      gsap.utils.toArray('.manifesto p').forEach((element) => {
-        gsap.fromTo(
-          element,
-          { xPercent: -5 },
-          {
-            xPercent: 0,
-            ease: 'none',
-            scrollTrigger: {
-              trigger: element,
-              start: 'top bottom',
-              end: 'bottom top',
-              scrub: true
-            }
-          }
-        )
-      })
-
       ScrollTrigger.refresh()
-    })
+    }, document.querySelector('.app'))
 
     return () => {
       lenis?.off('scroll', updateScrollChrome)
@@ -360,6 +344,14 @@ function EditorialTitle({ text, type = 'generic' }) {
   return value
 }
 
+function HeroTitle({ text }) {
+  if (text === 'Vista o que representa você') return <>
+    <span className="hero-title-mask">Vista o que</span><br />
+    <span className="hero-title-mask"><em>representa você</em></span>
+  </>
+  return <span className="hero-title-mask"><EditorialTitle text={text} type="hero" /></span>
+}
+
 function CampaignVisual({ variant = 0, mediaUrl = '', mobileUrl = '', videoUrl = '', alt = '', effect = 'zoom' }) {
   const imageUrl = mediaUrl || mobileUrl
   return (
@@ -409,7 +401,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
         <div className="hero-full-content">
           <span className="eyebrow">{hero.eyebrow || 'GALEO / MULTIBRAND STORE'}</span>
           <h1 className="hero-title">
-            <span className="hero-title-line"><span className="hero-title-mask"><EditorialTitle text={heroTitle} type="hero" /></span></span>
+            <span className="hero-title-line"><HeroTitle text={heroTitle} /></span>
           </h1>
           <p>{heroDescription}</p>
           <div className="hero-full-actions"><Link className="button button-primary" to={hero.button_url || '/shop'}>{hero.button_label || 'Explorar coleção'} <span>↗</span></Link><span className="hero-scroll">SCROLL ↓</span></div>
