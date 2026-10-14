@@ -18,11 +18,20 @@
 .campaign-carousel-announcement { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .campaign-carousel-mobile { display:none; }
 .campaign-carousel-shade { position:absolute; inset:0; z-index:5; pointer-events:none; background:linear-gradient(180deg,transparent 25%,rgba(0,0,0,.62) 100%); }
+.campaign-carousel .campaign-card-copy { color:#f2eadb; }
+.campaign-carousel .campaign-card-copy > span { color:#e2c27f; }
+@media (max-width:760px) {
+  .campaign-carousel { position:relative; inset:auto; display:grid; min-height:inherit; }
+  .campaign-carousel-link { position:relative; inset:auto; display:flex; align-items:flex-end; min-height:inherit; padding:84px 22px 24px; }
+  .campaign-carousel .campaign-card-copy { position:relative; inset:auto; width:100%; }
+  .campaign-carousel.has-slides .campaign-carousel-link { padding-bottom:92px; }
+  .campaign-carousel.has-slides .campaign-card-copy { bottom:auto; }
+  .campaign-carousel-controls { left:22px; right:22px; }
+  .campaign-carousel-controls button { min-width:44px; min-height:44px; }
+}
 @media (max-width:700px) {
   .campaign-carousel-desktop.has-mobile { display:none; }
   .campaign-carousel-mobile { display:block; }
-  .campaign-carousel-controls { left:22px; right:22px; }
-  .campaign-carousel-controls button { min-width:40px; min-height:40px; }
 }
 @media (prefers-reduced-motion:reduce) {
   .campaign-carousel .campaign-visual *,

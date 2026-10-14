@@ -216,6 +216,7 @@ function ModeButton({ theme, onToggle }) {
 
 function Header({ theme, onToggle, categories = [], navigation = null, cartItemsCount = 0 }) {
   const navigate = useNavigate()
+  const searchTrigger = useRef(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
 
@@ -233,8 +234,15 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
     setSearchOpen(false)
   }
 
+  function handleSearchKeyDown(event) {
+    if (!searchOpen || event.key !== 'Escape') return
+    event.preventDefault()
+    setSearchOpen(false)
+    searchTrigger.current?.focus()
+  }
+
   return (
-    <header className="site-header">
+    <header className="site-header" onKeyDown={handleSearchKeyDown}>
       <Link className="brand" to="/" aria-label="Galeo Store">
         <span className="brand-logo-wrap">
           <img className="brand-logo" src="/images/galeo-brand.png" alt="GALEO" />
@@ -253,10 +261,12 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
 
       <div className="header-actions">
         <button
+          ref={searchTrigger}
           className={'search-trigger' + (searchOpen ? ' is-open' : '')}
           type="button"
           onClick={() => setSearchOpen(value => !value)}
           aria-expanded={searchOpen}
+          aria-controls={searchOpen ? 'galeo-header-search' : undefined}
           aria-label={searchOpen ? 'Fechar busca' : 'Abrir busca'}
           title={searchOpen ? 'Fechar busca' : 'Buscar produtos'}
         >
@@ -271,7 +281,7 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
       </div>
 
       {searchOpen && (
-        <form className="header-search" onSubmit={submitSearch}>
+        <form id="galeo-header-search" className="header-search" onSubmit={submitSearch}>
           <span className="eyebrow">GALEO / BUSCA</span>
           <div className="header-search-row">
             <input
