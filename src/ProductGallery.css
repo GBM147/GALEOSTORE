@@ -30,6 +30,25 @@
   object-fit: contain;
 }
 
+.product-photo-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  perspective: 1100px;
+  perspective-origin: 50% 50%;
+}
+.product-photo-scene .product-photo-slide {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  transform-origin: 50% 50%;
+}
+.product-photo-scene[data-transitioning="true"] .product-photo-slide { will-change: transform, opacity; }
+.product-photo-scene .product-photo-slide[data-current="true"] { z-index: 1; }
+.product-photo-scene .product-photo-view,
+.product-photo-scene .product-photo-outgoing-view { width: 100%; height: 100%; transform-origin: center; }
+.product-photo-scene img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+
 .product-gallery .product-photo-cue {
   position: absolute;
   z-index: 2;

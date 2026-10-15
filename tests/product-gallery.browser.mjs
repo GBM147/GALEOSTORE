@@ -91,6 +91,57 @@ async function assertPhoto(page, url) {
   }, url)
 }
 
+const sceneSelector = modal => modal ? 'dialog.product-lightbox .product-photo-scene' : '.product-main-media .product-photo-scene'
+
+async function settledPhotoScene(page, { modal = true } = {}) {
+  await page.waitForFunction(selector => {
+    const scene = document.querySelector(selector)
+    const slide = scene?.querySelector('.product-photo-slide[data-current="true"]')
+    if (scene?.dataset.transitioning !== 'false' || scene.querySelectorAll('.product-photo-slide').length !== 1 || !slide) return false
+    const style = getComputedStyle(slide)
+    return Number(style.opacity) === 1 && style.visibility === 'visible' && new DOMMatrixReadOnly(style.transform).isIdentity
+  }, sceneSelector(modal))
+}
+
+// Capture an actual animation frame with both photographs visible and projected
+// into depth. Merely changing an image src, or adding an unused perspective rule,
+// must not pass this check. Poll frames rather than assuming an exact GSAP timing.
+async function depthTransition(page, outgoing, current, { modal = true } = {}) {
+  const frame = await page.evaluate(async ({ selector, outgoing, current }) => {
+    const deadline = performance.now() + 4500
+    let latest = null
+    do {
+      const scene = document.querySelector(selector)
+      const describe = slide => {
+        if (!slide) return null
+        const image = slide.querySelector('img')
+        const style = getComputedStyle(slide)
+        const matrix = new DOMMatrixReadOnly(style.transform)
+        return {
+          src:image ? new URL(image.getAttribute('src'), location.href).pathname : null,
+          alt:image?.getAttribute('alt'),
+          hidden:slide.getAttribute('aria-hidden') === 'true' || image?.getAttribute('aria-hidden') === 'true',
+          opacity:Number(style.opacity), rotation:matrix.m13, depth:matrix.m43, x:matrix.m41,
+          loaded:!!image?.complete && image.naturalWidth > 0
+        }
+      }
+      const previous = describe(scene?.querySelector('.product-photo-slide[data-current="false"]'))
+      const next = describe(scene?.querySelector('.product-photo-slide[data-current="true"]'))
+      latest = { transitioning:scene?.dataset.transitioning, perspective:scene ? Number.parseFloat(getComputedStyle(scene).perspective) : 0, previous, next }
+      if (latest.transitioning === 'true' && previous?.src === outgoing && next?.src === current && previous.loaded && next.loaded && previous.opacity > 0.02 && next.opacity > 0.02 && Math.abs(previous.rotation) > 0.01 && Math.abs(next.rotation) > 0.01 && Math.abs(previous.depth) > 1 && Math.abs(next.depth) > 1 && Math.abs(previous.x) > 1) return latest
+      await new Promise(resolve => requestAnimationFrame(resolve))
+    } while (performance.now() < deadline)
+    return { ...latest, timedOut:true }
+  }, { selector:sceneSelector(modal), outgoing, current })
+  assert.ok(!frame.timedOut, 'a troca deve apresentar as duas fotos em uma transição 3D visível: ' + JSON.stringify(frame))
+  assert.ok(frame.perspective > 0, 'a profundidade deve ter uma perspectiva real')
+  assert.equal(frame.previous.hidden, true, 'a foto que está saindo não deve duplicar o conteúdo acessível')
+  assert.ok(!frame.previous.alt, 'a foto decorativa de saída não deve repetir a descrição')
+  assert.equal(frame.next.hidden, false, 'a foto atual deve continuar acessível durante a transição')
+  assert.match(frame.next.alt, /Camiseta da galeria/)
+  return frame
+}
+
 async function matrix(page) {
   return viewer(page).locator('.product-lightbox-transform').evaluate(node => {
     const value = new DOMMatrixReadOnly(getComputedStyle(node).transform)
@@ -380,4 +431,221 @@ test('reduced motion keeps zoom and photo navigation usable without ongoing move
   await assertPhoto(page, photos[1])
   await page.keyboard.press('Escape')
   assert.equal(await page.evaluate(() => document.body.style.overflow), '')
+})
+
+for (const width of [1280, 390]) {
+  test('photo changes animate both images in depth and preserve zoom controls at ' + width + 'px', async t => {
+    const { page } = await fixture(t, { width, reducedMotion:'no-preference' })
+    await page.goto(baseUrl + '/produto/31')
+    await openPhoto(page)
+    await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+    const forward = await depthTransition(page, photos[0], photos[1])
+    await settledPhotoScene(page)
+    await viewer(page).getByRole('button', { name:'Abrir foto 3', exact:true }).click()
+    await depthTransition(page, photos[1], photos[2])
+    await settledPhotoScene(page)
+    await viewer(page).getByRole('button', { name:'Foto anterior', exact:true }).click()
+    const backward = await depthTransition(page, photos[2], photos[1])
+    assert.ok(forward.previous.x * backward.previous.x < 0, 'voltar deve inverter o sentido do deslocamento 3D')
+    await settledPhotoScene(page)
+    await viewer(page).getByRole('button', { name:'Zoom 2x', exact:true }).click()
+    await page.waitForFunction(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.product-lightbox-transform')).transform).a > 1.95)
+    const before = await matrix(page)
+    await dragStage(page, { dx:64, dy:38 })
+    const moved = await matrix(page)
+    assert.ok(Math.abs(moved.x - before.x) > 10 || Math.abs(moved.y - before.y) > 10, 'a transição não deve substituir o transform de zoom e arraste')
+    await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+    await depthTransition(page, photos[1], photos[2])
+    await settledPhotoScene(page)
+    assert.equal((await matrix(page)).scale, 1, 'uma nova foto deve iniciar sem ampliação')
+    await page.keyboard.press('Escape')
+    await viewer(page).waitFor({ state:'hidden' })
+    await settledPhotoScene(page, { modal:false })
+    assert.equal(await page.locator('.product-main-media .product-photo-slide[data-current="true"] img').getAttribute('src'), photos[2])
+  })
+}
+
+test('two-photo navigation keeps its direction across wraparound in the 3D scene', async t => {
+  const { page } = await fixture(t, { reducedMotion:'no-preference', product:{ media:productTemplate.media.slice(0, 2) } })
+  await page.goto(baseUrl + '/produto/31')
+  await openPhoto(page)
+  const directions = []
+  for (const [button, from, to] of [
+    ['Próxima foto', photos[0], photos[1]],
+    ['Próxima foto', photos[1], photos[0]],
+    ['Foto anterior', photos[0], photos[1]]
+  ]) {
+    await viewer(page).getByRole('button', { name:button, exact:true }).click()
+    directions.push((await depthTransition(page, from, to)).previous.x)
+    await settledPhotoScene(page)
+  }
+  assert.ok(directions[0] * directions[1] > 0, 'avançar da última para a primeira foto deve manter a direção')
+  assert.ok(directions[0] * directions[2] < 0, 'voltar entre as mesmas duas fotos deve usar a direção oposta')
+  await page.keyboard.press('Escape')
+})
+
+test('rapid photo choices finish on the latest selection and interrupt safely when the viewer closes', async t => {
+  const { page } = await fixture(t, { reducedMotion:'no-preference' })
+  await page.goto(baseUrl + '/produto/31')
+  await openPhoto(page)
+  await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+  await depthTransition(page, photos[0], photos[1])
+  // These are distinct user choices made before the first transition completes.
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowLeft')
+  await viewer(page).getByRole('button', { name:'Abrir foto 3', exact:true }).click()
+  await assertPhoto(page, photos[2])
+  await settledPhotoScene(page)
+  assert.equal(await viewer(page).locator('.product-photo-slide').count(), 1, 'as fotos interrompidas devem ser descartadas ao terminar')
+  await viewer(page).getByRole('button', { name:'Foto anterior', exact:true }).click()
+  await depthTransition(page, photos[2], photos[1])
+  await page.evaluate(() => {
+    globalThis.__galleryDetachedSlides = [...document.querySelectorAll('dialog.product-lightbox .product-photo-slide')]
+  })
+  await page.keyboard.press('Escape')
+  await viewer(page).waitFor({ state:'hidden' })
+  const cleanup = await page.evaluate(async () => {
+    const nodes = globalThis.__galleryDetachedSlides
+    const styles = () => nodes.map(node => ({ transform:node.style.transform, opacity:node.style.opacity }))
+    const before = styles()
+    for (let frame = 0; frame < 8; frame++) await new Promise(resolve => requestAnimationFrame(resolve))
+    const after = styles()
+    delete globalThis.__galleryDetachedSlides
+    return { before, after, detached:nodes.every(node => !node.isConnected), overflow:document.body.style.overflow }
+  })
+  assert.equal(cleanup.detached, true)
+  assert.deepEqual(cleanup.after, cleanup.before, 'fechar a galeria deve interromper os tweens das camadas removidas')
+  assert.equal(cleanup.overflow, '')
+  assert.equal(await opener(page).evaluate(button => button === document.activeElement), true)
+  await openPhoto(page)
+  await assertPhoto(page, photos[1])
+  await settledPhotoScene(page)
+  await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+  await depthTransition(page, photos[1], photos[2])
+  await page.evaluate(() => {
+    history.pushState({}, '', '/produto/32')
+    dispatchEvent(new PopStateEvent('popstate'))
+  })
+  await opener(page, 'Outra peça da galeria').waitFor()
+  await page.waitForFunction(() => !document.querySelector('dialog.product-lightbox[open]') && document.body.style.overflow === '')
+})
+
+test('switching to reduced motion interrupts depth transitions and keeps subsequent photos stable', async t => {
+  const { page } = await fixture(t, { width:390, reducedMotion:'no-preference' })
+  await page.goto(baseUrl + '/produto/31')
+  await openPhoto(page)
+  await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+  await depthTransition(page, photos[0], photos[1])
+  await page.emulateMedia({ reducedMotion:'reduce' })
+  await settledPhotoScene(page)
+  await assertPhoto(page, photos[1])
+  const stableScene = async () => viewer(page).locator('.product-photo-scene').evaluate(async scene => {
+    const state = () => [...scene.querySelectorAll('.product-photo-slide')].map(node => ({ transform:getComputedStyle(node).transform, opacity:getComputedStyle(node).opacity }))
+    const first = state()
+    for (let frame = 0; frame < 5; frame++) await new Promise(resolve => requestAnimationFrame(resolve))
+    return { first, last:state(), transitioning:scene.dataset.transitioning }
+  })
+  const stopped = await stableScene()
+  assert.equal(stopped.transitioning, 'false')
+  assert.deepEqual(stopped.last, stopped.first, 'reduzir movimento deve encerrar a animação em curso')
+  await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+  await assertPhoto(page, photos[2])
+  await settledPhotoScene(page)
+  const next = await stableScene()
+  assert.deepEqual(next.last, next.first, 'novas escolhas devem permanecer estáveis quando o movimento está reduzido')
+  await page.emulateMedia({ reducedMotion:'no-preference' })
+  await viewer(page).getByRole('button', { name:'Foto anterior', exact:true }).click()
+  await depthTransition(page, photos[2], photos[1])
+  await settledPhotoScene(page)
+  await page.keyboard.press('Escape')
+})
+
+test('the product-page thumbnails use the same depth transition before opening the photograph', async t => {
+  const { page } = await fixture(t, { reducedMotion:'no-preference' })
+  await page.goto(baseUrl + '/produto/31')
+  await opener(page).waitFor()
+  await page.getByRole('button', { name:'Ver foto 2', exact:true }).click()
+  await depthTransition(page, photos[0], photos[1], { modal:false })
+  await settledPhotoScene(page, { modal:false })
+  await openPhoto(page)
+  await assertPhoto(page, photos[1])
+  await settledPhotoScene(page)
+  await page.keyboard.press('Escape')
+})
+
+test('touch swipes use the depth transition while pinch zoom stays on the selected photograph', async t => {
+  const { page } = await fixture(t, { width:390, reducedMotion:'no-preference' })
+  await page.goto(baseUrl + '/produto/31')
+  await openPhoto(page)
+  const bounds = await viewer(page).locator('.product-lightbox-stage').boundingBox()
+  const x = bounds.x + bounds.width / 2
+  const y = bounds.y + bounds.height / 2
+  await touchGesture(page, [[{ id:1, x:x + 65, y }], [{ id:1, x:x + 10, y }], [{ id:1, x:x - 65, y }]])
+  await depthTransition(page, photos[0], photos[1])
+  await settledPhotoScene(page)
+  const points = halfDistance => [{ id:1, x:x - halfDistance, y }, { id:2, x:x + halfDistance, y }]
+  await touchGesture(page, [points(30), points(45), points(60)])
+  await page.waitForFunction(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.product-lightbox-transform')).transform).a > 1.9)
+  await assertPhoto(page, photos[1])
+  assert.equal(await viewer(page).locator('.product-photo-slide').count(), 1, 'ampliar a foto não deve iniciar outra transição')
+  await viewer(page).getByRole('button', { name:'Zoom 1x', exact:true }).click()
+  await touchGesture(page, [[{ id:1, x:x - 65, y }], [{ id:1, x:x - 10, y }], [{ id:1, x:x + 65, y }]])
+  await depthTransition(page, photos[1], photos[0])
+  await settledPhotoScene(page)
+  await page.keyboard.press('Escape')
+})
+
+test('slow consecutive photo requests keep the last loaded photo visible until the latest choice loads', async t => {
+  const { page } = await fixture(t, { reducedMotion:'no-preference' })
+  const releases = new Map()
+  const gates = new Map(photos.slice(1).map(url => [url, new Promise(resolve => releases.set(url, resolve))]))
+  await page.route('**/images/gallery-fixture-*', async route => {
+    const path = new URL(route.request().url()).pathname
+    if (gates.has(path)) await gates.get(path)
+    await route.fallback()
+  })
+  try {
+    // Thumbnails and adjacent-photo preloads may already request both delayed
+    // files. DOM readiness lets the customer interact while those requests wait.
+    await page.goto(baseUrl + '/produto/31', { waitUntil:'domcontentloaded' })
+    await openPhoto(page)
+    await page.waitForFunction(() => document.querySelector('.product-lightbox-transform img')?.naturalWidth > 0)
+    const expectVisibleOriginal = async current => {
+      await assertPhoto(page, current)
+      const waiting = await viewer(page).locator('.product-photo-scene').evaluate(scene => {
+        const previous = scene.querySelector('.product-photo-slide[data-current="false"]')
+        const image = previous?.querySelector('img')
+        const incoming = scene.querySelector('.product-photo-slide[data-current="true"] img')
+        return {
+          outgoing:image ? new URL(image.getAttribute('src'), location.href).pathname : null,
+          loaded:!!image?.complete && image.naturalWidth > 0,
+          opacity:previous ? Number(getComputedStyle(previous).opacity) : 0,
+          visibility:previous ? getComputedStyle(previous).visibility : 'hidden',
+          incomingLoaded:!!incoming?.naturalWidth
+        }
+      })
+      assert.equal(waiting.outgoing, photos[0], 'uma seleção ainda pendente não pode substituir a última foto visível')
+      assert.equal(waiting.loaded, true, 'a camada de saída precisa manter uma imagem já carregada')
+      assert.equal(waiting.incomingLoaded, false, 'a foto escolhida deve continuar bloqueada pela conexão simulada')
+      assert.ok(waiting.opacity > 0.95 && waiting.visibility === 'visible', 'a foto anterior deve permanecer visível durante o carregamento')
+    }
+    await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+    await expectVisibleOriginal(photos[1])
+    await viewer(page).getByRole('button', { name:'Próxima foto', exact:true }).click()
+    await expectVisibleOriginal(photos[2])
+    releases.get(photos[2])()
+    await depthTransition(page, photos[0], photos[2])
+    await settledPhotoScene(page)
+    await assertPhoto(page, photos[2])
+    assert.equal(await viewerImage(page).evaluate(image => image.complete && image.naturalWidth > 0), true)
+    assert.equal(await viewer(page).locator('.product-photo-slide').count(), 1)
+    // A late response for the skipped photograph must not replace the last choice.
+    releases.get(photos[1])()
+    await page.waitForFunction(url => [...document.querySelectorAll('.product-thumb-grid img')].some(image => new URL(image.getAttribute('src'), location.href).pathname === url && image.naturalWidth > 0), photos[1])
+    await assertPhoto(page, photos[2])
+    await page.keyboard.press('Escape')
+    assert.equal(await page.evaluate(() => document.body.style.overflow), '')
+  } finally {
+    for (const release of releases.values()) release()
+  }
 })

@@ -16,6 +16,77 @@ function GalleryIcon({ kind }) {
   </svg>
 }
 
+// The photo transition owns the outer plane; zoom/pan owns its inner view.
+// Keeping these transforms separate prevents a swipe from overwriting zoom.
+function PhotoScene({ photo, alt, direction = 1, viewTransform, imageRef, imageClassName, onLoad, onError, animate = true }) {
+  const root = useRef(null)
+  const currentImage = useRef(null)
+  const committed = useRef({ photo, alt, viewTransform })
+  const [frame, setFrame] = useState({ url: photo.url, previous: null, direction })
+
+  // Retain exactly one outgoing photo before React commits the new source.
+  // A new selection replaces an interrupted transition instead of queuing it.
+  if (frame.url !== photo.url) setFrame({
+    url: photo.url,
+    previous: !currentImage.current?.naturalWidth && frame.previous ? frame.previous : committed.current,
+    direction
+  })
+
+  useLayoutEffect(() => { committed.current = { photo, alt, viewTransform } })
+
+  useLayoutEffect(() => {
+    if (!frame.previous) return
+    let disposed = false
+    const finish = () => {
+      if (!disposed) setFrame(active => active === frame ? { ...active, previous: null } : active)
+    }
+    if (!animate) { finish(); return }
+
+    const motion = gsap.matchMedia()
+    motion.add({ reduced: '(prefers-reduced-motion: reduce)', full: '(prefers-reduced-motion: no-preference)' }, context => {
+      if (context.conditions.reduced) { finish(); return }
+      const incoming = root.current.querySelector('[data-current="true"]')
+      const outgoing = root.current.querySelector('[data-current="false"]')
+      const image = currentImage.current
+      const sign = frame.direction < 0 ? -1 : 1
+      gsap.set(incoming, { autoAlpha: 0, xPercent: sign * 52, rotationY: -sign * 58, z: -200 })
+      gsap.set(outgoing, { autoAlpha: 1, xPercent: 0, rotationY: 0, z: 0 })
+      const timeline = gsap.timeline({ paused: true, defaults: { duration: 0.78, ease: 'power2.inOut' }, onComplete: finish })
+      timeline.to(outgoing, { xPercent: -sign * 52, rotationY: sign * 58, z: -200, autoAlpha: 0 }, 0)
+        .to(incoming, { xPercent: 0, rotationY: 0, z: 0, autoAlpha: 1 }, 0)
+      // Keep the old photo visible until the selected image has loaded. A
+      // cached image can start immediately; errors still leave navigation usable.
+      const start = () => timeline.play(0)
+      const fail = () => finish()
+      if (image.complete) {
+        if (image.naturalWidth > 0) start()
+        else fail()
+      } else {
+        image.addEventListener('load', start, { once: true })
+        image.addEventListener('error', fail, { once: true })
+      }
+      return () => {
+        image.removeEventListener('load', start)
+        image.removeEventListener('error', fail)
+      }
+    }, root)
+    return () => { disposed = true; motion.revert() }
+  }, [frame, animate])
+
+  return <div ref={root} className="product-photo-scene" data-transitioning={Boolean(frame.previous)}>
+    <div className="product-photo-slide" data-current="true">
+      <div className={viewTransform ? 'product-lightbox-transform' : 'product-photo-view'} style={viewTransform ? { transform: viewTransform } : undefined}>
+        <img ref={node => { currentImage.current = node; if (imageRef) imageRef.current = node }} src={photo.url} alt={alt} className={imageClassName} draggable="false" onLoad={onLoad} onError={onError} onDragStart={event => event.preventDefault()} />
+      </div>
+    </div>
+    {frame.previous && <div key={frame.previous.photo.url} className="product-photo-slide" data-current="false" aria-hidden="true">
+      <div className="product-photo-outgoing-view" style={frame.previous.viewTransform ? { transform: frame.previous.viewTransform } : undefined}>
+        <img src={frame.previous.photo.url} alt="" draggable="false" />
+      </div>
+    </div>}
+  </div>
+}
+
 function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
   const dialog = useRef(null)
   const stage = useRef(null)
@@ -25,6 +96,7 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
   const zoomRef = useRef(1)
   const panRef = useRef({ x: 0, y: 0 })
   const [index, setIndex] = useState(initialIndex)
+  const [direction, setDirection] = useState(1)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -71,8 +143,10 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
 
   useEffect(() => {
     if (photos.length < 2) return
-    const next = new Image()
-    next.src = photos[(index + 1) % photos.length].url
+    for (const offset of [-1, 1]) {
+      const adjacent = new Image()
+      adjacent.src = photos[(index + offset + photos.length) % photos.length].url
+    }
   }, [index, photos])
 
   function choosePhoto(nextIndex) {
@@ -81,6 +155,8 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
     gesture.current = null
     setDragging(false)
     updateView(1)
+    if (next === index) return
+    setDirection(nextIndex < index ? -1 : 1)
     setIndex(next)
     onSelect(photos[next])
   }
@@ -153,9 +229,7 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
       <button type="button" className="product-lightbox-close" aria-label="Fechar galeria" onClick={onDismiss} autoFocus><GalleryIcon kind="close" /></button>
     </div>
     <div ref={stage} className="product-lightbox-stage" data-zoomed={zoom > 1} data-dragging={dragging} data-lenis-prevent="" onPointerDown={startGesture} onPointerMove={moveGesture} onPointerUp={endGesture} onPointerCancel={endGesture} onDoubleClick={() => updateView(zoomRef.current > 1 ? 1 : 2)}>
-      <div className="product-lightbox-transform" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-        <img ref={image} src={photos[index].url} alt={name + ' — foto ' + (index + 1)} draggable="false" onLoad={() => { setFailedUrl(null); updateView(zoomRef.current) }} onError={() => setFailedUrl(photos[index].url)} onDragStart={(event) => event.preventDefault()} />
-      </div>
+      <PhotoScene photo={photos[index]} alt={name + ' — foto ' + (index + 1)} direction={direction} imageRef={image} viewTransform={`translate(${pan.x}px, ${pan.y}px) scale(${zoom})`} onLoad={() => { setFailedUrl(null); updateView(zoomRef.current) }} onError={() => setFailedUrl(photos[index].url)} />
       {failedUrl === photos[index].url && <p className="product-photo-error" role="status">Não foi possível carregar esta foto. Você pode escolher outra imagem ou fechar a galeria.</p>}
     </div>
     <div className="product-lightbox-controls">
@@ -172,38 +246,29 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
 }
 
 export default function ProductGallery({ media = [], name = 'Produto' }) {
-  const root = useRef(null)
   const gallery = useMemo(() => media.filter((item) => item?.url), [media])
   const photos = useMemo(() => gallery.filter((item) => item.media_type !== 'video'), [gallery])
   const [selectedUrl, setSelectedUrl] = useState(null)
+  const [direction, setDirection] = useState(1)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [failedUrl, setFailedUrl] = useState(null)
   const current = gallery.find((item) => item.url === selectedUrl) || photos[0] || gallery[0]
   const currentIndex = Math.max(0, gallery.indexOf(current))
-
-  useLayoutEffect(() => {
-    const motion = gsap.matchMedia()
-    motion.add('(prefers-reduced-motion: no-preference)', () => {
-      const image = root.current?.querySelector('.product-photo-trigger > img')
-      if (image) gsap.fromTo(image, { autoAlpha: 0, scale: 1.015 }, { autoAlpha: 1, scale: 1, duration: 0.35, ease: 'power2.out', clearProps: 'opacity,visibility,transform' })
-    }, root)
-    return () => motion.revert()
-  }, [current?.url])
 
   function openPhoto() {
     const photoIndex = photos.findIndex((photo) => photo.url === current?.url)
     if (photoIndex >= 0) setLightboxIndex(photoIndex)
   }
 
-  return <section ref={root} className="product-gallery" aria-label="Galeria do produto">
+  return <section className="product-gallery" aria-label="Galeria do produto">
     <div className="product-main-media">
       {current?.media_type === 'video'
         ? <video key={current.url} src={current.url} controls playsInline preload="metadata" className="product-detail-media" aria-label={'Vídeo de ' + name} />
-        : current ? <button type="button" className="product-photo-trigger" aria-label={'Ampliar foto de ' + name} onClick={openPhoto}><img src={current.url} alt={name} className="product-detail-media" draggable="false" onLoad={() => setFailedUrl(null)} onError={() => setFailedUrl(current.url)} />{failedUrl === current.url && <span className="product-photo-error" role="status">Não foi possível carregar esta foto</span>}<span className="product-photo-cue"><GalleryIcon />Ampliar foto</span></button>
+        : current ? <button type="button" className="product-photo-trigger" aria-label={'Ampliar foto de ' + name} onClick={openPhoto}><PhotoScene photo={current} alt={name} direction={direction} imageClassName="product-detail-media" animate={lightboxIndex === null} onLoad={() => setFailedUrl(null)} onError={() => setFailedUrl(current.url)} />{failedUrl === current.url && <span className="product-photo-error" role="status">Não foi possível carregar esta foto</span>}<span className="product-photo-cue"><GalleryIcon />Ampliar foto</span></button>
           : <img src="/images/product-placeholder.svg" alt={name} className="product-detail-media" />}
       {gallery.length > 1 && <span className="product-media-position" aria-hidden="true">{String(currentIndex + 1).padStart(2, '0')} / {String(gallery.length).padStart(2, '0')}</span>}
     </div>
-    {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((item, index) => <button className={current?.url === item.url ? 'product-thumb active' : 'product-thumb'} type="button" key={item.url} aria-label={(item.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={current?.url === item.url} onClick={() => setSelectedUrl(item.url)}>{item.media_type === 'video' ? <span className="product-thumb-video" aria-hidden="true">▶</span> : <img src={item.url} alt="" loading="lazy" draggable="false" />}</button>)}</div>}
+    {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((item, index) => <button className={current?.url === item.url ? 'product-thumb active' : 'product-thumb'} type="button" key={item.url} aria-label={(item.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={current?.url === item.url} onClick={() => { setDirection(index < currentIndex ? -1 : 1); setSelectedUrl(item.url) }}>{item.media_type === 'video' ? <span className="product-thumb-video" aria-hidden="true">▶</span> : <img src={item.url} alt="" loading="lazy" draggable="false" />}</button>)}</div>}
     <p className="product-gallery-caption"><span>Uma peça, todos os detalhes</span>{photos.length > 0 && <span>Toque na foto para ampliar ↗</span>}</p>
     {lightboxIndex !== null && photos.length > 0 && <PhotoLightbox photos={photos} initialIndex={clamp(lightboxIndex, 0, photos.length - 1)} name={name} onSelect={(photo) => setSelectedUrl(photo.url)} onDismiss={() => setLightboxIndex(null)} />}
   </section>
