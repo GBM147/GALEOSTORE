@@ -20,7 +20,7 @@
     "test:privacy": "node --test --test-isolation=none tests/database-privacy.integration.test.js",
     "test:cleanup": "node --test --test-concurrency=1 tests/test-data-cleanup.integration.test.js",
     "cleanup:test-data": "node scripts/cleanup-test-data.mjs",
-    "test:browser": "node --test --test-isolation=none tests/frontend.browser.mjs tests/media-approval.browser.mjs tests/media-usage.browser.mjs tests/home-workflow.browser.mjs",
+    "test:browser": "node --test --test-isolation=none tests/frontend.browser.mjs tests/media-approval.browser.mjs tests/media-usage.browser.mjs tests/home-workflow.browser.mjs tests/product-gallery.browser.mjs",
     "test:media": "node --test --test-concurrency=1 tests/media-approval.integration.test.mjs tests/media-usage.integration.test.mjs tests/media-management.integration.test.mjs",
     "test:home": "node --test tests/home-workflow.integration.test.mjs",
     "test:newsletter": "node --test tests/newsletter.integration.test.js",

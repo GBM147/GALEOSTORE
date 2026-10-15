@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { addToCart, STORE_API_BASE } from './storeApi'
+import ProductGallery from './ProductGallery'
 
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 
 const productGallery = (product) => {
   const uploaded = Array.isArray(product?.media) ? product.media : []
   const cover = product?.image ? { id:'cover', media_type:'image', url:product.image } : null
+  const video = product?.video ? { id:'video', media_type:'video', url:product.video } : null
   const urls = new Set()
-  return [cover, ...uploaded].filter((item) => {
+  return [cover, ...uploaded, video].filter((item) => {
     if (!item?.url || urls.has(item.url)) return false
     urls.add(item.url)
     return true
@@ -19,7 +21,6 @@ export default function ProductPage() {
   const { id } = useParams()
   const [product, setProduct] = useState(null)
   const [related, setRelated] = useState([])
-  const [selectedMedia, setSelectedMedia] = useState(null)
   const [quantity, setQuantity] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -39,8 +40,6 @@ export default function ProductPage() {
         if (!alive) return
         setProduct(data.product || null)
         setRelated(Array.isArray(data.related) ? data.related : [])
-        const media = productGallery(data.product)
-        setSelectedMedia(media.find((item) => item.media_type === 'image') || media[0] || null)
         setQuantity(1)
       })
       .catch((err) => { if (alive) setError(err.message) })
@@ -61,21 +60,12 @@ export default function ProductPage() {
   if (error || !product) return <main className="section-shell page-space product-page-state"><span className="eyebrow">GALEO / PRODUTO</span><h1>Produto não encontrado</h1><p>{error || 'Este produto não está disponível no catálogo'}</p><Link className="button button-primary" to="/shop">Voltar ao catálogo ↗</Link></main>
 
   const stock = Math.max(0, Number(product.stock || 0))
-  const currentMedia = selectedMedia || gallery[0]
-  const image = currentMedia?.media_type === 'image' ? currentMedia.url : (product.image || '/images/product-placeholder.svg')
 
   return (
     <main className="section-shell product-page">
       <div className="product-breadcrumb"><Link to="/shop">CATÁLOGO</Link><span>/</span><span>{product.category || 'PRODUTO'}</span></div>
       <div className="product-detail">
-        <section className="product-gallery" aria-label="Galeria do produto">
-          <div className="product-main-media">
-            {currentMedia?.media_type === 'video'
-              ? <video src={currentMedia.url} controls playsInline className="product-detail-media" />
-              : <img src={image} alt={product.name} className="product-detail-media" />}
-          </div>
-          {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((media, index) => <button className={currentMedia?.url === media.url ? 'product-thumb active' : 'product-thumb'} type="button" key={media.url} aria-label={(media.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={currentMedia?.url === media.url} onClick={() => setSelectedMedia(media)}>{media.media_type === 'video' ? <span className="product-thumb-video">▶</span> : <img src={media.url} alt="" loading="lazy" />}</button>)}</div>}
-        </section>
+        <ProductGallery key={product.id} media={gallery} name={product.name} />
 
         <section className="product-info">
           <span className="eyebrow">{product.brand || 'GALEO'} / {product.category || 'PRODUTO'}</span>

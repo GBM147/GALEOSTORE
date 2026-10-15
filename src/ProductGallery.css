@@ -1,0 +1,210 @@
+.product-gallery .product-main-media {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  aspect-ratio: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.product-gallery .product-photo-trigger {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.product-gallery .product-detail-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.product-gallery .product-photo-cue {
+  position: absolute;
+  z-index: 2;
+  bottom: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .025em;
+  pointer-events: none;
+}
+
+.product-gallery .product-photo-cue svg { width: 19px; height: 19px; }
+.product-gallery .product-media-position {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  pointer-events: none;
+}
+
+.product-gallery .product-thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.product-gallery .product-thumb {
+  display: block;
+  width: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  max-height: 100px;
+  aspect-ratio: 1;
+  padding: 4px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.product-gallery .product-thumb img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.product-gallery .product-thumb.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.product-gallery .product-thumb-video { display: grid; place-items: center; height: 100%; color: var(--accent-soft); }
+.product-gallery .product-gallery-caption {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.product-gallery .product-photo-trigger:focus-visible,
+.app > main .product-gallery .product-photo-trigger:focus-visible,
+.product-gallery .product-thumb:focus-visible,
+.app > main .product-gallery .product-thumb:focus-visible,
+.product-lightbox button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.product-lightbox {
+  position: fixed;
+  inset: 0;
+  display: none;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: max(16px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.product-lightbox[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 14px; }
+.product-lightbox::backdrop { background: rgba(0, 0, 0, .88); }
+.product-lightbox .product-lightbox-header { display: flex; align-items: center; gap: 20px; min-height: 52px; }
+.product-lightbox .product-lightbox-heading { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.product-lightbox .product-lightbox-heading > span { color: var(--accent-soft); font-size: 9px; font-weight: 700; letter-spacing: .16em; }
+.product-lightbox .product-lightbox-heading > strong { overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.product-lightbox .product-lightbox-count { flex-shrink: 0; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.product-lightbox button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.product-lightbox button:hover { border-color: var(--accent); }
+.product-lightbox button:disabled { opacity: .35; cursor: default; }
+.product-lightbox button svg { display: block; width: 20px; height: 20px; }
+.product-lightbox .product-lightbox-close { flex-shrink: 0; }
+.product-lightbox .product-lightbox-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.product-lightbox .product-lightbox-stage[data-dragging="true"] { cursor: grabbing; }
+.product-lightbox .product-lightbox-transform { width: 100%; height: 100%; transform-origin: center; }
+.product-lightbox .product-lightbox-transform img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.product-gallery .product-photo-error,
+.product-lightbox .product-photo-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  padding: 24px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  pointer-events: none;
+}
+.product-lightbox .product-lightbox-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
+.product-lightbox .product-lightbox-navigation, .product-lightbox .product-lightbox-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.product-lightbox .product-lightbox-navigation > span { padding-inline: 5px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .12em; }
+.product-lightbox .product-lightbox-zoom button { font-size: 12px; font-variant-numeric: tabular-nums; }
+.product-lightbox .product-lightbox-zoom button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-soft); }
+.product-lightbox .product-lightbox-help { flex: 1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; text-align: right; }
+.product-lightbox .product-lightbox-thumbnails { display: flex; gap: 8px; min-width: 0; padding: 2px; overflow-x: auto; overscroll-behavior-x: contain; }
+.product-lightbox .product-lightbox-thumbnails button { flex: 0 0 62px; width: 62px; height: 62px; padding: 3px; }
+.product-lightbox .product-lightbox-thumbnails button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.product-lightbox .product-lightbox-thumbnails img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+@media (max-width: 700px) {
+  .product-gallery .product-photo-cue { right: 12px; bottom: 12px; padding: 8px 10px; }
+  .product-gallery .product-media-position { top: 12px; left: 12px; }
+  .product-gallery .product-thumb-grid { grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 6px; }
+  .product-gallery .product-thumb { max-height: 78px; }
+  .product-lightbox { padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .product-lightbox[open] { gap: 10px; }
+  .product-lightbox .product-lightbox-header { gap: 12px; }
+  .product-lightbox .product-lightbox-heading > strong { font-size: 12px; }
+  .product-lightbox .product-lightbox-controls { gap: 8px 12px; justify-content: space-between; }
+  .product-lightbox .product-lightbox-navigation > span { display: none; }
+  .product-lightbox .product-lightbox-help { flex-basis: 100%; text-align: center; font-size: 10px; }
+  .product-lightbox .product-lightbox-thumbnails button { flex-basis: 50px; width: 50px; height: 50px; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .product-lightbox[open] { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px 14px; }
+  .product-lightbox .product-lightbox-header { grid-column: 1 / -1; min-height: 44px; }
+  .product-lightbox .product-lightbox-stage { grid-row: 2 / 4; }
+  .product-lightbox .product-lightbox-controls { width: 154px; align-content: start; }
+  .product-lightbox .product-lightbox-thumbnails { width: 154px; }
+  .product-lightbox .product-lightbox-help { text-align: left; }
+}
