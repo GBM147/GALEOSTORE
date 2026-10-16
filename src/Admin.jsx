@@ -1105,7 +1105,7 @@ function OnlineOrderModal({ order, onClose, onStatus }) {
     <div className="online-order-summary"><div><span>Cliente</span><strong>{order.customer_name}</strong><small>{order.customer_email}{order.customer_phone?' · '+order.customer_phone:''}</small></div><div><span>Total</span><strong>{money(order.total)}</strong><small>{dateBR(order.created_at)}</small></div></div>
     <div className="online-order-payment"><div><span>Pagamento</span><strong>{({PENDING:'Aguardando',APPROVED:'Aprovado',REJECTED:'Recusado',CANCELLED:'Cancelado',REFUNDED:'Estornado'})[order.payment_status]||'Não informado'}</strong><small>{order.payment_provider ? order.payment_provider + (order.payment_method?' · '+order.payment_method:'') : 'Ainda não vinculado'}</small></div><div><span>Venda</span><strong>{order.sale_id ? 'VDA-' + String(order.sale_id).padStart(6,'0') : 'Será criada automaticamente'}</strong></div></div>
     <div className="online-order-address"><span className="eyebrow">ENTREGA</span><p>{order.street}, {order.number}{order.complement?' · '+order.complement:''}<br />{order.neighborhood} · {order.city} / {order.state}<br />CEP {order.postal_code}</p></div>
-    <div className="online-order-items"><span className="eyebrow">ITENS</span>{order.items?.map((item)=><div key={item.product_id}><span>{item.quantity} × {item.product_name}</span><strong>{money(item.line_total)}</strong></div>)}</div>
+    <div className="online-order-items"><span className="eyebrow">ITENS</span>{order.items?.map((item,index)=><div key={item.id ?? index}><span>{item.quantity} × {item.product_name}</span><strong>{money(item.line_total)}</strong></div>)}</div>
     <label className="online-order-status">Status<select value={status} onChange={(e)=>setStatus(e.target.value)}>{statuses.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <div className="modal-actions"><button className="button button-ghost" type="button" onClick={onClose}>Voltar</button><button className="button button-primary" type="button" disabled={saving||status===order.status} onClick={save}>{saving?'Salvando…':'Salvar status'}</button></div>
   </div></div>
@@ -1199,14 +1199,12 @@ function Admin({ user, onLogout }) {
 
   async function removeProduct(product) {
     const confirmed = window.confirm(
-      'Excluir o produto "' + product.name + '"? Se ele já tiver histórico de vendas/estoque, o GALEO irá apenas ocultá-lo para preservar o histórico.'
+      'Excluir definitivamente o produto "' + product.name + '"? O cadastro, suas movimentações de estoque e os vínculos de mídia serão removidos. Essa ação não pode ser desfeita. Vendas e pedidos cancelados serão preservados. Operações não canceladas ou com pagamento aprovado impedem a exclusão.'
     )
     if (!confirmed) return
     try {
-      const result = await api('/api/admin/products/' + product.id, { method: 'DELETE' })
-      alert(result?.mode === 'hidden'
-        ? 'Produto ocultado. O histórico foi preservado.'
-        : 'Produto excluído.')
+      await api('/api/admin/products/' + product.id, { method: 'DELETE' })
+      alert('Produto e movimentações de estoque excluídos definitivamente.')
       await load()
     } catch (error) {
       alert(error.message)

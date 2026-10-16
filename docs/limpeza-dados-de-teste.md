@@ -51,9 +51,11 @@ operacionais de teste autorizado, e não deve ser usada com transações reais.
 
 Usar `DELETE` transacional, sem desativar FKs e sem resetar `AUTO_INCREMENT`.
 Carrinhos antigos guardam IDs de produtos; reutilizar esses IDs pode fazer um
-carrinho antigo apontar para um produto novo. As rotas comuns de exclusão de
-produto não executam esse reset: podem apenas ocultar o produto com histórico
-ou excluir arquivos do Cloudinary.
+carrinho antigo apontar para um produto novo. A exclusão de produto pelo painel
+também preserva a sequência de IDs: remove o cadastro e suas movimentações de
+estoque, mantendo vendas e pedidos cancelados por meio dos dados dos itens.
+Operações não canceladas impedem a exclusão. Os arquivos do Cloudinary continuam
+na biblioteca, sujeitos à verificação de uso.
 
 Retirar os IDs dos produtos excluídos de `featured_products.product_ids` nos
 conteúdos publicado e rascunho, preservando textos, mídia e outras configurações.

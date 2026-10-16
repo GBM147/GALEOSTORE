@@ -8,6 +8,7 @@ import { createDataProtection } from './data-protection.js'
 import { createDatabasePrivacy } from './database-privacy.js'
 import { protectSessionStore } from './protected-session-store.js'
 import { inspectMySqlSecurity } from './mysql-security-status.js'
+import { ensureProductDeletionSchema } from './product-deletion-schema.js'
 import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
 import { createTransactionalEmail } from './transactional-email.js'
 import { createNewsletter, registerNewsletter, NEWSLETTER_DDL } from './newsletter.js'
@@ -593,6 +594,7 @@ async function init({ preserveCategories = false } = {}) {
   }
   await recoverOperationalSequences(query, { ...recovery, missingTables: recovery.missingTables.filter(table => table !== 'newsletter_subscriptions') })
   await ensureHomeWorkflowSchema(query)
+  await ensureProductDeletionSchema({ query, ensureColumn })
   // Existing customers retain their data, but must confirm ownership of their
   // email before a new or previously issued customer session can be used.
   await ensureColumn('customers', 'email_verified_at', 'DATETIME NULL')
@@ -904,8 +906,8 @@ async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
     const [productRows] = await conn.execute('SELECT id,cost FROM products WHERE id=? FOR UPDATE', [item.product_id])
     if (!productRows.length) throw new Error('Produto do pedido não encontrado.')
     await conn.execute(
-      'INSERT INTO sale_items(sale_id,product_id,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?)',
-      [saleId, item.product_id, item.quantity, Number(item.unit_price), Number(productRows[0].cost || 0), Number(item.line_total)]
+      'INSERT INTO sale_items(sale_id,product_id,product_name,brand,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?)',
+      [saleId, item.product_id, item.product_name, item.brand, item.quantity, Number(item.unit_price), Number(productRows[0].cost || 0), Number(item.line_total)]
     )
   }
 
@@ -1526,7 +1528,7 @@ app.get('/api/customer/orders', exigirCliente, async (req,res) => {
   try {
     const orders=await query('SELECT id,code,status,subtotal,shipping_fee,total,created_at,updated_at FROM store_orders WHERE customer_id=? ORDER BY id DESC',[req.customer.id])
     for(const order of orders) {
-      order.items=await query('SELECT product_id,product_name AS name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
+      order.items=await query('SELECT id,product_id,product_name AS name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
     }
     res.json({success:true,orders})
@@ -1761,7 +1763,7 @@ app.get('/api/admin/store-orders', async (req,res) => {
   try {
     const orders=await query('SELECT id,private_data,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
     for(const order of orders){
-      order.items=await query('SELECT product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
+      order.items=await query('SELECT id,product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
     }
     res.json(orders)
@@ -1776,7 +1778,7 @@ app.get('/api/admin/store-orders/:id', async (req,res) => {
     const id=Number(req.params.id)
     const rows=await query('SELECT * FROM store_orders WHERE id=? LIMIT 1',[id])
     if(!rows.length) return res.status(404).json({error:'Pedido não encontrado.'})
-    const items=await query('SELECT product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[id])
+    const items=await query('SELECT id,product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[id])
     res.json({...rows[0],items})
   } catch(error){
     console.error('Erro ao detalhar pedido online:',error)
@@ -2023,7 +2025,7 @@ app.get('/api/admin/sales/:id', exigirLogin, async (req, res) => {
     const saleId = Number(req.params.id)
     const saleRows = await query('SELECT * FROM sales WHERE id=? LIMIT 1', [saleId])
     if (!saleRows.length) return res.status(404).json({ error: 'Venda não encontrada.' })
-    const items = await query('SELECT si.*, p.name AS product, p.brand FROM sale_items si INNER JOIN products p ON p.id=si.product_id WHERE si.sale_id=? ORDER BY si.id', [saleId])
+    const items = await query("SELECT si.*, COALESCE(NULLIF(si.product_name,''),p.name) AS product, CASE WHEN NULLIF(si.product_name,'') IS NOT NULL THEN si.brand ELSE COALESCE(p.brand,'') END AS brand FROM sale_items si LEFT JOIN products p ON p.id=si.product_id WHERE si.sale_id=? ORDER BY si.id", [saleId])
     res.json({ ...saleRows[0], items })
   } catch (error) {
     console.error('Erro ao detalhar venda:', error)
@@ -2087,8 +2089,8 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
       total += lineTotal
 
       await conn.execute(
-        'INSERT INTO sale_items(sale_id,product_id,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?)',
-        [saleId, productId, quantity, unitPrice, unitCost, lineTotal]
+        'INSERT INTO sale_items(sale_id,product_id,product_name,brand,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?)',
+        [saleId, productId, product.name, product.brand, quantity, unitPrice, unitCost, lineTotal]
       )
 
       const stockAfter = stock - quantity
@@ -2406,20 +2408,28 @@ app.delete('/api/admin/products/:id', exigirLogin, async (req, res) => {
     }
 
     const product = productRows[0]
-    const [saleRows] = await conn.execute('SELECT COUNT(*) AS total FROM sale_items WHERE product_id=?', [productId])
-    const [movementRows] = await conn.execute('SELECT COUNT(*) AS total FROM stock_movements WHERE product_id=?', [productId])
-    const hasHistory = Number(saleRows[0]?.total || 0) > 0 || Number(movementRows[0]?.total || 0) > 0
-
-    if (hasHistory) {
-      await conn.execute('UPDATE products SET active=0 WHERE id=?', [productId])
-      await audit(req.admin.id, 'OCULTAR', 'produto', productId, { reason: 'possui_historico' }, conn)
-      await conn.commit()
-      return res.json({ success: true, mode: 'hidden' })
+    const [saleRows] = await conn.execute(`SELECT si.id,s.status FROM sale_items si
+      INNER JOIN sales s ON s.id=si.sale_id WHERE si.product_id=? ORDER BY si.id FOR UPDATE`, [productId])
+    const [orderRows] = await conn.execute(`SELECT oi.id,o.status,o.payment_status FROM store_order_items oi
+      INNER JOIN store_orders o ON o.id=oi.order_id WHERE oi.product_id=? ORDER BY oi.id FOR UPDATE`, [productId])
+    if (saleRows.some(row => row.status !== 'CANCELADA') || orderRows.some(row => row.status !== 'CANCELLED' || row.payment_status === 'APPROVED')) {
+      await conn.rollback()
+      return res.status(409).json({
+        code: 'PRODUCT_HAS_TRANSACTIONS',
+        error: 'Este produto possui vendas ou pedidos não cancelados, ou pagamento ainda aprovado. Cancele ou estorne essas operações antes de excluir. O cadastro e o histórico foram mantidos.'
+      })
     }
 
+    // Initial stock and manual corrections must not turn deletion into hiding.
+    // Cancelled transactions retain their item descriptions, quantities and values.
+    await conn.execute(`UPDATE sale_items SET
+      brand=IF(product_name='',?,brand),product_name=IF(product_name='',?,product_name),product_id=NULL
+      WHERE product_id=?`, [product.brand, product.name, productId])
+    await conn.execute('UPDATE store_order_items SET product_id=NULL WHERE product_id=?', [productId])
+    const [movements] = await conn.execute('DELETE FROM stock_movements WHERE product_id=?', [productId])
     await conn.execute('DELETE FROM product_media WHERE product_id=?', [productId])
     await conn.execute('DELETE FROM products WHERE id=?', [productId])
-    await audit(req.admin.id, 'EXCLUIR', 'produto', productId, { name: product.name }, conn)
+    await audit(req.admin.id, 'EXCLUIR', 'produto', productId, { name: product.name, stock_movements_deleted: movements.affectedRows }, conn)
     await conn.commit()
 
     // Files remain in the library for Home, other products and retained versions.
@@ -2427,8 +2437,11 @@ app.delete('/api/admin/products/:id', exigirLogin, async (req, res) => {
     res.json({ success: true, mode: 'deleted' })
   } catch (error) {
     try { await conn.rollback() } catch {}
-    console.error('Erro ao excluir produto:', error)
-    res.status(400).json({ error: error.message || 'Não foi possível excluir o produto.' })
+    console.error('Erro ao excluir produto:', error?.code || 'INTERNAL_ERROR')
+    if (error?.code === 'ER_ROW_IS_REFERENCED_2') {
+      return res.status(409).json({ code: 'PRODUCT_HAS_TRANSACTIONS', error: 'Este produto possui registros vinculados e não pode ser excluído. O cadastro e o histórico foram mantidos.' })
+    }
+    res.status(500).json({ error: 'Não foi possível confirmar a exclusão do produto. Atualize a lista antes de tentar novamente.' })
   } finally {
     conn.release()
   }
