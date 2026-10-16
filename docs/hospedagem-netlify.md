@@ -18,13 +18,14 @@ ser pausado até a renovação. Cada publicação de código em produção conso
    plano pago ou recarga automática.
 2. Usar `netlify.toml`: Node 24, build `npm run build`, saída `dist`, funções
    em `netlify/functions`.
-3. Configurar as variáveis abaixo com escopo **Functions** e contexto
-   **Production**. As chaves nunca entram em variáveis `VITE_`, no código ou
-   no diretório `dist`.
+3. Configurar as variáveis abaixo no contexto **Production**, com os escopos
+   disponibilizados pelo plano Free. A seleção granular de apenas **Functions**
+   é um recurso Pro; não contratar outro plano para habilitá-la. As chaves
+   nunca entram em variáveis `VITE_`, no código ou no diretório `dist`.
 4. Preparar o schema com `npm run db:migrate`, em um ambiente seguro com as
    mesmas credenciais do MySQL. Esse comando cria a tabela dos limites de
    tentativas e aplica as migrações existentes sem apagar produtos, donos ou
-   conteúdo. Não executá-lo a cada acesso nem no build da interface.
+   conteúdo. Não executá-lo a cada acesso nem no build habitual da interface.
 5. Publicar e testar a URL canônica do projeto. Usar a mesma origem para
    interface/API; não configurar redirecionamento da API para o Render.
 
@@ -49,12 +50,24 @@ Segredos opcionais das integrações futuras continuam desabilitados até sua
 contratação/configuração. Links de confirmação de e-mail novos usam `APP_URL`;
 links antigos apontando ao Render precisarão ser reenviados pelo cliente.
 
+Se a conexão MySQL estiver bloqueada no ambiente de desenvolvimento, executar
+a migração em um Netlify Build avulso e confiável, com credenciais de produção
+no provedor. Encerrar esse build após a migração, antes da publicação; o build
+habitual da loja continua sem migrar o banco. Não expor uma rota HTTP pública
+de migração nem usar uma função agendada para esse bootstrap, pois ela tem
+limite de 30 segundos.
+
 `netlify.toml` fornece somente variáveis públicas de build:
 `VITE_DIRECT_UPLOADS=true`, `VITE_RENDER_KEEPALIVE=false` e
 `VITE_STORE_API_URL` vazia. O catálogo passa a usar a mesma API Node, sem
 depender do serviço Go no Render. Novas variáveis de Functions devem ser
 cadastradas pela interface/API do Netlify, pois os valores de
 `[build.environment]` não são a configuração dos segredos em execução.
+
+Publicações enviadas pela API com arquivos já compilados precisam também
+incluir `dist/_redirects` e `dist/_headers` equivalentes ao TOML e o agendamento
+da função `maintenance` no manifesto. Nesse fluxo o Netlify não executa o
+processamento habitual de `netlify.toml` de um build por Git.
 
 Não expor as credenciais de produção a deploy previews de branches não
 confiáveis. Previews com API precisam de banco e segredos próprios de testes;
