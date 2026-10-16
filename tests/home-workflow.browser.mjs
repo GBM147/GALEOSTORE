@@ -62,7 +62,7 @@ async function fixture(t, { width = 1280, handle } = {}) {
     return json({ error:'Unhandled fixture API' },404)
   })
   await page.route('**/images/test-*.svg', (route) => route.fulfill({ contentType:'image/svg+xml', body:'<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#66513a"/></svg>' }))
-  await page.goto(baseUrl + '/admin?tab=editor')
+  await page.goto(baseUrl + '/admin?tab=editor&mode=advanced')
   await page.locator('.home-editor-heading').getByRole('heading', { name:'Hero', exact:true }).waitFor()
   await page.getByLabel('Título', { exact:true }).waitFor()
   assert.equal(await page.locator('.site-header').count(), 0, 'the storefront menu must not overlap the owner editor')

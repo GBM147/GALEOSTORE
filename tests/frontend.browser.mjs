@@ -204,7 +204,7 @@ test('editor saves categories with visibility and order', async (t) => {
       }
     }
   })
-  await page.goto(baseUrl + '/admin?tab=editor')
+  await page.goto(baseUrl + '/admin?tab=editor&mode=advanced')
   await page.getByLabel('Visibilidade').selectOption('0')
   await page.getByLabel('Ordem', { exact:true }).fill('5')
   await page.locator('.home-editor-card-grid').getByLabel('Nome', { exact:true }).fill('Moletons')

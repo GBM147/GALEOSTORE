@@ -24,7 +24,7 @@ function useMediaQuery(query) {
   return matches
 }
 
-export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '', alt = '', effect = 'zoom', speed = 'slow', durationSeconds = 6 }) {
+export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '', alt = '', effect = 'zoom', speed = 'slow', durationSeconds = 6, editorPaused = false }) {
   const root = useRef(null)
   const motion = useRef(null)
   const video = useRef(null)
@@ -33,7 +33,7 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
   const [pageVisible, setPageVisible] = useState(() => !document.hidden)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const mobile = useMediaQuery('(max-width: 700px)')
-  const paused = !visible || !pageVisible || reduceMotion
+  const paused = editorPaused || !visible || !pageVisible || reduceMotion
   const mobileFallback = mobile && Boolean(mobileUrl)
   const canPlayVideo = Boolean(videoUrl) && !paused && !mobileFallback
   const motionEffect = effect === 'static' || Object.hasOwn(motions, effect) ? effect : 'zoom'
@@ -55,7 +55,7 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
   }, [])
 
   useLayoutEffect(() => {
-    if (reduceMotion || motionEffect === 'static' || !root.current) return undefined
+    if (editorPaused || reduceMotion || motionEffect === 'static' || !root.current) return undefined
     gsap.registerPlugin(ScrollTrigger)
     const element = root.current
     const [from, to] = motions[motionEffect]
@@ -72,7 +72,7 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
       motion.current = null
       context.revert()
     }
-  }, [motionEffect, speedFactor, duration, reduceMotion])
+  }, [motionEffect, speedFactor, duration, reduceMotion, editorPaused])
 
   useLayoutEffect(() => {
     const animation = motion.current

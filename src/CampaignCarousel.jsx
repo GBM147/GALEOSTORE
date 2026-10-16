@@ -55,7 +55,7 @@ function CampaignMedia({ slide, variant, effect, active, paused, reduceMotion })
   </div>
 }
 
-export default function CampaignCarousel({ item, variant = 1, defaults, sectionDefaults, children }) {
+export default function CampaignCarousel({ item, variant = 1, defaults, sectionDefaults, children, editorPaused = false, editorNavigation = false, onEdit }) {
   const slides = useMemo(() => campaignSlides(item), [item])
   const settings = resolveCampaignAnimation(item, defaults, sectionDefaults)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
@@ -71,7 +71,7 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
   const [visible, setVisible] = useState(false)
   const [pageVisible, setPageVisible] = useState(() => !document.hidden)
   const [announcement, setAnnouncement] = useState('')
-  const paused = userPaused || hovered || focused || !visible || !pageVisible || reduceMotion
+  const paused = editorPaused || userPaused || hovered || focused || !visible || !pageVisible || reduceMotion
   const currentIndex = Math.min(current, slides.length - 1)
   const slideSignature = slides.map((slide) => [slide.desktop_url,slide.mobile_url,slide.desktop_type,slide.mobile_type].join('|')).join('\n')
   const label = item.title || 'Campanha GALEO'
@@ -107,7 +107,7 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
 
   useLayoutEffect(() => {
     const container = root.current
-    if (!container) return undefined
+    if (editorPaused || !container) return undefined
     const incoming = container.querySelector('[data-slide-index="' + currentIndex + '"]')
     const outgoing = previous == null ? null : container.querySelector('[data-slide-index="' + previous + '"]')
     const ctx = gsap.context(() => {
@@ -133,10 +133,10 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
       }
     }, container)
     return () => ctx.revert()
-  }, [currentIndex, previous, direction, settings.transition, settings.speed, reduceMotion, slideSignature])
+  }, [currentIndex, previous, direction, settings.transition, settings.speed, reduceMotion, slideSignature, editorPaused])
 
   useLayoutEffect(() => {
-    if (reduceMotion || settings.effect === 'static' || !root.current) return undefined
+    if (editorPaused || reduceMotion || settings.effect === 'static' || !root.current) return undefined
     gsap.registerPlugin(ScrollTrigger)
     const layer = root.current.querySelector('[data-slide-index="' + currentIndex + '"] .campaign-motion-layer')
     const motions = {
@@ -154,7 +154,7 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
         : { ...to, duration:settings.duration_seconds * factor, repeat:-1, yoyo:true, ease:'sine.inOut', paused })
     }, root.current)
     return () => { motion.current = null; ctx.revert() }
-  }, [currentIndex, settings.effect, settings.speed, settings.duration_seconds, reduceMotion, slideSignature])
+  }, [currentIndex, settings.effect, settings.speed, settings.duration_seconds, reduceMotion, slideSignature, editorPaused])
 
   useEffect(() => {
     const animation = motion.current
@@ -172,7 +172,14 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
     data-paused={paused} data-transitioning={transitioning}
     onPointerEnter={(event) => { if (event.pointerType !== 'touch') setHovered(true) }} onPointerLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}>
-    <Link className="campaign-carousel-link" to={item.button_url || '/shop'}>
+    {editorPaused ? <div className="campaign-carousel-link" onClick={onEdit}>
+      <div className="campaign-carousel-viewport" aria-hidden="true">
+        <div className="campaign-carousel-slide" data-active="true" style={{ opacity:1 }}><div className="campaign-motion-layer">
+          <CampaignMedia slide={slides[currentIndex]} variant={variant} effect="static" active paused reduceMotion />
+        </div></div>
+      </div>
+      {children}
+    </div> : <Link className="campaign-carousel-link" data-editor-spa-link={editorNavigation ? 'true' : undefined} to={item.button_url || '/shop'}>
       <div className="campaign-carousel-viewport" aria-hidden="true">
         {slides.map((slide, index) => <div key={index} className="campaign-carousel-slide" data-slide-index={index} data-active={index === currentIndex}>
           {(index === currentIndex || index === previous) && <div className="campaign-motion-layer">
@@ -181,8 +188,8 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
         </div>)}
       </div>
       {children}
-    </Link>
-    {slides.length > 1 && <div className="campaign-carousel-controls" role="group" aria-label={'Mídias de ' + label}>
+    </Link>}
+    {slides.length > 1 && !editorPaused && <div className="campaign-carousel-controls" role="group" aria-label={'Mídias de ' + label}>
       <button type="button" onClick={() => selectSlide(currentIndex - 1, -1, true)} disabled={transitioning} aria-label={'Mídia anterior de ' + label}>←</button>
       <span className="campaign-carousel-count" aria-live="off">{currentIndex + 1} / {slides.length}</span>
       <button type="button" onClick={() => selectSlide(currentIndex + 1, 1, true)} disabled={transitioning} aria-label={'Próxima mídia de ' + label}>→</button>

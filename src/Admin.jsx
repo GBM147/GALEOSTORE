@@ -1,46 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import MediaLibrary from './MediaLibrary'
 import { MediaLibraryPicker } from './MediaComparison'
 import PointOfSale from './PointOfSale'
 import { HomeDraftComparison, HomeSectionOrder, HomeVersionHistory } from './HomeWorkflow'
 import HomeCampaignEditor from './HomeCampaignEditor'
-let csrfToken = ''
-
-const api = async (path, options = {}) => {
-  const headers = new Headers(options.headers || {})
-  if (options.body && typeof options.body !== 'string') {
-    headers.set('Content-Type', 'application/json')
-    options = { ...options, body: JSON.stringify(options.body) }
-  }
-
-  const method = String(options.method || 'GET').toUpperCase()
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && path !== '/api/auth/login' && csrfToken) {
-    headers.set('X-CSRF-Token', csrfToken)
-  }
-
-  const response = await fetch(path, {
-    ...options,
-    headers,
-    credentials: 'include'
-  })
-
-  const raw = await response.text()
-  let data = null
-  try { data = raw ? JSON.parse(raw) : null } catch {}
-
-  if (data?.csrfToken) csrfToken = data.csrfToken
-  if (!response.ok) {
-    const error = new Error(data?.error || 'Erro na comunicação com o servidor.')
-    error.status = response.status
-    error.code = data?.code
-    error.data = data
-    if (path !== '/api/auth/login' && (error.status === 401 || error.code === 'ADMIN_OWNER_REQUIRED')) {
-      window.dispatchEvent(new Event('galeo-admin-auth-required'))
-    }
-    throw error
-  }
-  return data
-}
+import { adminApi as api, clearAdminCsrfToken, getAdminCsrfToken } from './adminApi'
 
 const money = (v) => Number(v || 0).toLocaleString('pt-BR', {
   style: 'currency',
@@ -68,6 +33,7 @@ const uploadMedia = async (productId, files, onProgress) => {
     batch.forEach((file) => formData.append('media', file))
 
     const headers = {}
+    const csrfToken = getAdminCsrfToken()
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken
 
     const response = await fetch('/api/admin/products/' + productId + '/media', {
@@ -1139,8 +1105,29 @@ function OnlineOrderModal({ order, onClose, onStatus }) {
   </div></div>
 }
 
+function VisualEditorLaunch() {
+  return (
+    <section className="visual-editor-launch">
+      <span className="eyebrow">CONTEÚDO DA LOJA</span>
+      <h2>Edite na própria loja</h2>
+      <p>Abra o rascunho e clique no texto ou na imagem que deseja mudar. Você verá as alterações na página enquanto edita.</p>
+      <ol className="visual-editor-launch-steps">
+        <li>Clique em um texto, imagem ou seção para editar.</li>
+        <li>Salve o rascunho e confira como ficará para o cliente.</li>
+        <li>Publique quando estiver tudo pronto.</li>
+      </ol>
+      <div className="visual-editor-launch-actions">
+        <Link className="button button-primary" to="/?preview=draft&edit=1">Editar rascunho ↗</Link>
+        <a className="button button-ghost" href="/admin?tab=editor&mode=advanced">Configurações avançadas</a>
+      </div>
+      <p>Salvar o rascunho não altera a loja pública. As mudanças só aparecem para os clientes depois de publicar.</p>
+    </section>
+  )
+}
+
 function Admin({ user, onLogout }) {
   const initialTab = (() => { try { const requested = new URLSearchParams(window.location.search).get('tab'); return ['dashboard','editor','products','sales','online-orders','finance','recurring','movements','library'].includes(requested) ? requested : 'dashboard' } catch { return 'dashboard' } })()
+  const advancedEditor = new URLSearchParams(window.location.search).get('mode') === 'advanced'
   const [tab, setTab] = useState(initialTab)
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
@@ -1259,6 +1246,7 @@ function Admin({ user, onLogout }) {
 
   async function logout() {
     try { await api('/api/auth/logout', { method: 'POST' }) } catch {}
+    clearAdminCsrfToken()
     onLogout()
   }
 
@@ -1299,7 +1287,7 @@ function Admin({ user, onLogout }) {
           ['movements', 'Histórico de estoque'],
           ['library', 'Biblioteca de mídia']
         ].map(([key, label]) => (
-          <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => setTab(key)} key={key}>{label}</button>
+          <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => key === 'editor' ? window.location.assign('/?preview=draft&edit=1') : setTab(key)} key={key}>{label}</button>
         ))}
         <div className="admin-user"><strong>{user?.email}</strong><small>{user?.role}</small></div>
         <button className="admin-nav" onClick={() => setSecurityModal(true)}>Alterar senha</button>
@@ -1316,8 +1304,8 @@ function Admin({ user, onLogout }) {
         </div>
 
         {loading ? <div className="admin-loading">Carregando dados reais…</div> : null}
-        {!loading && tab === 'editor' && user?.role === 'owner' && <HomeEditor user={user} />}
-        {!loading && tab === 'library' && <MediaLibrary api={api} csrf={() => csrfToken} role={user?.role} />}
+        {!loading && tab === 'editor' && user?.role === 'owner' && (advancedEditor ? <HomeEditor user={user} /> : <VisualEditorLaunch />)}
+        {!loading && tab === 'library' && <MediaLibrary api={api} csrf={getAdminCsrfToken} role={user?.role} />}
         {!loading && tab === 'pdv' && <PointOfSale api={api} operatorId={user.id} onSaleCreated={() => load(true)} />}
         {!loading && tab === 'dashboard' && (
           <>
@@ -1476,7 +1464,7 @@ export default function AdminGate() {
 
   useEffect(() => {
     function requireAdminLogin() {
-      csrfToken = ''
+      clearAdminCsrfToken()
       setUser(null)
     }
     window.addEventListener('galeo-admin-auth-required', requireAdminLogin)
