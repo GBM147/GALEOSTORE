@@ -33,7 +33,9 @@ before(async () => {
   }
   api = await import('../server/index.js')
   assert.ok(statements.every(sql => /^\s*SELECT\b/i.test(sql)), 'importing a serverless function must not migrate or seed')
+  const { insertId: existingCategory } = await fixture.query("INSERT INTO categories(name,sort_order) VALUES('Vestidos',99)")
   await api.migrateSchema()
+  assert.equal((await fixture.query('SELECT name FROM categories WHERE id=?', [existingCategory]))[0]?.name, 'Vestidos', 'hosting migration must preserve existing categories')
   request = (await import('../netlify/functions/api.mjs')).default
   cloudinary.api.resource = async id => {
     assert.ok(providerAssets.has(id), 'provider metadata must be explicitly mocked')

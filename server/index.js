@@ -334,7 +334,7 @@ async function ensureIndex(table, indexName, createSql) {
   if (!rows.length) await query(createSql)
 }
 
-async function init() {
+async function init({ preserveCategories = false } = {}) {
   const recovery = await inspectOperationalRecovery(query)
   const recoveryResult = await restoreOperationalReferences({ db, query, state: recovery, protection: dataProtection })
   const schema = [
@@ -629,7 +629,7 @@ async function init() {
 
   // A GALEO é uma loja de moda masculina. Esta categoria foi semeada
   // por uma versão anterior e não deve continuar aparecendo no catálogo.
-  await query("DELETE FROM categories WHERE name='Vestidos'")
+  if (!preserveCategories) await query("DELETE FROM categories WHERE name='Vestidos'")
 
   const financialCategories = [
     ['Vendas', 'RECEITA'], ['Outras receitas', 'RECEITA'],
@@ -2792,7 +2792,7 @@ export async function migrateSchema() {
     if (!acquired) throw new Error('Outra migração está em andamento. Tente novamente quando ela terminar.')
     await rawSessionStore.createDatabaseTable()
     await db.execute(RATE_LIMIT_DDL)
-    const recovery = await init()
+    const recovery = await init({ preserveCategories: serverless })
     if (recovery.missingTables.includes('newsletter_subscriptions')) await query(NEWSLETTER_DDL + ' AUTO_INCREMENT=' + recovery.nextId)
     await newsletter.initialize()
     if (recovery.missingTables.includes('newsletter_subscriptions')) await recoverOperationalSequences(query, { ...recovery, missingTables: ['newsletter_subscriptions'] })
