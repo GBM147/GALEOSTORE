@@ -27,6 +27,7 @@ const fallbackProducts = [
 
 function KeepAliveSocket() {
   useEffect(() => {
+    if (import.meta.env.VITE_RENDER_KEEPALIVE === 'false') return
     let socket = null
     let timer = null
     let reconnectTimer = null

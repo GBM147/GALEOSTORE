@@ -61,7 +61,10 @@ Após alterar uma variável `VITE_`, reinicie o Vite no desenvolvimento ou execu
 `npm run build`
 `npm start`
 
-O Render publica o frontend e a API pelo mesmo serviço.
+Para hospedagem gratuita com uso comercial, a configuração do Netlify está em
+[hospedagem-netlify.md](docs/hospedagem-netlify.md). Interface e API usam a mesma
+origem; Aiven, Cloudinary e Resend são preservados. O comando `npm start`
+continua disponível para desenvolvimento e servidores Node tradicionais.
 
 ## Validação da interface
 Com `npm run dev` ativo, execute `node --test tests/frontend.browser.mjs`.

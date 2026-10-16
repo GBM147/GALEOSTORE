@@ -6,13 +6,13 @@
   "main": "server/index.js",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/test-data-cleanup.js && node --check scripts/cleanup-test-data.mjs && node --check server/mercado-pago.js && node --check server/media-library.js && node --check server/media-usage.js && node --check server/product-image-selection.js && node --check session-policy.js && node --check server/home-workflow.js && node --check server/audit-retention.js && node --check server/media-management.js && node --check server/media-background.js && node --check server/newsletter.js && node --check server/media-presentation.js && node --check server/schema-recovery.js",
+    "check": "node --check server/index.js && node --check server/password-policy.js && node --check server/email-verification.js && node --check server/transactional-email.js && node --check server/data-protection.js && node --check server/database-privacy.js && node --check server/protected-session-store.js && node --check server/mysql-security-status.js && node --check server/test-data-cleanup.js && node --check scripts/cleanup-test-data.mjs && node --check server/mercado-pago.js && node --check server/media-library.js && node --check server/media-usage.js && node --check server/product-image-selection.js && node --check session-policy.js && node --check server/home-workflow.js && node --check server/audit-retention.js && node --check server/media-management.js && node --check server/media-background.js && node --check server/newsletter.js && node --check server/media-presentation.js && node --check server/schema-recovery.js && node --check server/background-tasks.js && node --check server/mysql-rate-limit-store.js && node --check server/runtime-schema.js && node --check server/direct-uploads.js && node --check netlify/functions/api.mjs && node --check netlify/functions/maintenance.mjs && node --check netlify/lib/http.mjs && node --check scripts/migrate-schema.mjs && node --check scripts/bundle-netlify.mjs",
     "test": "node --test --test-isolation=none server/*.test.js src/campaign-model.test.js",
     "test:integration": "node --test --test-isolation=none tests/backend.integration.test.js tests/mercado-pago.integration.test.js",
     "test:security": "node --test --test-isolation=none tests/auth-security.integration.test.js",
@@ -24,29 +24,34 @@
     "test:media": "node --test --test-concurrency=1 tests/media-approval.integration.test.mjs tests/media-usage.integration.test.mjs tests/media-management.integration.test.mjs",
     "test:home": "node --test tests/home-workflow.integration.test.mjs",
     "test:newsletter": "node --test tests/newsletter.integration.test.js",
-    "test:recovery": "node --test tests/schema-recovery.integration.test.mjs"
+    "test:recovery": "node --test tests/schema-recovery.integration.test.mjs",
+    "db:migrate": "node scripts/migrate-schema.mjs",
+    "bundle:netlify": "node scripts/bundle-netlify.mjs",
+    "test:netlify": "node --test --test-concurrency=1 tests/netlify-runtime.integration.test.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "cloudinary": "^2.7.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-mysql-session": "^3.0.3",
     "express-rate-limit": "^8.6.2",
     "express-session": "^1.18.1",
+    "gsap": "^3.15.0",
     "helmet": "^8.3.0",
+    "lenis": "^1.3.26",
+    "multer": "^2.0.2",
     "mysql2": "^3.14.3",
     "node-cron": "^4.2.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.4",
-    "cloudinary": "^2.7.0",
-    "multer": "^2.0.2",
-    "gsap": "^3.15.0",
-    "lenis": "^1.3.26",
+    "serverless-http": "^4.0.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@netlify/zip-it-and-ship-it": "^16.3.0",
     "@vitejs/plugin-react": "^5.0.4",
     "vite": "^7.1.9"
   }

@@ -6,6 +6,7 @@ import PointOfSale from './PointOfSale'
 import { HomeDraftComparison, HomeSectionOrder, HomeVersionHistory } from './HomeWorkflow'
 import HomeCampaignEditor from './HomeCampaignEditor'
 import { adminApi as api, clearAdminCsrfToken, getAdminCsrfToken } from './adminApi'
+import { directUploadsEnabled, uploadDirectMedia } from './directUpload'
 
 const money = (v) => Number(v || 0).toLocaleString('pt-BR', {
   style: 'currency',
@@ -23,6 +24,11 @@ const dateBR = (v) => {
 const uploadMedia = async (productId, files, onProgress) => {
   if (!productId) throw new Error('Salve o produto antes de enviar as imagens.')
   if (!files.length) return { success: true, media: [] }
+  if (directUploadsEnabled) {
+    const data = await uploadDirectMedia({ api, url: '/api/admin/products/' + productId + '/media', files, onProgress })
+    if (!Array.isArray(data?.media)) throw new Error('O servidor não confirmou o envio das imagens.')
+    return data
+  }
 
   const batchSize = 8
   const results = []

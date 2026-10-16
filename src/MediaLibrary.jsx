@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import MediaComparison from './MediaComparison'
 import MediaManagement, { MediaLibraryPreferences } from './MediaManagement'
+import { directUploadsEnabled, uploadDirectMedia } from './directUpload'
 
 const estado = (item) => (
   item.ai_status === 'done' ? (item.use_ai ? (item.presentation === 'galeo' ? 'Fundo GALEO em uso' : 'Sem fundo em uso') : 'Original em uso')
@@ -158,13 +159,16 @@ export default function MediaLibrary({ api, csrf, role }) {
   }
 
   const upload = (files) => run('up', async () => {
-    const form = new FormData()
-    files.forEach((file) => form.append('media', file))
-    const response = await fetch('/api/admin/media-library', {
-      method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': csrf() }, body: form
-    })
-    const data = await response.json().catch(() => null)
-    if (!response.ok) throw new Error(data?.error || 'Falha no envio.')
+    if (directUploadsEnabled) await uploadDirectMedia({ api, csrf, url: '/api/admin/media-library', files })
+    else {
+      const form = new FormData()
+      files.forEach((file) => form.append('media', file))
+      const response = await fetch('/api/admin/media-library', {
+        method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': csrf() }, body: form
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || 'Falha no envio.')
+    }
     await load()
     setMsg('Mídia enviada para a biblioteca.')
   })

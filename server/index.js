@@ -24,6 +24,10 @@ import { registerMediaLibrary } from './media-library.js'
 import { ensureHomeWorkflowSchema, createHomeWorkflow, registerHomeWorkflow } from './home-workflow.js'
 import { compactAuditDetails, createAuditRetentionQueue } from './audit-retention.js'
 import { ProductImageSelectionError, resolveProductImage } from './product-image-selection.js'
+import { createBackgroundTasks } from './background-tasks.js'
+import { MySqlRateLimitStore, RATE_LIMIT_DDL, pruneRateLimits } from './mysql-rate-limit-store.js'
+import { validateRuntimeSchema } from './runtime-schema.js'
+import { createDirectUploads, getVerifiedDirectAsset } from './direct-uploads.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -36,35 +40,42 @@ import {
   sessaoDevePersistir
 } from '../session-policy.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const app = express()
-const httpServer = createServer(app)
-const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
+const serverDirectory = path.dirname(fileURLToPath(import.meta.url))
+export const app = express()
+const serverless = process.env.GALEO_SERVERLESS === 'true'
+let httpServer, wss, websocketHeartbeat
+const scheduledJobs = []
+const backgroundTasks = createBackgroundTasks({ onError: error => console.error('Tarefa em segundo plano:', error?.code || 'BACKGROUND_TASK_FAILED') })
+export const withRequestTasks = backgroundTasks.run
+export const drainBackgroundTasks = backgroundTasks.drain
+const deferBackgroundPromise = backgroundTasks.defer
 
-wss.on('connection', (socket) => {
-  socket.isAlive = true
-  socket.on('pong', () => { socket.isAlive = true })
-  socket.on('message', (message) => {
+function startPersistentServices() {
+  httpServer = createServer(app)
+  wss = new WebSocketServer({ server: httpServer, path: '/ws' })
+  wss.on('connection', (socket) => {
     socket.isAlive = true
-    try {
-      const payload = JSON.parse(String(message || '{}'))
-      if (payload?.type === 'keepalive') socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() }))
-    } catch {
-      socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() }))
-    }
+    socket.on('pong', () => { socket.isAlive = true })
+    socket.on('message', (message) => {
+      socket.isAlive = true
+      try {
+        const payload = JSON.parse(String(message || '{}'))
+        if (payload?.type === 'keepalive') socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() }))
+      } catch { socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() })) }
+    })
+    socket.on('error', () => {})
   })
-  socket.on('error', () => {})
-})
-
-const websocketHeartbeat = setInterval(() => {
-  wss.clients.forEach((socket) => {
-    if (socket.isAlive === false) return socket.terminate()
-    socket.isAlive = false
-    socket.ping()
-  })
-}, 30000)
-
-wss.on('close', () => clearInterval(websocketHeartbeat))
+  websocketHeartbeat = setInterval(() => {
+    wss.clients.forEach((socket) => {
+      if (socket.isAlive === false) return socket.terminate()
+      socket.isAlive = false
+      socket.ping()
+    })
+  }, 30000)
+  wss.on('close', () => clearInterval(websocketHeartbeat))
+  scheduledJobs.push(cron.schedule('15 * * * *', () => auditRetention.run(), { timezone: 'America/Sao_Paulo' }))
+  scheduledJobs.push(cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' }))
+}
 
 if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
   cloudinary.config({
@@ -75,7 +86,7 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
   })
 }
 
-const mediaUpload = multer({
+const multipartUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024, files: 8 },
   fileFilter(req, file, callback) {
@@ -96,9 +107,10 @@ app.set('trust proxy', 1)
 
 const PORT = Number(process.env.PORT || 10000)
 const NODE_ENV = process.env.NODE_ENV || 'production'
-// Public Git revision from Render, used to confirm which deployment is serving
+// Public Git revision, used to confirm which deployment is serving
 // requests. Never return arbitrary environment variable contents.
-const deployRevision = /^[a-f0-9]{40}$/i.test(process.env.RENDER_GIT_COMMIT || '') ? process.env.RENDER_GIT_COMMIT.toLowerCase() : null
+const revision = process.env.COMMIT_REF || process.env.VERCEL_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || ''
+const deployRevision = /^[a-f0-9]{40}$/i.test(revision) ? revision.toLowerCase() : null
 const DB_PORT = Number(process.env.DB_PORT || 3306)
 const DB_SSL = process.env.DB_SSL !== 'false'
 const DB_SSL_REJECT_UNAUTHORIZED = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
@@ -122,7 +134,8 @@ const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 8,
+  connectionLimit: configuredConnectionLimit(),
+  ...(serverless ? { maxIdle: 1, idleTimeout: 10000 } : {}),
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
@@ -148,6 +161,17 @@ const sendTransactionalEmail = transactionalEmail.send
 const sendEmailSafely = transactionalEmail.sendSafely
 const confirmationEmailConfigured = transactionalEmail.confirmationConfigured
 const newsletter = createNewsletter({ db, emailService: transactionalEmail, appUrl, protection: dataProtection })
+const directUploads = createDirectUploads({ multipartUpload, cloudinary, query, sessionSecret: process.env.SESSION_SECRET, cloudinaryConfigurado })
+const mediaUpload = directUploads.mediaUpload
+
+function configuredConnectionLimit() {
+  const raw = process.env.DB_CONNECTION_LIMIT
+  const value = raw === undefined || raw === '' ? (serverless ? 2 : 8) : Number(raw)
+  if (!Number.isSafeInteger(value) || value < (serverless ? 2 : 1) || value > 20) throw new Error('DB_CONNECTION_LIMIT deve ser um inteiro entre ' + (serverless ? 2 : 1) + ' e 20.')
+  return value
+}
+
+const createRateLimitStore = namespace => serverless ? new MySqlRateLimitStore(db, namespace) : undefined
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[char]))
@@ -164,7 +188,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com'],
+      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com', 'https://api.cloudinary.com'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
       mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
       objectSrc: ["'none'"],
@@ -199,6 +223,7 @@ function criarLimitador({ janelaMs, maximo, prefixo }) {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     identifier: prefixo,
+    ...(serverless ? { store: createRateLimitStore(prefixo) } : {}),
     validate: { trustProxy: false },
     handler(req, res) {
       const expiraEm = req.rateLimit?.resetTime?.getTime?.()
@@ -231,7 +256,7 @@ const limitarReenvioEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 1
 
 const Store = MySQLStoreFactory(session)
 // Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
-const rawSessionStore = new Store({ endConnectionOnClose: false }, db)
+const rawSessionStore = new Store({ endConnectionOnClose: false, ...(serverless ? { createDatabaseTable: false, clearExpired: false } : {}) }, db)
 const sessionStore = protectSessionStore(rawSessionStore, { db, protection: dataProtection })
 
 app.use(session({
@@ -256,9 +281,11 @@ async function query(sql, params = [], executor = db) {
   return rows
 }
 
-const auditRetention = createAuditRetentionQueue(query, { onError: error => console.error('Erro na retenção de auditoria:', error?.code || 'INTERNAL_ERROR') })
+const auditRetention = createAuditRetentionQueue(query, {
+  onError: error => console.error('Erro na retenção de auditoria:', error?.code || 'INTERNAL_ERROR'),
+  ...(serverless ? { defer: deferBackgroundPromise } : {})
+})
 const homeWorkflow = createHomeWorkflow({ db, query, audit })
-cron.schedule('15 * * * *', () => auditRetention.run(), { timezone: 'America/Sao_Paulo' })
 
 async function audit(userId, action, entity, entityId, details = null, executor = db) {
   const conn = executor === db ? await db.getConnection() : executor
@@ -685,7 +712,11 @@ async function init() {
 
     if (!existing.length && process.env.ADMIN_PASSWORD) {
       const passwordError = newPasswordError(process.env.ADMIN_PASSWORD)
-      if (passwordError) throw new Error('ADMIN_PASSWORD inválida: ' + passwordError)
+      if (passwordError) {
+        const error = new Error('ADMIN_PASSWORD inválida: ' + passwordError)
+        error.code = 'ADMIN_PASSWORD_INVALID'
+        throw error
+      }
       const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12)
       const connection = await db.getConnection()
       try {
@@ -971,7 +1002,7 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
   } finally {
     conn.release()
   }
-  if (promoted?.created && promoted.customerEmail) void sendEmailSafely({
+  if (promoted?.created && promoted.customerEmail) await sendEmailSafely({
     to: promoted.customerEmail,
     subject: 'Pagamento aprovado — pedido ' + promoted.code,
     idempotencyKey: 'payment-approved-customer-' + promoted.saleId,
@@ -1306,8 +1337,6 @@ async function seedAndScheduleRecurring() {
   }
 }
 
-cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' })
-
 function responderErroVerificacao(res, error) {
   if (error instanceof EmailVerificationError) {
     if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter))
@@ -1405,7 +1434,7 @@ app.post('/api/customer/verify-email', limitarConfirmacaoEmail, async (req,res) 
     const [customerRows] = await conn.execute('SELECT id,name,email,private_data FROM customers WHERE id=? LIMIT 1', [verified.id])
     const customer = customerRows[0] ? privacy.decodeRow('customers', customerRows[0]) : null
     await conn.commit()
-    if (customer?.email) void sendEmailSafely({
+    if (customer?.email) await sendEmailSafely({
       to: customer.email,
       subject: 'Boas-vindas à GALEO Store',
       idempotencyKey: 'welcome-customer-' + verified.id,
@@ -1566,8 +1595,8 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' }, conn)
     await conn.commit()
     const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
-    void sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
-    if(storeNotificationEmail) void sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})
+    await Promise.all([sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'}),
+    ...(storeNotificationEmail ? [sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})] : [])])
     res.json({success:true,payment_configured:mercadoPagoOnlineConfigured(),order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
   } catch(error) {
     await conn.rollback().catch(()=>{})
@@ -1685,7 +1714,7 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
       await conn.execute('UPDATE integration_events SET processed_at=NOW() WHERE provider=? AND event_id=?',['DISTRIBUTOR',uniqueEventId])
       await conn.commit()
     }catch(error){await conn.rollback().catch(()=>{});throw error}finally{conn.release()}
-    if(customer?.email && ['PREPARING','SHIPPED','DELIVERED'].includes(mapped)) void sendEmailSafely({
+    if(customer?.email && ['PREPARING','SHIPPED','DELIVERED'].includes(mapped)) await sendEmailSafely({
       to:customer.email,
       subject:'Pedido '+orderCode+' — '+({PREPARING:'em preparação',SHIPPED:'enviado',DELIVERED:'entregue'})[mapped],
       idempotencyKey:'distributor-'+uniqueEventId,
@@ -1699,6 +1728,7 @@ app.post('/api/integrations/distributor/webhook', async (req,res) => {
 })
 
 app.use('/api/admin', exigirLogin, exigirOwner)
+directUploads.register(app, { exigirLogin, exigirOwner })
 app.get('/api/admin/email-status', (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   // Presence and format are local checks, not evidence of a verified Resend
@@ -1778,7 +1808,7 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
     const eventId = await audit(req.admin.id,status==='CANCELLED'?'CANCELAR':'ATUALIZAR','pedido_online',id,{code:order.code,from:order.status,to:status},conn)
     await conn.commit()
     const label = ({ CONFIRMED:'confirmado', PREPARING:'em preparação', SHIPPED:'a caminho', DELIVERED:'entregue', CANCELLED:'cancelado' })[status]
-    if (order.status !== status && label && order.customer_email) void sendEmailSafely({
+    if (order.status !== status && label && order.customer_email) await sendEmailSafely({
       to: order.customer_email,
       subject: 'Pedido ' + order.code + ' — ' + label,
       // A repeated HTTP request with an unchanged status sends nothing. A new
@@ -1797,7 +1827,7 @@ app.patch('/api/admin/store-orders/:id/status', async (req,res) => {
 
 
 registerHomeWorkflow(app, { workflow: homeWorkflow, exigirLogin, exigirOwner })
-registerNewsletter(app, { newsletter })
+registerNewsletter(app, { newsletter, createRateLimitStore })
 
 app.get('/api/admin/home', exigirLogin, exigirOwner, async (req, res) => {
   try {
@@ -2159,6 +2189,8 @@ function cloudinaryConfigurado() {
 }
 
 function enviarParaCloudinary(buffer, options) {
+  const directAsset = getVerifiedDirectAsset(buffer)
+  if (directAsset) return Promise.resolve(directAsset)
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
       if (error) return reject(error)
@@ -2188,80 +2220,61 @@ app.post('/api/admin/products/:id/media', exigirLogin, mediaUpload.array('media'
   const productId = Number(req.params.id)
   if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ error: 'Produto inválido.' })
   if (!req.files?.length) return res.status(400).json({ error: 'Selecione pelo menos um arquivo.' })
-  if (!cloudinaryConfigurado()) {
-    return res.status(503).json({
-      error: 'Upload de mídia ainda não configurado no servidor. Configure o Cloudinary no Render.'
-    })
-  }
-
+  if (!cloudinaryConfigurado()) return res.status(503).json({ error: 'Configure o Cloudinary para enviar mídia.' })
+  let conn
   try {
-    const product = await query('SELECT id,image,video FROM products WHERE id=? LIMIT 1', [productId])
-    if (!product.length) return res.status(404).json({ error: 'Produto não encontrado.' })
-
-    const existing = await query('SELECT COALESCE(MAX(sort_order),-1) AS max_order FROM product_media WHERE product_id=?', [productId])
-    let sortOrder = Number(existing[0]?.max_order ?? -1) + 1
-    const inserted = []
-
+    const productExists = await query('SELECT id FROM products WHERE id=? LIMIT 1', [productId])
+    if (!productExists.length) return res.status(404).json({ error: 'Produto não encontrado.' })
+    const uploaded = []
     for (const file of req.files) {
       const mediaType = String(file.mimetype).startsWith('video/') ? 'video' : 'image'
       const result = await enviarParaCloudinary(file.buffer, {
-        folder: 'galeo-store/products/' + productId,
-        resource_type: 'auto',
-        type: 'upload',
-        context: { product_id: String(productId) }
+        folder: 'galeo-store/products/' + productId, resource_type: 'auto', type: 'upload', context: { product_id: String(productId) }
       })
-
-      const [insertResult] = await db.execute(
+      uploaded.push({ mediaType, result })
+    }
+    conn = await db.getConnection()
+    await conn.beginTransaction()
+    // Serializes confirmations for the same product, including retries after a
+    // network timeout. The same verified Cloudinary asset is never added twice.
+    const [product] = await conn.execute('SELECT id,image,video FROM products WHERE id=? FOR UPDATE', [productId])
+    if (!product.length) {
+      await conn.rollback()
+      return res.status(404).json({ error: 'Produto não encontrado.' })
+    }
+    const [existing] = await conn.execute('SELECT COALESCE(MAX(sort_order),-1) AS max_order FROM product_media WHERE product_id=?', [productId])
+    let sortOrder = Number(existing[0]?.max_order ?? -1) + 1
+    const inserted = [], created = []
+    for (const { mediaType, result } of uploaded) {
+      const [previous] = await conn.execute('SELECT id,product_id,media_type,url,public_id,width,height,duration FROM product_media WHERE product_id=? AND public_id=? LIMIT 1', [productId, result.public_id])
+      if (previous.length) { inserted.push(previous[0]); continue }
+      const [record] = await conn.execute(
         'INSERT INTO product_media(product_id,media_type,url,public_id,width,height,duration,sort_order) VALUES(?,?,?,?,?,?,?,?)',
-        [
-          productId,
-          mediaType,
-          result.secure_url || result.url,
-          result.public_id,
-          result.width || null,
-          result.height || null,
-          result.duration || null,
-          sortOrder++
-        ]
+        [productId, mediaType, result.secure_url || result.url, result.public_id, result.width || null, result.height || null, result.duration || null, sortOrder++]
       )
-
-      inserted.push({
-        id: insertResult.insertId,
-        product_id: productId,
-        media_type: mediaType,
-        url: result.secure_url || result.url,
-        public_id: result.public_id,
-        width: result.width || null,
-        height: result.height || null,
-        duration: result.duration || null
-      })
-
-      if (mediaType === 'image' && !product[0].image) {
-        await db.execute('UPDATE products SET image=? WHERE id=?', [result.secure_url || result.url, productId])
-        product[0].image = result.secure_url || result.url
-      }
-      if (mediaType === 'video' && !product[0].video) {
-        await db.execute('UPDATE products SET video=? WHERE id=?', [result.secure_url || result.url, productId])
-        product[0].video = result.secure_url || result.url
+      const media = { id:record.insertId, product_id:productId, media_type:mediaType, url:result.secure_url || result.url, public_id:result.public_id, width:result.width || null, height:result.height || null, duration:result.duration || null }
+      inserted.push(media)
+      created.push(media)
+      const field = mediaType === 'image' ? 'image' : 'video'
+      if (!product[0][field]) {
+        await conn.execute('UPDATE products SET ' + field + '=? WHERE id=?', [media.url, productId])
+        product[0][field] = media.url
       }
     }
-
+    if (created.length) await audit(req.admin.id, 'MEDIA_UPLOAD', 'produto', productId, {
+      count: created.length, media: created.map(item => ({ id:item.id, type:item.media_type }))
+    }, conn)
+    await conn.commit()
+    conn.release()
+    conn = undefined
     await mediaLibrary.rememberProductMedia(inserted, req.admin.id)
-    await audit(req.admin.id, 'MEDIA_UPLOAD', 'produto', productId, {
-      count: inserted.length,
-      media: inserted.map((item) => ({ id: item.id, type: item.media_type }))
-    })
-
-    res.status(201).json({ success: true, media: inserted })
+    res.status(201).json({ success:true, media:inserted })
   } catch (error) {
-    console.error('Erro no upload de mídia:', error)
-    if (Number(error?.http_code) === 401 || Number(error?.http_code) === 403) {
-      return res.status(502).json({
-        error: 'O Cloudinary recusou o upload (403). Verifique a API Key e principalmente o API Secret configurados no Render.'
-      })
-    }
-    res.status(500).json({ error: 'Não foi possível enviar a mídia. Tente novamente.' })
-  }
+    if (conn) await conn.rollback().catch(() => {})
+    console.error('Erro no upload de mídia:', error?.code || 'MEDIA_UPLOAD_FAILED')
+    if ([401,403].includes(Number(error?.http_code))) return res.status(502).json({ error:'O Cloudinary recusou o upload. Verifique as credenciais do armazenamento.' })
+    res.status(500).json({ error:'Não foi possível enviar a mídia. Tente novamente.' })
+  } finally { conn?.release() }
 })
 
 app.delete('/api/admin/products/:productId/media/:mediaId', exigirLogin, async (req, res) => {
@@ -2728,8 +2741,10 @@ app.get('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
   `))
 })
 
-const dist = path.join(__dirname, '..', 'dist')
-const mediaLibrary = registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary })
+const dist = path.join(serverDirectory, '..', 'dist')
+const mediaLibrary = registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary, schemaManaged: serverless, serverless, deferBackgroundPromise })
+app.use('/api', (req, res) => res.status(404).json({ success: false, error: 'Endpoint não encontrado.' }))
+if (!serverless) {
 app.use(express.static(dist, {
   setHeaders(res, filePath) {
     if (String(filePath).endsWith('/index.html')) {
@@ -2741,6 +2756,9 @@ app.use(express.static(dist, {
 app.get(/^(?!\/api\/|\/health$).*/, (req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })
+} else {
+  app.use((req, res) => res.status(404).json({ success: false, error: 'Endpoint não encontrado.' }))
+}
 
 app.use((error, req, res, next) => {
   console.error('Erro não tratado:', error)
@@ -2751,12 +2769,71 @@ app.use((error, req, res, next) => {
   })
 })
 
-async function bootstrap() {
-  const recovery = await init()
-  if (recovery.missingTables.includes('newsletter_subscriptions')) await query(NEWSLETTER_DDL + ' AUTO_INCREMENT=' + recovery.nextId)
-  await newsletter.initialize()
-  if (recovery.missingTables.includes('newsletter_subscriptions')) await recoverOperationalSequences(query, { ...recovery, missingTables: ['newsletter_subscriptions'] })
-  await mediaLibrary.initialize()
+let runtimeReady
+export function initializeRuntime() {
+  return runtimeReady ??= (async () => {
+    await rawSessionStore.onReady()
+    await validateRuntimeSchema({ db, privacy, protection: dataProtection })
+    await newsletter.initializeReadOnly()
+    await mediaLibrary.initialize({ migrate: false })
+    return { schema: 'ready' }
+  })().catch(error => { runtimeReady = undefined; throw error })
+}
+
+// Schema changes are explicit maintenance, never a cold-start side effect.
+// The connection-scoped MySQL lock serializes independently started migrators.
+export async function migrateSchema() {
+  const { waitForConnections, connectionLimit, maxIdle, idleTimeout, queueLimit, ...lockConfig } = dbConfig
+  const lock = await mysql.createConnection(lockConfig)
+  let acquired = false
+  try {
+    const [rows] = await lock.execute("SELECT GET_LOCK(SHA2(CONCAT('galeo-schema:',DATABASE()),256),30) AS acquired")
+    acquired = Number(rows[0]?.acquired) === 1
+    if (!acquired) throw new Error('Outra migração está em andamento. Tente novamente quando ela terminar.')
+    await rawSessionStore.createDatabaseTable()
+    await db.execute(RATE_LIMIT_DDL)
+    const recovery = await init()
+    if (recovery.missingTables.includes('newsletter_subscriptions')) await query(NEWSLETTER_DDL + ' AUTO_INCREMENT=' + recovery.nextId)
+    await newsletter.initialize()
+    if (recovery.missingTables.includes('newsletter_subscriptions')) await recoverOperationalSequences(query, { ...recovery, missingTables: ['newsletter_subscriptions'] })
+    await mediaLibrary.initialize({ migrate: true })
+    runtimeReady = undefined
+    return { migrated: true }
+  } finally {
+    if (acquired) await lock.execute("SELECT RELEASE_LOCK(SHA2(CONCAT('galeo-schema:',DATABASE()),256))").catch(() => {})
+    await lock.end()
+  }
+}
+
+export async function runMaintenance() {
+  await initializeRuntime()
+  await generateCurrentRecurring()
+  await auditRetention.run()
+  const [sessions] = await db.execute('DELETE FROM sessions WHERE expires<UNIX_TIMESTAMP()')
+  const rateLimits = await pruneRateLimits(db)
+  return { success: true, expired_sessions: Number(sessions.affectedRows || 0), expired_rate_limits: rateLimits }
+}
+
+export async function closeRuntime() {
+  auditRetention.close()
+  for (const job of scheduledJobs.splice(0)) { job.stop(); job.destroy() }
+  clearInterval(websocketHeartbeat)
+  if (wss) {
+    for (const socket of wss.clients) socket.terminate()
+    await new Promise(resolve => wss.close(resolve))
+    wss = undefined
+  }
+  if (httpServer?.listening) await new Promise((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()))
+  httpServer = undefined
+  await drainBackgroundTasks()
+  await rawSessionStore.close()
+  await db.end()
+}
+
+export async function startServer() {
+  if (serverless) throw new Error('O runtime serverless não inicia um servidor persistente.')
+  if (httpServer?.listening) return httpServer
+  await migrateSchema()
   await seedAndScheduleRecurring()
 
   const productHealth = await query(`
@@ -2783,13 +2860,23 @@ async function bootstrap() {
     })
   )
 
-  httpServer.listen(PORT, () => {
-    console.log(`GALEO API running on port ${PORT}`)
-    console.log('GALEO WebSocket keepalive ativo em /ws')
+  startPersistentServices()
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject)
+    httpServer.listen(PORT, () => {
+      httpServer.off('error', reject)
+      console.log(`GALEO API running on port ${PORT}`)
+      console.log('GALEO WebSocket keepalive ativo em /ws')
+      resolve()
+    })
   })
+  return httpServer
 }
 
-bootstrap().catch((error) => {
-  console.error('Falha ao iniciar GALEO:', error)
-  process.exit(1)
-})
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && !serverless) {
+  startServer().catch(async error => {
+    console.error('Falha ao iniciar GALEO:', error?.code === 'ADMIN_PASSWORD_INVALID' ? error.message : error?.code || 'STARTUP_FAILED')
+    await closeRuntime().catch(() => {})
+    process.exitCode = 1
+  })
+}

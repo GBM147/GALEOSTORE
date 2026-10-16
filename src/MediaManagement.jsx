@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import './MediaManagement.css'
+import { directUploadsEnabled, uploadDirectMedia } from './directUpload'
 
 export function MediaLibraryPreferences({ api, disabled = false, onMessage, onError }) {
   const [saved, setSaved] = useState(false)
@@ -70,10 +71,14 @@ export default function MediaManagement({ item, api, csrf, disabled, onClose, on
   async function replace() {
     if (!file || busy || disabled) return
     await act('replace', async () => {
-      const body = new FormData(); body.append('media', file)
-      const response = await fetch('/api/admin/media-library/' + item.id + '/replacement', { method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': csrf() }, body })
-      const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar a nova versão. O original foi mantido.')
+      let data
+      if (directUploadsEnabled) data = await uploadDirectMedia({ api, csrf, url: '/api/admin/media-library/' + item.id + '/replacement', files: [file] })
+      else {
+        const body = new FormData(); body.append('media', file)
+        const response = await fetch('/api/admin/media-library/' + item.id + '/replacement', { method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': csrf() }, body })
+        data = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar a nova versão. O original foi mantido.')
+      }
       if (!data?.item) throw new Error('O envio não devolveu a nova versão. Atualize a biblioteca antes de tentar novamente.')
       setFile(null); if (input.current) input.current.value = ''
       await onReplacement(data.item, data.message)

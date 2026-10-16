@@ -111,6 +111,19 @@ export function createNewsletter({ db, emailService, appUrl, protection = null }
     }
   }
 
+  async function initializeReadOnly() {
+    await db.execute('SELECT id,email,email_lookup,private_data,status,token_hash,token_expires_at,unsubscribe_hash,sent_at FROM newsletter_subscriptions LIMIT 0')
+    const [protectedRows] = await db.execute('SELECT id,email,email_lookup,private_data FROM newsletter_subscriptions WHERE private_data IS NOT NULL LIMIT 1')
+    for (const row of protectedRows) {
+      const email = readEmail(row)
+      if (row.email !== '' || row.email_lookup !== protectedEmail(email)) throw new NewsletterError('NEWSLETTER_PRIVATE_DATA_INVALID', 500, 'A inscrição protegida contém dados inconsistentes.')
+    }
+    if (protection) {
+      const [plaintext] = await db.execute('SELECT id FROM newsletter_subscriptions WHERE private_data IS NULL LIMIT 1')
+      if (plaintext.length) throw new NewsletterError('SCHEMA_MIGRATION_REQUIRED', 503, 'Prepare a proteção das inscrições pelo comando de migração.')
+    }
+  }
+
   async function subscribe(input) {
     let email
     try { email = normalizeEmail(input) } catch { throw new NewsletterError('NEWSLETTER_EMAIL_INVALID', 400, 'Informe um e-mail válido.') }
@@ -179,13 +192,15 @@ export function createNewsletter({ db, emailService, appUrl, protection = null }
     } finally { conn.release() }
   }
 
-  return { initialize, subscribe, confirm: token => consume(token), unsubscribe: token => consume(token, true), status: () => ({ available: ready() }) }
+  return { initialize, initializeReadOnly, subscribe, confirm: token => consume(token), unsubscribe: token => consume(token, true), status: () => ({ available: ready() }) }
 }
 
-export function registerNewsletter(app, { newsletter }) {
+export function registerNewsletter(app, { newsletter, createRateLimitStore = () => undefined }) {
   const subscriptionLimit = rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    store: createRateLimitStore('newsletter-subscribe'),
     message: { error: 'Muitas tentativas. Aguarde antes de tentar novamente.', code: 'NEWSLETTER_RATE_LIMIT' } })
   const actionLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false,
+    store: createRateLimitStore('newsletter-action'),
     message: { error: 'Muitas tentativas. Aguarde antes de tentar novamente.', code: 'NEWSLETTER_RATE_LIMIT' } })
   const handle = (action, successStatus) => async (req, res) => {
     res.set('Cache-Control', 'no-store')

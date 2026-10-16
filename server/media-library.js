@@ -27,6 +27,10 @@ const view = mediaAssetView
 export function registerMediaLibrary(app, deps) {
   const { query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary } = deps
   const verifyAiResult = deps.verifyAiResult || (async (url) => {
+    if (deps.serverless) {
+      const head = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2500) }).catch(() => null)
+      return head?.status === 200
+    }
     for (let i = 0; i < 6; i++) {
       const head = await fetch(url, { method: 'HEAD' }).catch(() => null)
       if (head?.status === 200) return true
@@ -36,15 +40,23 @@ export function registerMediaLibrary(app, deps) {
   })
   const base = '/api/admin/media-library'
   let ready
-  const ensure = () => (ready ??= query(DDL).catch((e) => { ready = undefined; throw e }))
+  const ensure = () => (ready ??= query(deps.schemaManaged
+    ? 'SELECT id,public_id,url,media_type,ai_status,ai_url FROM media_assets LIMIT 0'
+    : DDL).catch((e) => { ready = undefined; throw e }))
+  const defer = promise => deps.deferBackgroundPromise
+    ? deps.deferBackgroundPromise(promise)
+    : promise.catch(error => console.error('Preparação automática:', error?.code || 'MEDIA_PREPARATION_FAILED'))
   let management
   const prepareNewPhotos = async (rows) => {
     if (!management || !(await management.preferences()).auto_prepare) return
-    for (const asset of rows.filter(row => row.media_type === 'image')) {
+    const photos = rows.filter(row => row.media_type === 'image')
+    const prepare = async asset => {
       try {
         await prepareMediaBackground(asset, { ...deps, verifyAiResult, actorId:asset.created_by, automatic:true })
       } catch (error) { console.error('Preparação automática da foto:', error?.message || 'Falha desconhecida') }
     }
+    if (deps.serverless) await Promise.all(photos.map(prepare))
+    else for (const asset of photos) await prepare(asset)
   }
   if (deps.db) {
     management = createMediaManagement({ ...deps, ensureLibrary:ensure, prepareNewPhotos })
@@ -95,16 +107,16 @@ export function registerMediaLibrary(app, deps) {
         const r = await enviarParaCloudinary(f.buffer, { folder: 'galeo-store/library', resource_type: type, type: 'upload' })
         const nome = Buffer.from(String(f.originalname || ''), 'latin1').toString('utf8').replace(/\.[^.]+$/, '').slice(0, 160)
         const ins = await query(
-          'INSERT INTO media_assets(public_id,url,media_type,width,height,bytes,title,created_by) VALUES(?,?,?,?,?,?,?,?)',
+          'INSERT INTO media_assets(public_id,url,media_type,width,height,bytes,title,created_by) VALUES(?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)',
           [r.public_id, r.secure_url || r.url, type, r.width || null, r.height || null, r.bytes || null, nome || null, req.admin.id || null]
         )
         const [row] = await query('SELECT * FROM media_assets WHERE id=?', [ins.insertId])
         items.push(view(row))
-        insertedRows.push(row)
+        if (ins.affectedRows === 1) insertedRows.push(row)
       }
-      await audit(req.admin.id, 'LIBRARY_UPLOAD', 'media_assets', null, { count: items.length })
+      if (insertedRows.length) await audit(req.admin.id, 'LIBRARY_UPLOAD', 'media_assets', null, { count: insertedRows.length })
       res.status(201).json({ success: true, items })
-      void prepareNewPhotos(insertedRows).catch(error => console.error('Preparação automática:', error?.message || 'Falha desconhecida'))
+      defer(prepareNewPhotos(insertedRows))
     } catch (e) { fail(res, e, 'Não foi possível enviar para a biblioteca de mídia.') }
   })
 
@@ -197,7 +209,7 @@ export function registerMediaLibrary(app, deps) {
     }
   })
 
-  ;(management ? management.ensure() : ensure()).catch((e) => console.error('media_assets:', e?.message || 'Falha desconhecida'))
+  if (!deps.schemaManaged) (management ? management.ensure() : ensure()).catch((e) => console.error('media_assets:', e?.message || 'Falha desconhecida'))
   const rememberProductMedia = async (items, userId, prepare = true) => {
     await (management ? management.ensure() : ensure())
     const remembered = []
@@ -207,12 +219,15 @@ export function registerMediaLibrary(app, deps) {
       const [row] = await query('SELECT * FROM media_assets WHERE public_id=?', [item.public_id])
       if (row) remembered.push(row)
     }
-    if (prepare) prepareNewPhotos(remembered).catch(error => console.error('Preparação automática:', error?.code || 'MEDIA_PREPARATION_FAILED'))
+    if (prepare) defer(prepareNewPhotos(remembered))
     return remembered
   }
   return {
-    async initialize() {
-      await (management ? management.ensure() : ensure())
+    async initialize({ migrate = !deps.schemaManaged } = {}) {
+      if (!migrate) return management ? management.ensure() : ensure()
+      ready = query(DDL).catch(error => { ready = undefined; throw error })
+      await ready
+      await (management ? management.initialize() : ensure())
       // Retain existing product files in the library before any destructive action.
       await query("INSERT IGNORE INTO media_assets(public_id,url,media_type,width,height,title) SELECT public_id,url,media_type,width,height,'Foto de produto' FROM product_media WHERE public_id IS NOT NULL AND public_id<>'' AND url<>'' ORDER BY id")
     },

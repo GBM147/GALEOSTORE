@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { getVerifiedDirectAsset } from './direct-uploads.js'
 import { galeoBackgroundUrl, mediaAssetView, moveMedia } from './media-presentation.js'
 
 const PREFERENCES_DDL = `CREATE TABLE IF NOT EXISTS media_library_preferences (
@@ -11,7 +12,7 @@ const PREFERENCES_DDL = `CREATE TABLE IF NOT EXISTS media_library_preferences (
 export function createMediaManagement(deps) {
   const { query, db, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary } = deps
   let ready
-  const ensure = () => ready ??= (async () => {
+  const migrate = async () => {
     await deps.ensureLibrary()
     await query(PREFERENCES_DDL)
     const columns = await query('SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', ['media_assets'])
@@ -25,7 +26,15 @@ export function createMediaManagement(deps) {
       catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error }
     }
     await query('INSERT IGNORE INTO media_library_preferences(id,auto_prepare) VALUES(1,0)')
-  })().catch(error => { ready = undefined; throw error })
+  }
+  const validate = async () => {
+    await deps.ensureLibrary()
+    await query('SELECT id,sort_order,presentation,replaces_id FROM media_assets LIMIT 0')
+    const rows = await query('SELECT id,auto_prepare FROM media_library_preferences WHERE id=1')
+    if (!rows.length) throw new Error('Prepare as preferências de mídia pelo comando de migração.')
+  }
+  const ensure = () => ready ??= (deps.schemaManaged ? validate() : migrate()).catch(error => { ready = undefined; throw error })
+  const initialize = () => ready = migrate().catch(error => { ready = undefined; throw error })
 
   const preferences = async () => {
     await ensure()
@@ -127,8 +136,15 @@ export function createMediaManagement(deps) {
         uploadedId = uploaded.public_id
         conn = await db.getConnection()
         await conn.beginTransaction()
-        const [current] = await query('SELECT id FROM media_assets WHERE id=? FOR SHARE', [id], conn)
+        const [current] = await query('SELECT id FROM media_assets WHERE id=? FOR UPDATE', [id], conn)
         if (!current) throw new Error('A mídia original foi removida enquanto o novo arquivo era enviado.')
+        const [previous] = await query('SELECT * FROM media_assets WHERE public_id=? FOR UPDATE', [uploaded.public_id], conn)
+        if (previous) {
+          if (Number(previous.replaces_id) !== id) throw new Error('Este arquivo já pertence a outra mídia.')
+          await conn.commit()
+          return res.status(201).json({ success: true, item: mediaAssetView(previous), replaces_id: id,
+            message: 'Nova versão salva separadamente. Os usos atuais e o original foram mantidos.' })
+        }
         const title = String(original.title || (type === 'image' ? 'Foto' : 'Vídeo')).slice(0, 146) + ' — nova versão'
         const inserted = await query('INSERT INTO media_assets(public_id,url,media_type,width,height,bytes,title,created_by,replaces_id) VALUES(?,?,?,?,?,?,?,?,?)',
           [uploaded.public_id, uploaded.secure_url, type, uploaded.width || null, uploaded.height || null, uploaded.bytes || null, title, req.admin.id, id], conn)
@@ -138,12 +154,16 @@ export function createMediaManagement(deps) {
         await conn.commit()
         res.status(201).json({ success: true, item: mediaAssetView(row), replaces_id: id,
           message: 'Nova versão salva separadamente. Escolha esta foto no produto ou no rascunho da Home; os usos atuais e o original foram mantidos.' })
-        deps.prepareNewPhotos?.([row]).catch(error => console.error('Não foi possível preparar nova foto:', error?.message))
+        const preparation = deps.prepareNewPhotos?.([row])
+        if (preparation) {
+          if (deps.deferBackgroundPromise) deps.deferBackgroundPromise(preparation)
+          else preparation.catch(error => console.error('Não foi possível preparar nova foto:', error?.message))
+        }
       } catch (error) {
         if (conn) await conn.rollback().catch(() => {})
         // Never compensate after an uncertain commit: the new asset may already be stored.
         // This ID belongs to an independent, non-overwriting upload, never the original.
-        if (uploadedId && !commitAttempted && cloudinary?.uploader?.destroy) {
+        if (uploadedId && !commitAttempted && !getVerifiedDirectAsset(req.file.buffer) && cloudinary?.uploader?.destroy) {
           await cloudinary.uploader.destroy(uploadedId, { resource_type: String(req.file.mimetype).startsWith('video/') ? 'video' : 'image', type:'upload', invalidate:true, timeout:15000 }).catch(cleanupError => console.error('Nova mídia não salva aguardando limpeza:', cleanupError?.message))
         }
         failure(res, error, 'Não foi possível enviar a nova versão. O arquivo original foi mantido.')
@@ -151,5 +171,5 @@ export function createMediaManagement(deps) {
       finally { conn?.release() }
     })
   }
-  return { ensure, preferences, register }
+  return { ensure, initialize, preferences, register }
 }

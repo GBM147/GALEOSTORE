@@ -38,7 +38,7 @@ export async function pruneAuditLogs(query) {
   return { expired: Number(expired.affectedRows || 0), overflow: Number(overflow.affectedRows || 0) }
 }
 
-export function createAuditRetentionQueue(query, { delayMs = 2000, onError = () => {} } = {}) {
+export function createAuditRetentionQueue(query, { delayMs = 2000, onError = () => {}, defer } = {}) {
   let timer, running = false, queued = false
   const run = async () => {
     timer = undefined
@@ -51,6 +51,13 @@ export function createAuditRetentionQueue(query, { delayMs = 2000, onError = () 
     }
   }
   function schedule() {
+    if (defer) {
+      // Serverless invocations must own this work; an unref'ed timer can be
+      // frozen as soon as the HTTP response is ready. Do not await here: audit
+      // can be part of an open transaction that must commit before pruning.
+      defer(() => pruneAuditLogs(query).catch(onError))
+      return
+    }
     if (timer || running) { queued = true; return }
     timer = setTimeout(run, delayMs)
     timer.unref?.()
