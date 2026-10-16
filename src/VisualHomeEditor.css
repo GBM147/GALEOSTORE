@@ -26,6 +26,7 @@
 .visual-hidden-section p{margin:0}
 .visual-text-trigger{cursor:text;box-decoration-break:clone;-webkit-box-decoration-break:clone;outline:1px dashed color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:3px;position:relative}
 .visual-text-trigger:hover{outline-color:var(--accent-soft);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.visual-home-editor[data-editing=true] .hero-full-content>.eyebrow{position:relative;z-index:1}
 .visual-editable-text{font:inherit;color:inherit;letter-spacing:inherit;line-height:inherit;white-space:inherit;min-width:0}
 .visual-inline-editor{display:block;min-width:0;position:relative}
 .visual-inline-editor textarea{display:block;width:100%;max-width:100%;min-height:1.2em;resize:vertical;overflow:hidden;margin:0;padding:2px;border:1px solid var(--accent-soft);background:var(--surface);color:inherit;font:inherit;letter-spacing:inherit;line-height:inherit;text-transform:inherit;box-sizing:border-box;white-space:pre-wrap}

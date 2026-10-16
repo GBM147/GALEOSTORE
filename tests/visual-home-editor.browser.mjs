@@ -33,8 +33,8 @@ before(async () => {
 })
 after(async () => { await browser?.close() })
 
-async function fixture(t, { width = 1280, role = 'owner', handle, navigate = editorUrl } = {}) {
-  const context = await browser.newContext({ viewport:{ width, height:900 }, reducedMotion:'reduce', hasTouch:width <= 700 })
+async function fixture(t, { width = 1280, role = 'owner', handle, navigate = editorUrl, reducedMotion = 'reduce' } = {}) {
+  const context = await browser.newContext({ viewport:{ width, height:900 }, reducedMotion, hasTouch:width <= 700 })
   t.after(() => context.close())
   const page = await context.newPage()
   page.setDefaultTimeout(12000)
@@ -114,6 +114,18 @@ async function saveDraft(page) {
   const response = page.waitForResponse(response => new URL(response.url()).pathname.startsWith('/api/admin/home/') && response.request().method() === 'PUT')
   await toolbar(page).getByRole('button', { name:'Salvar rascunho', exact:true }).click()
   await response
+}
+
+for (const width of [1440, 390]) for (const reducedMotion of ['reduce', 'no-preference']) {
+  test(`Hero eyebrow stays clickable at ${width}px with motion ${reducedMotion}`, async t => {
+    const { page, calls } = await fixture(t, { width, reducedMotion })
+    await page.getByRole('button', { name:'Editar Texto acima do Hero', exact:true }).click({ timeout:2000 })
+    const input = page.getByRole('textbox', { name:'Texto acima do Hero', exact:true })
+    assert.equal(await input.inputValue(), content.hero.eyebrow)
+    await input.press('Escape')
+    assert.equal(await toolbar(page).getByRole('button', { name:'Salvar rascunho', exact:true }).isDisabled(), true)
+    assert.equal(mutations(calls).length, 0, 'abrir e cancelar a edição não deve gravar conteúdo')
+  })
 }
 
 test('editing the actual draft heading preserves typography and saves only changed content with CSRF', async t => {
