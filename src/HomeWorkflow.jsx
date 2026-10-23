@@ -8,11 +8,11 @@ const dateTime = (value) => {
 }
 
 const fieldNames = {
-  eyebrow:'Texto acima do título', title:'Título', description:'Descrição', text:'Texto',
+  title:'Título', description:'Descrição', text:'Texto',
   button_label:'Texto do botão', button_url:'Destino do botão', url:'Link', label:'Nome',
   desktop_media_url:'Imagem desktop', mobile_media_url:'Mídia mobile', video_media_url:'Vídeo',
   mobile_video_media_url:'Vídeo mobile', media_url:'Imagem / vídeo', brand:'Nome da loja',
-  location:'Localização', year:'Ano', theme:'Tema', background:'Fundo', surface:'Superfície',
+  year:'Ano', theme:'Tema', background:'Fundo', surface:'Superfície',
   muted:'Texto secundário', accent:'Destaque', accent_soft:'Destaque suave', accent_deep:'Destaque profundo',
   effect:'Movimento', transition:'Transição', speed:'Velocidade', duration_seconds:'Duração', source:'Seleção de produtos'
 }

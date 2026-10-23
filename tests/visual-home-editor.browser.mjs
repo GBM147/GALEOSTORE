@@ -117,11 +117,11 @@ async function saveDraft(page) {
 }
 
 for (const width of [1440, 390]) for (const reducedMotion of ['reduce', 'no-preference']) {
-  test(`Hero eyebrow stays clickable at ${width}px with motion ${reducedMotion}`, async t => {
+  test(`Hero title stays clickable at ${width}px with motion ${reducedMotion}`, async t => {
     const { page, calls } = await fixture(t, { width, reducedMotion })
-    await page.getByRole('button', { name:'Editar Texto acima do Hero', exact:true }).click({ timeout:2000 })
-    const input = page.getByRole('textbox', { name:'Texto acima do Hero', exact:true })
-    assert.equal(await input.inputValue(), content.hero.eyebrow)
+    await page.getByRole('button', { name:'Editar Título do Hero', exact:true }).click({ timeout:2000 })
+    const input = page.getByRole('textbox', { name:'Título do Hero', exact:true })
+    assert.equal(await input.inputValue(), content.hero.title)
     await input.press('Escape')
     assert.equal(await toolbar(page).getByRole('button', { name:'Salvar rascunho', exact:true }).isDisabled(), true)
     assert.equal(mutations(calls).length, 0, 'abrir e cancelar a edição não deve gravar conteúdo')
@@ -232,16 +232,16 @@ test('settings modify the displayed draft and save only the changed setting', as
   await toolbar(page).getByRole('button', { name:'Configurações', exact:true }).click()
   const dialog = page.getByRole('dialog', { name:'Configurações da loja', exact:true })
   await dialog.getByRole('button', { name:'Rodapé', exact:true }).click()
-  await dialog.getByLabel('Localização', { exact:true }).fill('Curitiba / PR')
+  await dialog.getByLabel('Nome da loja', { exact:true }).fill('GALEO STORE OFICIAL')
   await page.keyboard.press('Escape')
   await dialog.waitFor({ state:'hidden' })
-  await page.locator('.site-footer').getByText('Curitiba / PR', { exact:true }).waitFor()
+  await page.locator('.site-footer').getByText('GALEO STORE OFICIAL', { exact:true }).waitFor()
   assert.equal(mutations(calls).length, 0)
   await saveDraft(page)
   await page.waitForFunction(() => document.querySelector('[aria-label="Editor visual da loja"]')?.textContent.includes('Rascunho salvo'))
   assert.deepEqual(saves(calls).map(call => call.path), ['/api/admin/home/settings/footer'])
-  assert.deepEqual(saves(calls)[0].body.value, { brand:'GALEO STORE', location:'Curitiba / PR', year:'2026' })
-  assert.equal(settings.find(setting => setting.key === 'footer').published.location, 'São Paulo / BR')
+  assert.deepEqual(saves(calls)[0].body.value, { brand:'GALEO STORE OFICIAL', location:'São Paulo / BR', year:'2026' })
+  assert.equal(settings.find(setting => setting.key === 'footer').published.brand, 'GALEO STORE')
 })
 
 test('the visual media library updates desktop and mobile photos while retaining original metadata', async t => {

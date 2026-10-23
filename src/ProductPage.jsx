@@ -56,8 +56,8 @@ export default function ProductPage() {
     window.setTimeout(() => setAdded(false), 2200)
   }
 
-  if (loading) return <main className="section-shell page-space product-page-state"><span className="eyebrow">GALEO / PRODUTO</span><h1>Carregando produto</h1></main>
-  if (error || !product) return <main className="section-shell page-space product-page-state"><span className="eyebrow">GALEO / PRODUTO</span><h1>Produto não encontrado</h1><p>{error || 'Este produto não está disponível no catálogo'}</p><Link className="button button-primary" to="/shop">Voltar ao catálogo ↗</Link></main>
+  if (loading) return <main className="section-shell page-space product-page-state"><h1>Carregando produto</h1></main>
+  if (error || !product) return <main className="section-shell page-space product-page-state"><h1>Produto não encontrado</h1><p>{error || 'Este produto não está disponível no catálogo'}</p><Link className="button button-primary" to="/shop">Voltar ao catálogo ↗</Link></main>
 
   const stock = Math.max(0, Number(product.stock || 0))
 
@@ -68,7 +68,7 @@ export default function ProductPage() {
         <ProductGallery key={product.id} media={gallery} name={product.name} />
 
         <section className="product-info">
-          <span className="eyebrow">{product.brand || 'GALEO'} / {product.category || 'PRODUTO'}</span>
+          {product.brand && <p className="product-detail-brand">{product.brand}</p>}
           <h1>{product.name}</h1>
           <div className="product-detail-price">{money(product.price)}</div>
           <p className="product-detail-description">{product.description || 'Este produto ainda não possui uma descrição cadastrada'}</p>
@@ -81,7 +81,7 @@ export default function ProductPage() {
         </section>
       </div>
 
-      {related.length > 0 && <section className="related-products section-block"><div className="section-heading row-heading"><div><span className="eyebrow">MAIS DA CATEGORIA</span><h2>Você também pode gostar</h2></div><Link className="text-link" to={'/shop?category=' + encodeURIComponent(product.category || '')}>Ver categoria ↗</Link></div><div className="product-grid product-grid-editorial">{related.slice(0,4).map((item,index) => <Link className="product-card" key={item.id} to={'/produto/' + item.id}><div className="product-image"><img src={item.image || '/images/product-placeholder.svg'} alt="" loading="lazy" /><span className="product-index">0{index + 1}</span><span className="product-arrow">↗</span></div><div className="product-meta"><span>{item.category || 'PRODUTO'}</span><strong>{item.name}</strong><b>{money(item.price)}</b></div></Link>)}</div></section>}
+      {related.length > 0 && <section className="related-products section-block"><div className="section-heading row-heading"><div><h2>Você também pode gostar</h2></div><Link className="text-link" to={'/shop?category=' + encodeURIComponent(product.category || '')}>Ver categoria ↗</Link></div><div className="product-grid product-grid-editorial">{related.slice(0,4).map((item) => <Link className="product-card" key={item.id} to={'/produto/' + item.id}><div className="product-image"><img src={item.image || '/images/product-placeholder.svg'} alt="" loading="lazy" /><span className="product-arrow">↗</span></div><div className="product-meta"><span>{item.category || 'PRODUTO'}</span><strong>{item.name}</strong><b>{money(item.price)}</b></div></Link>)}</div></section>}
     </main>
   )
 }

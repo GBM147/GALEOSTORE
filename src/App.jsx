@@ -171,11 +171,6 @@ function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
           onStart: () => introducedHeroes.current.add(hero),
           defaults: { ease: 'power3.out', clearProps: 'transform,opacity,visibility' }
         })
-        intro.from('.hero-full .eyebrow, .hero-full-meta', {
-          autoAlpha: 0,
-          y: 10,
-          duration: 0.45
-        }, 0)
         intro.from('.hero-full .hero-title-mask', {
           autoAlpha: 0,
           y: 18,
@@ -288,7 +283,6 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
 
       {searchOpen && (
         <form id="galeo-header-search" className="header-search" onSubmit={submitSearch}>
-          <span className="eyebrow">GALEO / BUSCA</span>
           <div className="header-search-row">
             <input
               value={search}
@@ -361,9 +355,9 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
     ? featured.product_ids.map(id => products.find(product => Number(product.id) === Number(id))).filter(Boolean).slice(0, 8)
     : products.slice(0, 8)
   const campaignItems = (Array.isArray(campaigns.items) ? campaigns.items : [
-    { eyebrow:'NEW DROPS', title:'Peças que marcam presença', button_label:'Descobrir agora', button_url:'/shop', media_url:'' },
-    { eyebrow:'PREMIUM SELECTION', title:'Seu estilo, sem rótulo', button_label:'Ver seleção', button_url:'/shop', media_url:'' },
-    { eyebrow:'LIMITED EDITION', title:'Feito para ser notado', button_label:'Explorar', button_url:'/shop', media_url:'' }
+    { title:'Peças que marcam presença', button_label:'Descobrir agora', button_url:'/shop', media_url:'' },
+    { title:'Seu estilo, sem rótulo', button_label:'Ver seleção', button_url:'/shop', media_url:'' },
+    { title:'Feito para ser notado', button_label:'Explorar', button_url:'/shop', media_url:'' }
   ]).filter(item => item && typeof item === 'object' && !Array.isArray(item))
   const heroTitle = text(hero.title, 'Vista o que representa você')
   const heroDescription = text(hero.description, 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho')
@@ -376,35 +370,32 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       <div className="hero-full-media"><HeroVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} speed={campaignDefaults?.speed ?? campaigns.defaults?.speed ?? 'slow'} durationSeconds={campaignDefaults?.duration_seconds ?? campaigns.defaults?.duration_seconds ?? 6} editorPaused={editing} /><div className="hero-full-shade" /></div>
       <EditorMediaButton sectionKey="hero" label="Trocar imagem ou vídeo do Hero" />
       <div className="hero-full-content">
-        <span className="eyebrow">{field('hero','eyebrow','Texto acima do Hero',text(hero.eyebrow,'GALEO / MULTIBRAND STORE'))}</span>
         <h1 className="hero-title"><span className="hero-title-line">{field('hero','title','Título do Hero',heroTitle,<HeroTitle text={heroTitle} />)}</span></h1>
         <p>{field('hero','description','Descrição do Hero',heroDescription)}</p>
-        <div className="hero-full-actions"><EditorLink sectionKey="hero" labelPath="button_label" urlPath="button_url" className="button button-primary" to={hero.button_url || '/shop'}>{text(hero.button_label,'Explorar coleção')} <span>↗</span></EditorLink><span className="hero-scroll">SCROLL ↓</span></div>
+        <div className="hero-full-actions"><EditorLink sectionKey="hero" labelPath="button_label" urlPath="button_url" className="button button-primary" to={hero.button_url || '/shop'}>{text(hero.button_label,'Explorar coleção')} <span>↗</span></EditorLink></div>
       </div>
-      <div className="hero-full-meta"><span>01 / 03</span><span>São Paulo / BR</span></div>
     </section>,
     utility: (editing || utility.__visible !== false) && <section data-home-section="utility" className="utility-strip section-shell" aria-label="Diferenciais">
       {(Array.isArray(utility.items) ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}>{field('utility',['items',index],'Mensagem ' + (index + 1),item)}</span>)}
     </section>,
     categories: (editing || categorySection.__visible !== false) && <section data-home-section="categories" className="section-shell section-block">
-      <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{field('categories','eyebrow','Texto acima das categorias',text(categorySection.eyebrow,'01 / CATEGORIAS'))}</span><h2>{field('categories','title','Título das categorias',text(categorySection.title,'Escolha seu movimento'))}</h2></div><EditorLink sectionKey="categories" labelPath="button_label" urlPath="button_url" className="text-link" to={categorySection.button_url || '/shop'}>{text(categorySection.button_label,'Ver catálogo')} ↗</EditorLink></div>
+      <div className="section-heading row-heading" data-reveal><div><h2>{field('categories','title','Título das categorias',text(categorySection.title,'Escolha seu movimento'))}</h2></div><EditorLink sectionKey="categories" labelPath="button_label" urlPath="button_url" className="text-link" to={categorySection.button_url || '/shop'}>{text(categorySection.button_label,'Ver catálogo')} ↗</EditorLink></div>
       <RevealGrid className="category-grid" items={categoryItems} reveal={reveal}>{categoryItems.map((item,index) => {
-        const content = <>{item.media_url && <img className="category-media" src={item.media_url} alt="" loading="lazy" />}<span>{String(index + 1).padStart(2,'0')} / GALEO</span><strong>{field('categories',['items',index,'title'],'Nome da categoria ' + (index + 1),text(item.title,'Categoria'))}</strong><small>Explorar ↗</small></>
+        const content = <>{item.media_url && <img className="category-media" src={item.media_url} alt="" loading="lazy" />}<strong>{field('categories',['items',index,'title'],'Nome da categoria ' + (index + 1),text(item.title,'Categoria'))}</strong><small>Explorar ↗</small></>
         const className = 'category-card category-card-' + (index % 3)
         return editing ? <article key={item.id || index} className={className} onClick={() => editor.select({sectionKey:'categories',kind:'category',itemIndex:index})}>{content}<EditorMediaButton sectionKey="categories" kind="category" itemIndex={index} label={'Editar categoria ' + (index + 1)} /></article> : <Link key={item.id || index} className={className} data-editor-spa-link={editor ? 'true' : undefined} to={item.url || '/shop'}>{content}</Link>
       })}</RevealGrid>
     </section>,
     featured_products: (editing || featured.__visible !== false) && (editing || shownProducts.length > 0) && <section data-home-section="featured_products" className="section-shell section-block featured-selection" id="destaques">
-      <div className="section-heading row-heading" data-reveal><div><span className="eyebrow">{field('featured_products','eyebrow','Texto acima dos destaques',text(featured.eyebrow,'01 / SELEÇÃO GALEO'))}</span><h2>{field('featured_products','title','Título dos destaques',text(featured.title,'Seleção multimarcas'),<EditorialTitle text={text(featured.title,'Seleção multimarcas')} type="featured" />)}</h2></div><EditorLink sectionKey="featured_products" labelPath="button_label" urlPath="button_url" className="text-link" to={featured.button_url || '/shop'}>{text(featured.button_label,'Ver todos')} ↗</EditorLink></div>
+      <div className="section-heading row-heading" data-reveal><div><h2>{field('featured_products','title','Título dos destaques',text(featured.title,'Seleção multimarcas'),<EditorialTitle text={text(featured.title,'Seleção multimarcas')} type="featured" />)}</h2></div><EditorLink sectionKey="featured_products" labelPath="button_label" urlPath="button_url" className="text-link" to={featured.button_url || '/shop'}>{text(featured.button_label,'Ver todos')} ↗</EditorLink></div>
       <EditorMediaButton sectionKey="featured_products" kind="products" label="Escolher produtos em destaque" />
-      <RevealGrid className="product-grid product-grid-editorial" items={shownProducts} reveal={reveal}>{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} index={index} />)}</RevealGrid>
+      <RevealGrid className="product-grid product-grid-editorial" items={shownProducts} reveal={reveal}>{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} />)}</RevealGrid>
       {editing && shownProducts.length === 0 && <p className="visual-editor-empty">Escolha os produtos que aparecerão nesta seção.</p>}
     </section>,
     campaigns: (editing || campaigns.__visible !== false) && <RevealGrid as="section" data-home-section="campaigns" className="section-shell campaign-grid" aria-label="Campanhas" items={campaignItems} reveal={reveal}>
       {campaignItems.map((item,index) => <article className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} key={index}>
         <CampaignCarousel item={item} variant={index + 1} defaults={campaignDefaults} sectionDefaults={campaigns.defaults} editorPaused={editing} editorNavigation={Boolean(editor)} onEdit={() => editor?.select({ sectionKey:'campaigns',kind:'campaign',itemIndex:index })}>
           <div className="campaign-card-copy">
-            <span>{field('campaigns',['items',index,'eyebrow'],'Chamada da campanha ' + (index + 1),text(item.eyebrow,'GALEO / CAMPANHA'))}</span>
             <strong>{field('campaigns',['items',index,'title'],'Título da campanha ' + (index + 1),text(item.title,'Nova campanha'),<EditorialTitle text={text(item.title,'Nova campanha')} type="campaign" />)}</strong>
             <small>{field('campaigns',['items',index,'button_label'],'Texto do botão da campanha ' + (index + 1),text(item.button_label,'Explorar'))} ↗</small>
           </div>
@@ -414,11 +405,10 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       {editing && campaignItems.length === 0 && <p className="visual-editor-empty">Use “Opções” da seção para adicionar a primeira campanha.</p>}
     </RevealGrid>,
     manifesto: (editing || manifesto.__visible !== false) && <section data-home-section="manifesto" className="manifesto section-shell" id="sobre" data-reveal>
-      <span className="eyebrow">{field('manifesto','eyebrow','Texto acima do manifesto',text(manifesto.eyebrow,'03 / SOBRE A GALEO'))}</span>
       <p>{field('manifesto','text','Texto do manifesto',text(manifesto.text,'Não seguimos o padrão\nCriamos o nosso'),<EditorialTitle text={text(manifesto.text,'Não seguimos o padrão\nCriamos o nosso')} type="manifesto" />)}</p>
     </section>,
     newsletter: (editing || newsletter.__visible !== false) && <section data-home-section="newsletter" className="newsletter section-shell" data-reveal>
-      <div><span className="eyebrow">{field('newsletter','eyebrow','Texto acima da newsletter',text(newsletter.eyebrow,'GALEO / INSIDER'))}</span><h2>{field('newsletter','title','Título da newsletter',text(newsletter.title,'Entre para a próxima fase'))}</h2></div>
+      <div><h2>{field('newsletter','title','Título da newsletter',text(newsletter.title,'Entre para a próxima fase'))}</h2></div>
       {editing ? <div className="newsletter-signup"><div className="visual-editor-newsletter"><input type="email" placeholder="Seu melhor e-mail" aria-label="Prévia do campo de e-mail" disabled /><span>{field('newsletter','button_label','Texto do botão da newsletter',text(newsletter.button_label,'Entrar'))} ↗</span></div><small>Prévia do formulário de novidades</small></div> : <NewsletterSignup buttonLabel={text(newsletter.button_label,'Entrar')} />}
     </section>
   }
@@ -434,12 +424,12 @@ function StorefrontMotionGate(props) {
 function StoreFooter({ footer }) {
   const editor = useVisualEditor()
   return <footer className="site-footer">
-    <span>{footer?.brand || 'GALEO STORE'}</span><span>{footer?.location || 'São Paulo / BR'}</span><span>© {footer?.year || '2026'}</span>
+    <span>{footer?.brand || 'GALEO STORE'}</span><span>© {footer?.year || '2026'}</span>
     {editor?.editing && <button type="button" className="visual-editor-footer-button" onClick={() => editor.select({kind:'settings',tab:'footer'})}>Editar rodapé</button>}
   </footer>
 }
 
-function ProductCard({ product, index = 0 }) {
+function ProductCard({ product }) {
   const editor = useVisualEditor()
   const price = Number(product?.price || 0)
   const image = product?.image || '/images/product-placeholder.svg'
@@ -447,7 +437,6 @@ function ProductCard({ product, index = 0 }) {
     <Link className="product-card" to={'/produto/' + product.id} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({sectionKey:'featured_products',kind:'products'}) } : undefined}>
       <div className="product-image">
         <img src={image} alt="" loading="lazy" />
-        <span className="product-index">0{index + 1}</span>
         <span className="product-arrow">↗</span>
       </div>
       <div className="product-meta">
@@ -536,7 +525,6 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
   return (
     <main className="section-shell page-space">
       <div className="page-heading" data-reveal>
-        <span className="eyebrow">GALEO / SHOP</span>
         <h1>Descubra<br /><em>seu próximo kit</em></h1>
       </div>
 
@@ -598,7 +586,6 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
         </RevealGrid>
       ) : (
         <div className="empty-catalog" data-reveal>
-          <span className="eyebrow">GALEO / SEM RESULTADOS</span>
           <h2>Nada encontrado.</h2>
           <p>Tente outra busca ou escolha uma categoria diferente.</p>
           <button type="button" className="button button-primary" onClick={() => {
@@ -613,10 +600,9 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
   )
 }
 
-function PlaceholderPage({ title, label }) {
+function PlaceholderPage({ title }) {
   return (
     <main className="section-shell page-space">
-      <span className="eyebrow">{label || 'GALEO'}</span>
       <h1>{title}</h1>
       <p className="page-note">Estrutura preparada para a próxima etapa do projeto.</p>
     </main>

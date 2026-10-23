@@ -224,7 +224,7 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
 
   return createPortal(<dialog ref={dialog} className="product-lightbox" aria-label={'Fotos de ' + name} data-lenis-prevent="" onCancel={(event) => { event.preventDefault(); onDismiss() }} onKeyDown={onKeyDown}>
     <div className="product-lightbox-header">
-      <div className="product-lightbox-heading"><span>GALEO / DETALHES</span><strong>{name}</strong></div>
+      <div className="product-lightbox-heading"><strong>{name}</strong></div>
       <span className="product-lightbox-count" aria-live="polite" aria-atomic="true">{index + 1} / {photos.length}</span>
       <button type="button" className="product-lightbox-close" aria-label="Fechar galeria" onClick={onDismiss} autoFocus><GalleryIcon kind="close" /></button>
     </div>
@@ -269,7 +269,7 @@ export default function ProductGallery({ media = [], name = 'Produto' }) {
       {gallery.length > 1 && <span className="product-media-position" aria-hidden="true">{String(currentIndex + 1).padStart(2, '0')} / {String(gallery.length).padStart(2, '0')}</span>}
     </div>
     {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((item, index) => <button className={current?.url === item.url ? 'product-thumb active' : 'product-thumb'} type="button" key={item.url} aria-label={(item.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={current?.url === item.url} onClick={() => { setDirection(index < currentIndex ? -1 : 1); setSelectedUrl(item.url) }}>{item.media_type === 'video' ? <span className="product-thumb-video" aria-hidden="true">▶</span> : <img src={item.url} alt="" loading="lazy" draggable="false" />}</button>)}</div>}
-    <p className="product-gallery-caption"><span>Uma peça, todos os detalhes</span>{photos.length > 0 && <span>Toque na foto para ampliar ↗</span>}</p>
+    {photos.length > 0 && <p className="product-gallery-caption"><span>Toque na foto para ampliar ↗</span></p>}
     {lightboxIndex !== null && photos.length > 0 && <PhotoLightbox photos={photos} initialIndex={clamp(lightboxIndex, 0, photos.length - 1)} name={name} onSelect={(photo) => setSelectedUrl(photo.url)} onDismiss={() => setLightboxIndex(null)} />}
   </section>
 }

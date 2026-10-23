@@ -115,7 +115,6 @@ function Login({ onLogin }) {
   return (
     <main className="admin-login">
       <form onSubmit={submit}>
-        <span className="eyebrow">GALEO / ADMIN</span>
         <h1>Painel administrativo.</h1>
         <input placeholder="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
@@ -323,7 +322,6 @@ function ProductForm({ product, categories, onClose, onDone }) {
     <div className="modal-backdrop product-modal-backdrop">
       <form className="admin-modal admin-modal-wide" onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <button type="button" className="modal-close" aria-label="Fechar formulário do produto" onClick={onClose}>×</button>
-        <span className="eyebrow">{editing ? 'PRODUTO / EDITAR' : 'PRODUTO / NOVO'}</span>
         <h2 id={titleId}>{editing ? 'Editar produto' : 'Cadastrar produto'}</h2>
 
         <div className="admin-form-grid">
@@ -363,7 +361,6 @@ function ProductForm({ product, categories, onClose, onDone }) {
 
         <div className="admin-media-upload">
           <div>
-            <span className="eyebrow">MÍDIA / UPLOAD</span>
             <h3>Fotos do produto</h3>
             <p>Selecione várias fotos de uma vez ou adicione mais em novas seleções. JPG, JPEG, JFIF, PNG, WebP e AVIF. O arquivo deve aparecer na fila imediatamente após a seleção.</p>
             <input
@@ -440,7 +437,7 @@ function ProductForm({ product, categories, onClose, onDone }) {
 
         {editing && (
           <div>
-            <span className="eyebrow">MÍDIA / GALERIA ATUAL</span>
+            <h3>Galeria do produto</h3>
             {mediaError && <p className="admin-error">{mediaError}</p>}
             <div className="media-gallery">
               {media.map((item) => (
@@ -497,7 +494,6 @@ function StockModal({ products, onClose, onDone }) {
     <div className="modal-backdrop">
       <form className="admin-modal" onSubmit={submit}>
         <button type="button" className="modal-close" onClick={onClose}>×</button>
-        <span className="eyebrow">ESTOQUE</span>
         <h2>Movimentar estoque</h2>
         <select value={form.product_id} onChange={(e) => set('product_id', e.target.value)} required>
           <option value="">Selecione o produto</option>
@@ -561,7 +557,6 @@ function SaleModal({ products, onClose, onDone }) {
     <div className="modal-backdrop">
       <form className="admin-modal admin-modal-wide" onSubmit={submit}>
         <button type="button" className="modal-close" onClick={onClose}>×</button>
-        <span className="eyebrow">VENDAS / NOVA</span>
         <h2>Registrar venda</h2>
         <div className="admin-form-grid">
           <label>Cliente<input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nome opcional" /></label>
@@ -630,7 +625,6 @@ function FinanceModal({ categories, accounts, onClose, onDone }) {
     <div className="modal-backdrop">
       <form className="admin-modal" onSubmit={submit}>
         <button type="button" className="modal-close" onClick={onClose}>×</button>
-        <span className="eyebrow">FINANCEIRO / NOVO</span>
         <h2>Novo lançamento</h2>
         <select value={form.type} onChange={(e) => set('type', e.target.value)}>
           <option value="DESPESA">Despesa</option>
@@ -685,7 +679,6 @@ function RecurringModal({ categories, accounts, onClose, onDone }) {
     <div className="modal-backdrop">
       <form className="admin-modal" onSubmit={submit}>
         <button type="button" className="modal-close" onClick={onClose}>×</button>
-        <span className="eyebrow">FINANCEIRO / RECORRÊNCIA</span>
         <h2>Nova conta recorrente</h2>
         <input value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Ex.: Aluguel" required />
         <input type="number" min="0.01" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="Valor mensal" required />
@@ -736,7 +729,6 @@ function PasswordModal({ onClose, onDone }) {
     <div className="modal-backdrop">
       <form className="admin-modal" onSubmit={submit}>
         <button type="button" className="modal-close" onClick={onClose}>×</button>
-        <span className="eyebrow">SEGURANÇA / SENHA</span>
         <h2>Alterar senha</h2>
         <input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Senha atual" required />
         <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Nova senha (mínimo 10 caracteres)" required />
@@ -800,7 +792,7 @@ function HomeEditor({ user }) {
     setSettings(nextSettings)
     setVisual(nextSettings.storefront_visual_defaults || null)
     setNavigation(nextSettings.navigation || { items: [] })
-    setFooter(nextSettings.footer || { brand: 'GALEO STORE', location: 'São Paulo / BR', year: '2026' })
+    setFooter(nextSettings.footer || { brand: 'GALEO STORE', year: '2026' })
     setCampaignDefaults(nextSettings.campaign_defaults || { effect: 'zoom', transition: 'crossfade', speed: 'slow', duration_seconds: 6 })
     setMediaItems(Array.isArray(mediaData?.items) ? mediaData.items : [])
     setProducts(Array.isArray(productData) ? productData : [])
@@ -929,10 +921,10 @@ function HomeEditor({ user }) {
     <div className="home-editor">
       <div className="home-editor-main">
         <aside className="home-editor-sidebar">
-          <div className="home-editor-sidebar-title"><span className="eyebrow">EDITOR DA LOJA</span><strong>Conteúdo da Home</strong><small>Você está editando um rascunho</small></div>
+          <div className="home-editor-sidebar-title"><strong>Conteúdo da Home</strong><small>Você está editando um rascunho</small></div>
           <HomeSectionOrder sections={sections} meta={HOME_EDITOR_META} selectedKey={selectedKey} active={area === 'content'} disabled={saving} onSelect={(key) => { setArea('content'); setSelectedKey(key) }} onReorder={reorderSections} />
           <div className="home-editor-divider" />
-          <span className="eyebrow home-editor-nav-label">CONFIGURAÇÕES</span>
+          <strong className="home-editor-nav-label">Configurações</strong>
           {[['visual','Visual'],['navigation','Menu principal'],['footer','Rodapé'],['campaign','Animações']].map(([key,label]) => (
             <button type="button" key={key} className={area === key ? 'home-editor-nav active' : 'home-editor-nav'} onClick={() => setArea(key)}>
               <span>{label}</span><small>Editar</small>
@@ -943,7 +935,6 @@ function HomeEditor({ user }) {
         <section className="home-editor-workspace">
           <div className="home-editor-heading">
             <div>
-              <span className="eyebrow">GALEO / {area === 'content' ? selectedKey.toUpperCase() : area.toUpperCase()}</span>
               <h2>{area === 'content' ? selectedMeta[0] : ({ visual: 'Visual da loja', navigation: 'Menu principal', footer: 'Rodapé', campaign: 'Animações das campanhas' }[area] || 'Editor')}</h2>
               <p>{area === 'content' ? selectedMeta[1] : 'Configurações aplicadas à experiência pública da GALEO'}</p>
             </div>
@@ -960,7 +951,6 @@ function HomeEditor({ user }) {
 
               {selectedKey === 'hero' && (
                 <div className="home-editor-form">
-                  <label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
                   <label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label>
                   <label className="home-editor-full">Descrição<textarea rows="4" value={draft.description || ''} onChange={(e) => setField('description', e.target.value)} /></label>
                   <label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label>
@@ -1001,7 +991,6 @@ function HomeEditor({ user }) {
 
               {selectedKey === 'featured_products' && (
                 <div className="home-editor-form">
-                  <label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label>
                   <label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label>
                   <label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label>
                   <label>Link do botão<input value={draft.button_url || ''} onChange={(e) => setField('button_url', e.target.value)} /></label>
@@ -1018,11 +1007,11 @@ function HomeEditor({ user }) {
               {selectedKey === 'campaigns' && (
                 <HomeCampaignEditor draft={draft} mediaItems={mediaItems} defaults={campaignDefaults}
                   onChange={(index, item) => setArrayItem('items', index, item)} onRemove={(index) => removeArrayItem('items', index)} onMove={(index, direction) => moveArrayItem('items', index, direction)}
-                  onAdd={() => addArrayItem('items', { eyebrow:'NOVA CAMPANHA', title:'Nova campanha', button_label:'Explorar', button_url:'/shop', animation:{ use_default:true }, slides:[{ media_url:'', media_type:'image', mobile_media_url:'' }] })} />
+                  onAdd={() => addArrayItem('items', { title:'Nova campanha', button_label:'Explorar', button_url:'/shop', animation:{ use_default:true }, slides:[{ media_url:'', media_type:'image', mobile_media_url:'' }] })} />
               )}
 
-              {selectedKey === 'manifesto' && <div className="home-editor-form single"><label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Texto<textarea rows="6" value={draft.text || ''} onChange={(e) => setField('text', e.target.value)} /></label></div>}
-              {selectedKey === 'newsletter' && <div className="home-editor-form single"><label>Texto acima do título<input value={draft.eyebrow || ''} onChange={(e) => setField('eyebrow', e.target.value)} /></label><label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label><label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label></div>}
+              {selectedKey === 'manifesto' && <div className="home-editor-form single"><label>Texto<textarea rows="6" value={draft.text || ''} onChange={(e) => setField('text', e.target.value)} /></label></div>}
+              {selectedKey === 'newsletter' && <div className="home-editor-form single"><label>Título<input value={draft.title || ''} onChange={(e) => setField('title', e.target.value)} /></label><label>Texto do botão<input value={draft.button_label || ''} onChange={(e) => setField('button_label', e.target.value)} /></label></div>}
 
               <div className="home-editor-savebar">
                 <div className="home-editor-save-status">
@@ -1059,7 +1048,7 @@ function HomeEditor({ user }) {
             </div>
           )}
 
-          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Localização<input value={footer.location || ''} onChange={(e) => setFooter((current) => ({ ...current, location: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé no rascunho ↗</button></div></div>}
+          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé no rascunho ↗</button></div></div>}
 
           {area === 'campaign' && campaignDefaults && (
             <div className="home-editor-form">
@@ -1074,7 +1063,6 @@ function HomeEditor({ user }) {
 
         <aside className="home-editor-publish">
           <div className="home-editor-publish-card">
-            <span className="eyebrow">PUBLICAÇÃO</span>
             <h3>Rascunho separado da loja publicada</h3>
             <p>Salvar rascunho guarda as alterações no CMS sem mudar o que o cliente vê</p>
             <div className="home-editor-status-flow">
@@ -1086,9 +1074,9 @@ function HomeEditor({ user }) {
             {hasUnsavedChanges && <p>Salve suas alterações antes de publicar. A prévia mostra o último rascunho salvo.</p>}
             <button className="button button-primary home-editor-publish-button" type="button" onClick={publishAll} disabled={saving || hasUnsavedChanges}>{saving ? 'Publicando…' : 'Publicar Home'}</button>
           </div>
-          {selected && <div className="home-editor-publish-card"><span className="eyebrow">SEÇÃO ATUAL</span><strong>{selectedMeta[0]}</strong><small>{selected.visible ? 'Visível no rascunho' : 'Oculta no rascunho'}</small><small>Ordem {selected.order}</small><small>Atualizado {selected.updated_at ? new Date(selected.updated_at).toLocaleString('pt-BR') : '—'}</small></div>}
+          {selected && <div className="home-editor-publish-card"><strong>{selectedMeta[0]}</strong><small>{selected.visible ? 'Visível no rascunho' : 'Oculta no rascunho'}</small><small>Ordem {selected.order}</small><small>Atualizado {selected.updated_at ? new Date(selected.updated_at).toLocaleString('pt-BR') : '—'}</small></div>}
           <HomeVersionHistory api={api} disabled={saving || hasUnsavedChanges} refreshKey={historyRefresh} onRestore={restoreHome} onBusy={(busy) => { operationPending.current = busy; setSaving(busy) }} />
-          <div className="home-editor-publish-card"><span className="eyebrow">MÍDIA</span><strong>{mediaItems.length}</strong><small>arquivos disponíveis na biblioteca</small></div>
+          <div className="home-editor-publish-card"><strong>{mediaItems.length}</strong><small>arquivos disponíveis na biblioteca</small></div>
         </aside>
       </div>
     </div>
@@ -1101,11 +1089,11 @@ function OnlineOrderModal({ order, onClose, onStatus }) {
   const statuses=[['RECEIVED','Recebido'],['CONFIRMED','Confirmado'],['PREPARING','Em preparação'],['SHIPPED','Enviado'],['DELIVERED','Entregue'],['CANCELLED','Cancelado']]
   async function save(){setSaving(true);try{await onStatus(order.id,status);onClose()}finally{setSaving(false)}}
   return <div className="modal-backdrop"><div className="modal-panel online-order-modal">
-    <div className="modal-header"><div><span className="eyebrow">PEDIDO ONLINE</span><h2>{order.code}</h2></div><button onClick={onClose}>Fechar</button></div>
+    <div className="modal-header"><div><h2>{order.code}</h2></div><button onClick={onClose}>Fechar</button></div>
     <div className="online-order-summary"><div><span>Cliente</span><strong>{order.customer_name}</strong><small>{order.customer_email}{order.customer_phone?' · '+order.customer_phone:''}</small></div><div><span>Total</span><strong>{money(order.total)}</strong><small>{dateBR(order.created_at)}</small></div></div>
     <div className="online-order-payment"><div><span>Pagamento</span><strong>{({PENDING:'Aguardando',APPROVED:'Aprovado',REJECTED:'Recusado',CANCELLED:'Cancelado',REFUNDED:'Estornado'})[order.payment_status]||'Não informado'}</strong><small>{order.payment_provider ? order.payment_provider + (order.payment_method?' · '+order.payment_method:'') : 'Ainda não vinculado'}</small></div><div><span>Venda</span><strong>{order.sale_id ? 'VDA-' + String(order.sale_id).padStart(6,'0') : 'Será criada automaticamente'}</strong></div></div>
-    <div className="online-order-address"><span className="eyebrow">ENTREGA</span><p>{order.street}, {order.number}{order.complement?' · '+order.complement:''}<br />{order.neighborhood} · {order.city} / {order.state}<br />CEP {order.postal_code}</p></div>
-    <div className="online-order-items"><span className="eyebrow">ITENS</span>{order.items?.map((item,index)=><div key={item.id ?? index}><span>{item.quantity} × {item.product_name}</span><strong>{money(item.line_total)}</strong></div>)}</div>
+    <div className="online-order-address"><h3>Entrega</h3><p>{order.street}, {order.number}{order.complement?' · '+order.complement:''}<br />{order.neighborhood} · {order.city} / {order.state}<br />CEP {order.postal_code}</p></div>
+    <div className="online-order-items"><h3>Itens</h3>{order.items?.map((item,index)=><div key={item.id ?? index}><span>{item.quantity} × {item.product_name}</span><strong>{money(item.line_total)}</strong></div>)}</div>
     <label className="online-order-status">Status<select value={status} onChange={(e)=>setStatus(e.target.value)}>{statuses.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <div className="modal-actions"><button className="button button-ghost" type="button" onClick={onClose}>Voltar</button><button className="button button-primary" type="button" disabled={saving||status===order.status} onClick={save}>{saving?'Salvando…':'Salvar status'}</button></div>
   </div></div>
@@ -1114,7 +1102,6 @@ function OnlineOrderModal({ order, onClose, onStatus }) {
 function VisualEditorLaunch() {
   return (
     <section className="visual-editor-launch">
-      <span className="eyebrow">CONTEÚDO DA LOJA</span>
       <h2>Edite na própria loja</h2>
       <p>Abra o rascunho e clique no texto ou na imagem que deseja mudar. Você verá as alterações na página enquanto edita.</p>
       <ol className="visual-editor-launch-steps">
@@ -1301,7 +1288,6 @@ function Admin({ user, onLogout }) {
       <main className="admin-main">
         <div className="admin-top">
           <div>
-            <span className="eyebrow">ADMIN / {String(user?.id || '').padStart(3, '0')}</span>
             <h1>{title}</h1>
           </div>
           {cta && <button className="button button-primary" onClick={cta[1]}>{cta[0]}</button>}
@@ -1328,8 +1314,8 @@ function Admin({ user, onLogout }) {
               <div className="metric"><span>Saídas de estoque</span><strong>-{dash.stock.saidas}</strong></div>
             </div>
             <div className="admin-panel dashboard-split">
-              <div><span className="eyebrow">ATENÇÃO</span><h2>Estoque crítico</h2><p>{dash.products.low_stock} produto(s) no estoque mínimo ou abaixo.</p></div>
-              <div><span className="eyebrow">ÚLTIMA VENDA</span><h2>{sales[0]?.code || 'Ainda não há vendas'}</h2><p>{sales[0] ? money(sales[0].total) + ' · ' + dateBR(sales[0].sold_at) : 'Registre a primeira venda pelo painel.'}</p></div>
+              <div><h2>Estoque crítico</h2><p>{dash.products.low_stock} produto(s) no estoque mínimo ou abaixo.</p></div>
+              <div><h2>Última venda</h2><p>{sales[0]?.code || 'Ainda não há vendas'}</p><p>{sales[0] ? money(sales[0].total) + ' · ' + dateBR(sales[0].sold_at) : 'Registre a primeira venda pelo painel.'}</p></div>
             </div>
           </>
         )}
@@ -1385,7 +1371,7 @@ function Admin({ user, onLogout }) {
 
         {!loading && tab === 'online-orders' && (
           <div className="admin-panel">
-            <div className="orders-toolbar"><div><span className="eyebrow">LOJA / ONLINE</span><h2>Pedidos recebidos pela vitrine</h2><p>Atualize o andamento de cada pedido sem misturar com as vendas do caixa físico</p></div><strong>{onlineOrders.filter((order)=>order.status!=='CANCELLED' && order.status!=='DELIVERED').length} em andamento</strong></div>
+            <div className="orders-toolbar"><div><h2>Pedidos recebidos pela vitrine</h2><p>Atualize o andamento de cada pedido sem misturar com as vendas do caixa físico</p></div><strong>{onlineOrders.filter((order)=>order.status!=='CANCELLED' && order.status!=='DELIVERED').length} em andamento</strong></div>
             <table>
               <thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
               <tbody>

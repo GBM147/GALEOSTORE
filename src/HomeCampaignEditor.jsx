@@ -40,7 +40,6 @@ export default function HomeCampaignEditor({ draft, mediaItems, defaults, onChan
       return <div className="home-editor-card-row" key={index}>
         <h3 className="home-campaign-title">Campanha {index + 1}</h3>
         <div className="home-editor-card-grid">
-          <label>Texto acima do título<input value={item.eyebrow || ''} onChange={(event) => onChange(index, { ...item, eyebrow:event.target.value })} /></label>
           <label>Título<input value={item.title || ''} onChange={(event) => onChange(index, { ...item, title:event.target.value })} /></label>
           <label>Texto do botão<input value={item.button_label || ''} onChange={(event) => onChange(index, { ...item, button_label:event.target.value })} /></label>
           <label>Destino do botão<input value={item.button_url || ''} onChange={(event) => onChange(index, { ...item, button_url:event.target.value })} /></label>

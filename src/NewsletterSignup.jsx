@@ -84,7 +84,6 @@ export function NewsletterConfirmation() {
 
   return (
     <main className="newsletter-confirmation section-shell">
-      <span className="eyebrow">GALEO / INSIDER</span>
       <h1>{unsubscribe ? 'Cancelar inscrição' : 'Confirmar inscrição'}</h1>
       {done ? <p role="status">{unsubscribe ? 'Sua inscrição foi cancelada.' : 'Inscrição confirmada. Você poderá receber novidades da GALEO.'}</p>
         : request.token ? <>

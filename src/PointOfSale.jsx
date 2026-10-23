@@ -185,7 +185,6 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
     return (
       <section className="pdv pdv-receipt" aria-labelledby="pdv-receipt-title">
         <div className="pdv-receipt-heading" role="status">
-          <span className="eyebrow">LOJA FÍSICA / {cancelled ? 'VENDA CANCELADA' : 'VENDA REGISTRADA'}</span>
           <h2 id="pdv-receipt-title">{cancelled ? 'Venda cancelada: ' : 'Venda '}{receipt.code}</h2>
           <p>{cancelled ? 'Esta venda foi cancelada. Estoque estornado e lançamento financeiro cancelado.' : 'Pagamento confirmado pelo operador. Estoque e financeiro atualizados.'}</p>
         </div>

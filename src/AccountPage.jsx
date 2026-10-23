@@ -157,12 +157,12 @@ export default function AccountPage() {
     setUser(null); setOrders([]); chooseMode('login'); navigate('/')
   }
 
-  if (loading) return <main className="section-shell page-space product-page-state"><span className="eyebrow">GALEO / CONTA</span><h1>Carregando conta</h1></main>
+  if (loading) return <main className="section-shell page-space product-page-state"><h1>Carregando conta</h1></main>
 
   if (!user) {
     return (
       <main className="section-shell account-page page-space">
-        <div className="page-heading"><span className="eyebrow">GALEO / CONTA</span><h1>{mode === 'login' ? 'Entre na sua conta' : mode === 'register' ? 'Crie sua conta' : 'Confirme seu e-mail'}</h1><p>{mode === 'verify' ? 'Digite sua senha para confirmar que este e-mail é seu' : mode === 'pending' ? 'Abra o link enviado para seu e-mail antes de acessar a conta' : 'Guarde seus dados e acompanhe seus pedidos em um só lugar'}</p></div>
+        <div className="page-heading"><h1>{mode === 'login' ? 'Entre na sua conta' : mode === 'register' ? 'Crie sua conta' : 'Confirme seu e-mail'}</h1><p>{mode === 'verify' ? 'Digite sua senha para confirmar que este e-mail é seu' : mode === 'pending' ? 'Abra o link enviado para seu e-mail antes de acessar a conta' : 'Guarde seus dados e acompanhe seus pedidos em um só lugar'}</p></div>
         <div className="account-auth">
           <div className="account-auth-tabs"><button className={mode==='login'?'active':''} type="button" disabled={saving} onClick={() => chooseMode('login')}>Entrar</button><button className={mode==='register'?'active':''} type="button" disabled={saving} onClick={() => chooseMode('register')}>Criar conta</button></div>
           {mode === 'login' ? (
@@ -210,10 +210,10 @@ export default function AccountPage() {
 
   return (
     <main className="section-shell account-page page-space">
-      <div className="page-heading"><span className="eyebrow">GALEO / MINHA CONTA</span><h1>{user.name}</h1><p>{user.email}</p></div>
+      <div className="page-heading"><h1>{user.name}</h1><p>{user.email}</p></div>
       <div className="account-layout">
         <section className="account-profile-card">
-          <div className="account-card-heading"><span className="eyebrow">MEUS DADOS</span><h2>Perfil</h2></div>
+          <div className="account-card-heading"><h2>Perfil</h2></div>
           <form className="account-form" onSubmit={saveProfile}>
             <label>Nome<input value={profile.name} onChange={(e) => setProfile({...profile,name:e.target.value})} required /></label>
             <label>Telefone<input value={profile.phone} onChange={(e) => setProfile({...profile,phone:e.target.value})} /></label>
@@ -224,7 +224,7 @@ export default function AccountPage() {
           </form>
         </section>
         <section className="account-orders-card">
-          <div className="account-card-heading"><span className="eyebrow">HISTÓRICO</span><h2>Meus pedidos</h2></div>
+          <div className="account-card-heading"><h2>Meus pedidos</h2></div>
           {!orders.length ? <div className="empty-catalog"><h2>Nenhum pedido ainda</h2><p>Quando você fizer um pedido, ele aparecerá aqui</p><Link className="text-link" to="/shop">Explorar catálogo ↗</Link></div> : <div className="account-orders-list">{orders.map((order) => <article className="account-order" key={order.id}><div><span>{order.code}</span><strong>{dateTime(order.created_at)}</strong></div><div><span>{order.status_label || order.status}</span><strong>{money(order.total)}</strong></div><small>{(order.items || []).map((item) => item.name + ' × ' + item.quantity).join(' · ')}</small></article>)}</div>}
         </section>
       </div>
