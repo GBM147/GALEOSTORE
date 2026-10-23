@@ -26,6 +26,8 @@ export default function AccountPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [registrationStatus, setRegistrationStatus] = useState('checking')
+  const [registrationCheck, setRegistrationCheck] = useState(0)
 
   function clearPasswords() {
     setLoginForm((form) => ({ ...form, password:'' }))
@@ -36,6 +38,10 @@ export default function AccountPage() {
 
   function chooseMode(nextMode) {
     clearPasswords(); setError(''); setSuccess(''); setVerificationToken('')
+    if (nextMode === 'register') {
+      setRegistrationStatus('checking')
+      setRegistrationCheck((attempt) => attempt + 1)
+    }
     verificationLink.current = false
     setMode(nextMode)
   }
@@ -63,6 +69,16 @@ export default function AccountPage() {
     const timer = window.setTimeout(() => setResendCooldown((seconds) => Math.max(0, seconds - 1)), 1000)
     return () => window.clearTimeout(timer)
   }, [resendCooldown])
+
+  useEffect(() => {
+    if (mode !== 'register') return
+    let active = true
+    setRegistrationStatus('checking')
+    customerApi('/api/customer/registration-status')
+      .then((data) => { if (active) setRegistrationStatus(data?.registration_available === true ? 'available' : 'unavailable') })
+      .catch(() => { if (active) setRegistrationStatus('error') })
+    return () => { active = false }
+  }, [mode, registrationCheck])
 
   async function loadMe() {
     if (verificationLink.current) return
@@ -103,7 +119,9 @@ export default function AccountPage() {
   }
 
   async function register(event) {
-    event.preventDefault(); setSaving(true); setError(''); setSuccess('')
+    event.preventDefault()
+    if (registrationStatus !== 'available' || saving) return
+    setSaving(true); setError(''); setSuccess('')
     if (registerForm.password !== registerForm.passwordConfirm) { setError('As senhas não coincidem'); setSaving(false); return }
     try {
       const data = await customerApi('/api/customer/register',{ method:'POST', body:registerForm })
@@ -174,6 +192,12 @@ export default function AccountPage() {
               <button className="button button-primary" disabled={saving}>{saving ? 'Entrando…' : 'Entrar ↗'}</button>
               <Link className="text-link" to="/">Continuar navegando ↗</Link>
             </form>
+          ) : mode === 'register' && registrationStatus !== 'available' ? (
+            <div className="account-form">
+              {registrationStatus === 'checking'
+                ? <p role="status">Verificando disponibilidade do cadastro…</p>
+                : <><p className={registrationStatus === 'error' ? 'form-error' : undefined} role={registrationStatus === 'error' ? 'alert' : 'status'}>{registrationStatus === 'error' ? 'Não foi possível verificar a disponibilidade do cadastro. Tente novamente.' : 'O cadastro está temporariamente indisponível. Tente novamente mais tarde.'}</p><p>Se já tem uma conta, use Entrar.</p><button className="button button-primary" type="button" onClick={() => { setRegistrationStatus('checking'); setRegistrationCheck((attempt) => attempt + 1) }}>Verificar novamente</button></>}
+            </div>
           ) : mode === 'register' ? (
             <form className="account-form" onSubmit={register}>
               <label>Nome<input autoComplete="name" value={registerForm.name} onChange={(e) => setRegisterForm({...registerForm,name:e.target.value})} required /></label>

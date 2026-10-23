@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os'
 import { VerificationRuntime, baseUrl } from './helpers/email-verification-runtime.mjs'
 
 // The environment already supplies Playwright. These tests use the real API,
-// the isolated MySQL database and local provider delivery, without API routes.
+// the isolated MySQL database and local provider delivery. Only the availability
+// network-error scenario deliberately interrupts its read-only status request.
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
 const runtime = new VerificationRuntime()
@@ -141,5 +142,50 @@ test('navegador real: login pendente, reenvio com limite, link antigo recusado e
     await page.screenshot({ path: join(reportDirectory, 'falha-de-entrega.png'), fullPage: true })
   } finally { await runtime.setMailStatus(200) }
   assert.equal(calls.filter(call => call.path === '/api/customer/resend-verification').length, 2)
+  assert.deepEqual(pageErrors, [])
+})
+
+test('cadastro indisponível não coleta dados nem envia cadastro e pode ser verificado novamente', async t => {
+  await runtime.startApi({ provider: false })
+  const { page, calls, pageErrors } = await contextFor(t)
+  const countBefore = Number((await runtime.query('SELECT COUNT(*) AS total FROM customers'))[0].total)
+  try {
+    await page.goto(baseUrl + '/conta')
+    await page.getByRole('button', { name: 'Criar conta', exact: true }).click()
+    await page.getByRole('status').filter({ hasText: 'O cadastro está temporariamente indisponível.' }).waitFor()
+    assert.equal(await page.getByRole('textbox').count(), 0, 'unavailable registration must not collect personal data')
+    assert.equal(await page.getByRole('button', { name: 'Criar conta ↗', exact: true }).count(), 0)
+    assert.equal(calls.filter(call => call.path === '/api/customer/register').length, 0)
+    await page.screenshot({ path: join(reportDirectory, 'cadastro-indisponivel.png'), fullPage: true })
+    await runtime.startApi()
+    await page.getByRole('button', { name: 'Verificar novamente', exact: true }).click()
+    await page.getByLabel('Nome', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Criar conta ↗', exact: true }).isEnabled(), true)
+    assert.equal(calls.filter(call => call.path === '/api/customer/registration-status').length, 2)
+    assert.equal(calls.filter(call => call.path === '/api/customer/register').length, 0)
+    assert.equal(Number((await runtime.query('SELECT COUNT(*) AS total FROM customers'))[0].total), countBefore)
+    assert.deepEqual(pageErrors, [])
+  } finally { await runtime.startApi() }
+})
+
+test('falha ao verificar cadastro mantém login de cliente confirmado disponível', async t => {
+  const fixture = await runtime.register('browser-status-error', { name: 'Cliente confirmado independente' })
+  const confirmed = await runtime.client().request('/api/customer/verify-email', { method: 'POST', body: { token: fixture.token, password: runtime.password } })
+  assert.equal(confirmed.status, 200)
+  const { page, calls, pageErrors } = await contextFor(t)
+  await page.route('**/api/customer/registration-status', route => route.abort('failed'))
+  await page.goto(baseUrl + '/conta')
+  assert.equal(calls.filter(call => call.path === '/api/customer/registration-status').length, 0, 'login must not depend on checking registration availability')
+  await page.getByRole('button', { name: 'Criar conta', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'Não foi possível verificar a disponibilidade do cadastro.' }).waitFor()
+  assert.equal(await page.getByRole('textbox').count(), 0)
+  await page.getByRole('button', { name: 'Verificar novamente', exact: true }).waitFor()
+  assert.equal(calls.filter(call => call.path === '/api/customer/register').length, 0)
+  await page.getByRole('button', { name: 'Entrar', exact: true }).click()
+  await login(page, fixture.email)
+  await page.waitForURL(baseUrl + '/')
+  await page.goto(baseUrl + '/conta')
+  await page.getByRole('heading', { name: 'Cliente confirmado independente', exact: true }).waitFor()
+  assert.equal(calls.filter(call => call.path === '/api/customer/register').length, 0)
   assert.deepEqual(pageErrors, [])
 })
