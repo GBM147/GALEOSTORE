@@ -133,6 +133,38 @@ test('product upload retry updates the saved product and uses product categories
   assert.deepEqual(pageErrors, [])
 })
 
+test('a new product can be saved as a private draft before its price is known', async (t) => {
+  let draft
+  const { page, calls, pageErrors } = await fixture(t, {
+    handle:({ path, method, body }) => {
+      if (path === '/api/admin/products' && method === 'POST') {
+        draft = { ...body, id: 202 }
+        return { status:201, data:draft }
+      }
+      if (path === '/api/admin/products' && method === 'GET' && draft) return { data:[product, draft] }
+    }
+  })
+  await page.goto(baseUrl + '/admin?tab=products')
+  await page.getByRole('button', { name:'+ Cadastrar produto', exact:true }).click()
+  const modal = page.getByRole('dialog', { name:'Cadastrar produto', exact:true })
+  await modal.getByLabel('Nome', { exact:true }).fill('Camiseta aguardando cadastro real')
+  await modal.getByLabel('Status').selectOption('0')
+  assert.equal(await modal.getByLabel('Preço de venda', { exact:true }).inputValue(), '')
+  await modal.getByText(/Este rascunho fica somente no Admin/).waitFor()
+  await modal.getByRole('button', { name:'Salvar produto', exact:true }).click()
+  await modal.waitFor({ state:'detached' })
+  const row = page.getByRole('row').filter({ hasText:'Camiseta aguardando cadastro real' })
+  await row.getByRole('cell', { name:'Rascunho — fora do catálogo', exact:true }).waitFor()
+  const creates = calls.filter(call => call.path === '/api/admin/products' && call.method === 'POST')
+  assert.equal(creates.length, 1)
+  assert.equal(creates[0].body.active, false)
+  assert.equal(creates[0].body.price, 0)
+  assert.equal(creates[0].body.stock, 0)
+  await row.getByRole('button', { name:'Editar', exact:true }).click()
+  assert.equal(await page.getByRole('dialog').getByLabel('Status').inputValue(), '0')
+  assert.deepEqual(pageErrors, [])
+})
+
 test('cart navigation removes a pending order when the pending query is cleared', async (t) => {
   const { page, pageErrors } = await fixture(t)
   await page.goto(baseUrl + '/carrinho?pedido_pendente=42&codigo=GALEO-TEST&pagar=1')

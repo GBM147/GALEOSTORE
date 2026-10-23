@@ -328,12 +328,14 @@ function ProductForm({ product, categories, onClose, onDone }) {
           <label>Nome<input value={form.name} onChange={(e) => set('name', e.target.value)} required /></label>
           <label>Marca<input value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="Ex.: Nike, Adidas…" /></label>
           <label>Categoria<select value={form.category_id} onChange={(e) => set('category_id', e.target.value)}><option value="">Sem categoria</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label>Preço de venda<input type="number" min="0" step="0.01" value={form.price} onChange={(e) => set('price', e.target.value)} required /></label>
+          <label>Preço de venda<input type="number" min="0" step="0.01" value={form.price} onChange={(e) => set('price', e.target.value)} required={form.active} /></label>
           <label>Custo<input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => set('cost', e.target.value)} /></label>
           <label>Estoque inicial / atual<input type="number" min="0" step="1" value={form.stock} onChange={(e) => set('stock', e.target.value)} required /></label>
           <label>Estoque mínimo<input type="number" min="0" step="1" value={form.min_stock} onChange={(e) => set('min_stock', e.target.value)} /></label>
-          <label>Status<select value={form.active ? '1' : '0'} onChange={(e) => set('active', e.target.value === '1')}><option value="1">Ativo no site</option><option value="0">Oculto</option></select></label>
+          <label>Status<select value={form.active ? '1' : '0'} onChange={(e) => set('active', e.target.value === '1')}><option value="1">Ativo no site</option><option value="0">Rascunho — fora do catálogo</option></select></label>
         </div>
+
+        {!form.active && <p className="page-note">Este rascunho fica somente no Admin. Complete os dados e altere o status para Ativo no site quando estiver pronto para vender.</p>}
 
         <label>Descrição<textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows="4" placeholder="Descrição, composição, medidas, cuidados…" /></label>
 
@@ -1332,7 +1334,7 @@ function Admin({ user, onLogout }) {
                     <td>{money(product.price)}</td>
                     <td>{money(product.cost)}</td>
                     <td><strong>{product.stock}</strong>{product.stock <= product.min_stock && <small className="warn"> estoque baixo</small>}</td>
-                    <td>{Number(product.active) ? 'Ativo' : 'Oculto'}</td>
+                    <td>{Number(product.active) ? 'Ativo' : 'Rascunho — fora do catálogo'}</td>
                     <td className="admin-actions">
                       <button onClick={() => { setEditingProduct(product); setModal('product') }}>Editar</button>
                       <button onClick={() => { setModal('stock'); setEditingProduct(product) }}>Estoque</button>

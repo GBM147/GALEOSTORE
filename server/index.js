@@ -2347,8 +2347,8 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
 
     const [result] = await conn.execute(
       `INSERT INTO products
-       (name,brand,category_id,description,price,cost,stock,min_stock,image,video)
-       VALUES(?,?,?,?,?,?,?,?,?,?)`,
+       (name,brand,category_id,description,price,cost,stock,min_stock,image,video,active)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
       [
         name,
         String(b.brand || '').trim(),
@@ -2359,7 +2359,8 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
         Number(b.stock || 0),
         Number(b.min_stock || 0),
         image,
-        String(b.video || '')
+        String(b.video || ''),
+        b.active === false ? 0 : 1
       ]
     )
 

@@ -28,7 +28,7 @@
     "db:migrate": "node scripts/migrate-schema.mjs",
     "bundle:netlify": "node scripts/bundle-netlify.mjs",
     "test:netlify": "node --test --test-concurrency=1 tests/netlify-runtime.integration.test.mjs",
-    "test:products": "node --test tests/product-deletion.integration.test.mjs"
+    "test:products": "node --test --test-concurrency=1 tests/product-deletion.integration.test.mjs tests/product-drafts.integration.test.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
