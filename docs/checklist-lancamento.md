@@ -14,8 +14,9 @@ e operação comercial estejam liberados para uso com clientes.
   acompanhado pela equipe. Enviar pelo Resend não exige contratar uma caixa
   postal no mesmo provedor.
 - [ ] **Fornecer o catálogo real.** Fotos, nome, marca, categoria, descrição,
-  composição/cuidados, preços, custos e estoque conferido. O catálogo atual
-  não tem produtos ativos.
+  composição/cuidados, preços, custos e estoque conferido. Foram importados
+  [19 rascunhos de peças e mídias do Instagram](catalogo-instagram.md), para
+  revisão dos donos; o catálogo público continua sem produtos ativos.
 - [ ] **Definir tamanhos e cores.** A grade de variações ainda não existe no
   sistema. Decidir entre um cadastro separado para cada combinação de
   tamanho/cor ou a implementação de um módulo de variações antes de vender.
