@@ -1569,10 +1569,12 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
       const quantity=Number(input.quantity)
       if(!product) throw new Error('Um dos produtos não está mais disponível.')
       if(!Number.isInteger(quantity)||quantity<1||quantity>50) throw new Error('Quantidade inválida para '+product.name+'.')
+      const unitPrice=Number(product.price)
+      if(!Number.isFinite(unitPrice)||unitPrice<=0) throw new Error('O preço de '+product.name+' ainda não foi definido. Aguarde a atualização da loja.')
       if(quantity>Number(product.stock)) throw new Error('Estoque insuficiente para '+product.name+'.')
-      const lineTotal=Number(product.price)*quantity
+      const lineTotal=unitPrice*quantity
       subtotal+=lineTotal
-      lines.push({product_id:Number(product.id),product_name:product.name,brand:product.brand,quantity,unit_price:Number(product.price),line_total:lineTotal})
+      lines.push({product_id:Number(product.id),product_name:product.name,brand:product.brand,quantity,unit_price:unitPrice,line_total:lineTotal})
     }
     const shippingFee=0
     const total=subtotal+shippingFee

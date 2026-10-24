@@ -13,6 +13,7 @@ import HeroVisual from './HeroVisual'
 import NewsletterSignup, { NewsletterConfirmation } from './NewsletterSignup'
 import VisualHomeEditor, { EditableSection, EditableText, EditorLink, EditorMediaButton, useVisualEditor } from './VisualHomeEditor'
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
+import { formatProductPrice, productHasPrice } from './productAvailability'
 
 const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
 
@@ -431,7 +432,6 @@ function StoreFooter({ footer }) {
 
 function ProductCard({ product }) {
   const editor = useVisualEditor()
-  const price = Number(product?.price || 0)
   const image = product?.image || '/images/product-placeholder.svg'
   return (
     <Link className="product-card" to={'/produto/' + product.id} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({sectionKey:'featured_products',kind:'products'}) } : undefined}>
@@ -442,7 +442,7 @@ function ProductCard({ product }) {
       <div className="product-meta">
         <span>{product?.category || 'Sem categoria'}</span>
         <strong>{product?.name || 'Produto'}</strong>
-        <b>R$ {price.toFixed(2).replace('.', ',')}</b>
+        <b>{formatProductPrice(product?.price)}</b>
       </div>
     </Link>
   )
@@ -492,6 +492,9 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
     })
 
     return [...result].sort((a, b) => {
+      if (sort === 'price-asc' || sort === 'price-desc') {
+        if (productHasPrice(a) !== productHasPrice(b)) return productHasPrice(a) ? -1 : 1
+      }
       if (sort === 'price-asc') return Number(a.price || 0) - Number(b.price || 0)
       if (sort === 'price-desc') return Number(b.price || 0) - Number(a.price || 0)
       if (sort === 'name') return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR')

@@ -1,3 +1,5 @@
+import { productCanBePurchased } from './productAvailability'
+
 export const STORE_API_BASE = String(import.meta.env?.VITE_STORE_API_URL || '').trim().replace(/\/+$/, '')
 export const CART_STORAGE_KEY = 'galeo-cart-v2'
 let customerCsrfToken = ''
@@ -24,6 +26,7 @@ export function writeCart(items) {
 }
 
 export function addToCart(product, quantity = 1) {
+  if (!productCanBePurchased(product)) return readCart()
   const amount = Math.max(1, Number(quantity || 1))
   const current = readCart()
   const existing = current.find((item) => Number(item.id) === Number(product.id))
