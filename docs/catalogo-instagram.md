@@ -3,26 +3,32 @@
 Importação pontual concluída em 23/10/2026, a pedido dos donos. Origem:
 https://www.instagram.com/galeostoreofc/.
 
-## Resultado no Admin
+## Resultado atual
 
-- 19 cadastros preliminares de peças, todos em **Rascunho — fora do catálogo**.
+- 19 cadastros de peças, publicados como vitrine em 24/10/2026 por solicitação
+  dos donos, com **Preço a definir** e compra indisponível.
 - Biblioteca com oito fotos extraídas literalmente dos vídeos e seis vídeos
   completos com áudio. Os arquivos ficam no Cloudinary; o banco guarda referências.
 - Fotos e vídeos compartilhados foram enviados uma única vez e reutilizados.
-- Nenhum produto foi ativado no catálogo público. Os 19 endereços públicos
-  responderam 404 e a lista pública continuou vazia após a importação.
+- Na importação inicial, os 19 cadastros ficaram privados. A publicação
+  posterior confirmou os 19 endereços públicos e preservou fotos, vídeos,
+  descrições, preços, saldos e histórico de estoque.
+
+Vitrine: https://galeo-store.netlify.app/shop.
 
 Acesso: https://galeo-store.netlify.app/admin → **Produtos e estoque** → **Editar**.
 A biblioteca de mídia também está disponível pelo Admin.
 
-## Revisão dos donos antes de ativar
+## Dados pendentes antes de vender
 
 A [planilha de revisão](catalogo-instagram-revisao.csv) contém os 19 cadastros e
 campos vazios para preço, custo, tamanhos/numerações e quantidades por tamanho.
 
-Os preços, custos e saldos foram gravados como zero apenas para manter esses
-rascunhos sem condições de venda; não representam preços comerciais nem uma
-contagem do estoque real. Nenhum tamanho foi inventado.
+Os preços, custos e saldos foram gravados como zero por estarem pendentes de
+preenchimento; não representam preços comerciais nem uma contagem do estoque
+real. A vitrine exibe **Preço a definir**, e a interface e a API bloqueiam
+pedidos de peças sem preço positivo. Também é necessário saldo suficiente
+para comprar. Nenhum tamanho foi inventado.
 
 Conferir nomes, marcas e quais peças são vendidas separadamente ou como kit.
 As fotos mostram composições com várias peças; a separação em cadastros é

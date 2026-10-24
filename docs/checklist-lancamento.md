@@ -1,8 +1,8 @@
 # Preparação da GALEO para atender clientes
 
-Situação conferida em 23/10/2026. O site já está publicado em
-https://galeo-store.netlify.app. Publicação não significa que cadastro, catálogo
-e operação comercial estejam liberados para uso com clientes.
+Situação atualizada em 24/10/2026. O site já está publicado em
+https://galeo-store.netlify.app. O catálogo funciona como vitrine; cadastro de
+clientes e operação comercial ainda dependem das providências abaixo.
 
 ## Providências dos donos
 
@@ -15,8 +15,9 @@ e operação comercial estejam liberados para uso com clientes.
   postal no mesmo provedor.
 - [ ] **Fornecer o catálogo real.** Fotos, nome, marca, categoria, descrição,
   composição/cuidados, preços, custos e estoque conferido. Foram importados
-  [19 rascunhos de peças e mídias do Instagram](catalogo-instagram.md), para
-  revisão dos donos; o catálogo público continua sem produtos ativos.
+  [19 cadastros de peças e mídias do Instagram](catalogo-instagram.md), para
+  revisão dos donos. Estão publicados como vitrine, com **Preço a definir** e
+  compra bloqueada enquanto faltarem preço positivo e estoque suficiente.
 - [ ] **Definir tamanhos e cores.** A grade de variações ainda não existe no
   sistema. Decidir entre um cadastro separado para cada combinação de
   tamanho/cor ou a implementação de um módulo de variações antes de vender.
