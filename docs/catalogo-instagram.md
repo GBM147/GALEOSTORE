@@ -5,8 +5,9 @@ https://www.instagram.com/galeostoreofc/.
 
 ## Resultado atual
 
-- 19 cadastros de peças, publicados como vitrine em 24/10/2026 por solicitação
-  dos donos, com **Preço a definir** e compra indisponível.
+- 19 cadastros de peças, publicados em 24/10/2026 por solicitação dos donos.
+  As peças ainda sem preço mostram **Preço a definir**, com compra indisponível;
+  os dados comerciais podem ser preenchidos pelos donos no Admin.
 - Biblioteca com oito fotos extraídas literalmente dos vídeos e seis vídeos
   completos com áudio. Os arquivos ficam no Cloudinary; o banco guarda referências.
 - Fotos e vídeos compartilhados foram enviados uma única vez e reutilizados.

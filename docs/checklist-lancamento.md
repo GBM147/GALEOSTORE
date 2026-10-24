@@ -16,8 +16,8 @@ clientes e operação comercial ainda dependem das providências abaixo.
 - [ ] **Fornecer o catálogo real.** Fotos, nome, marca, categoria, descrição,
   composição/cuidados, preços, custos e estoque conferido. Foram importados
   [19 cadastros de peças e mídias do Instagram](catalogo-instagram.md), para
-  revisão dos donos. Estão publicados como vitrine, com **Preço a definir** e
-  compra bloqueada enquanto faltarem preço positivo e estoque suficiente.
+  revisão dos donos. As peças ainda sem valor mostram **Preço a definir**; a
+  compra exige preço positivo e estoque suficiente conferidos pelos donos.
 - [ ] **Definir tamanhos e cores.** A grade de variações ainda não existe no
   sistema. Decidir entre um cadastro separado para cada combinação de
   tamanho/cor ou a implementação de um módulo de variações antes de vender.
