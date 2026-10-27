@@ -219,9 +219,8 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
   }
 
   return (
-    <section className="pdv" aria-labelledby="pdv-title">
+    <section className="pdv" aria-label="Frente de caixa">
       <div className="pdv-heading">
-        <h2 id="pdv-title">Frente de caixa</h2>
         <p>Selecione os produtos, receba o pagamento e registre a venda.</p>
       </div>
       <div className="pdv-layout">

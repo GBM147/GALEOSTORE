@@ -265,7 +265,8 @@ test('static campaign setting disables decorative motion', async (t) => {
 
 async function openPointOfSale(page) {
   await page.getByRole('button', { name:'Frente de caixa', exact:true }).click()
-  await page.getByRole('heading', { name:'Frente de caixa', level:2, exact:true }).waitFor()
+  await page.getByRole('heading', { name:'Frente de caixa', level:1, exact:true }).waitFor()
+  assert.equal(await page.getByRole('heading', { name:'Frente de caixa', exact:true }).count(), 1)
 }
 
 async function preparePhysicalSale(page) {

@@ -144,7 +144,7 @@ test('movimentação de estoque envia exatamente o tamanho escolhido', async t =
 test('Frente de caixa identifica M e G separadamente e mantém o tamanho no comprovante', async t => {
   const { page, calls } = await fixture(t)
   await page.goto(baseUrl + '/admin?tab=pdv')
-  await page.getByRole('heading', { name: 'Frente de caixa', exact: true }).last().waitFor()
+  await page.getByRole('heading', { name: 'Frente de caixa', exact: true, level: 1 }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Adicionar ' + shirt.name + ' tamanho P à venda', exact: true }).isDisabled(), true)
   await page.getByRole('button', { name: 'Adicionar ' + shirt.name + ' tamanho M à venda', exact: true }).click()
   await page.getByRole('button', { name: 'Adicionar ' + shirt.name + ' tamanho G à venda', exact: true }).click()

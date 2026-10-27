@@ -1275,7 +1275,7 @@ function Admin({ user, onLogout }) {
     products: 'Produtos e estoque',
     sales: 'Histórico de vendas',
     pdv: 'Frente de caixa',
-    'online-orders': 'Pedidos da loja online',
+    'online-orders': 'Pedidos do site',
     finance: 'Gastos da loja',
     recurring: 'Gastos recorrentes',
     library: 'Biblioteca de mídia'
@@ -1297,7 +1297,7 @@ function Admin({ user, onLogout }) {
           ['products', 'Produtos e estoque'],
           ['pdv', 'Frente de caixa'],
           ['sales', 'Histórico de vendas'],
-          ['online-orders', 'Pedidos da loja online'],
+          ['online-orders', 'Pedidos do site'],
           ['finance', 'Gastos da loja'],
           ['recurring', 'Gastos recorrentes'],
           ['library', 'Biblioteca de mídia']
@@ -1391,12 +1391,12 @@ function Admin({ user, onLogout }) {
 
         {!loading && tab === 'online-orders' && (
           <div className="admin-panel">
-            <div className="orders-toolbar"><div><h2>Pedidos recebidos pela vitrine</h2><p>Atualize o andamento de cada pedido sem misturar com as vendas do caixa físico</p></div><strong>{onlineOrders.filter((order)=>order.status!=='CANCELLED' && order.status!=='DELIVERED').length} em andamento</strong></div>
+            <div className="orders-toolbar"><strong>{onlineOrders.filter((order)=>order.status!=='CANCELLED' && order.status!=='DELIVERED').length} em andamento</strong></div>
             <table>
               <thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {onlineOrders.map((order)=><tr key={order.id}><td><strong>{order.code}</strong></td><td><strong>{order.customer_name}</strong><small>{order.customer_email}</small></td><td>{dateBR(order.created_at)}</td><td>{(order.items||[]).reduce((sum,item)=>sum+Number(item.quantity||0),0)}</td><td><strong>{money(order.total)}</strong></td><td><span className={'status-pill status-'+String(order.status).toLowerCase()}>{order.status_label||order.status}</span></td><td className="admin-actions"><button onClick={()=>openOnlineOrder(order.id)}>Abrir</button></td></tr>)}
-                {!onlineOrders.length && <tr><td colSpan="7" className="empty-state">Nenhum pedido online recebido ainda</td></tr>}
+                {!onlineOrders.length && <tr><td colSpan="7" className="empty-state">Nenhum pedido do site recebido ainda.</td></tr>}
               </tbody>
             </table>
           </div>
