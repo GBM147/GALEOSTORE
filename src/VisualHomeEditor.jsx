@@ -72,10 +72,18 @@ export function EditableText({ sectionKey, path, label = 'texto', value, childre
     input.current?.select()
   }, [active])
   useLayoutEffect(() => {
-    if (!input.current) return
-    input.current.style.height = 'auto'
-    input.current.style.height = input.current.scrollHeight + 'px'
-  }, [text, active])
+    const element = input.current
+    if (!editor?.editing || !active || !element) return
+    const resize = () => {
+      element.style.height = 'auto'
+      const style = getComputedStyle(element)
+      const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+      element.style.height = element.scrollHeight + border + 'px'
+    }
+    resize()
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [text, active, editor?.editing])
   if (!editor?.editing) return children ?? value
   function begin(event) {
     event.preventDefault()

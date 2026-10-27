@@ -16,6 +16,8 @@
 .visual-editor-access h1{font-size:32px;line-height:1.1}
 .visual-editor-access a{color:var(--accent-soft);display:inline-block;padding:12px 0}
 .visual-home-editor .app>.site-header{position:relative;top:auto}
+.visual-home-editor[data-editing=true] .hero-full{display:grid}
+.visual-home-editor[data-editing=true] .hero-full-content{position:relative;inset:auto;min-height:inherit}
 .visual-editable-section{position:relative;min-width:0;scroll-margin-top:160px}
 .visual-editable-section::before{content:"";position:absolute;inset:0;border:1px dashed transparent;pointer-events:none;z-index:4}
 .visual-editable-section:focus-within::before,.visual-editable-section:hover::before{border-color:var(--accent)}
@@ -30,7 +32,7 @@
 .visual-text-placeholder{display:inline-block;padding:10px 14px;color:var(--muted);font:400 16px/1.5 Roboto,Arial,sans-serif;letter-spacing:normal;text-transform:none;white-space:normal}
 .visual-editable-text{font:inherit;color:inherit;letter-spacing:inherit;line-height:inherit;white-space:inherit;min-width:0}
 .visual-inline-editor{display:block;min-width:0;position:relative}
-.visual-inline-editor textarea{display:block;width:100%;max-width:100%;min-height:1.2em;resize:vertical;overflow:hidden;margin:0;padding:2px;border:1px solid var(--accent-soft);background:var(--surface);color:inherit;font:inherit;letter-spacing:inherit;line-height:inherit;text-transform:inherit;box-sizing:border-box;white-space:pre-wrap}
+.visual-inline-editor textarea{display:block;width:100%;max-width:100%;min-height:96px;max-height:min(320px,45svh);resize:vertical;overflow:auto;margin:0;padding:12px;border:1px solid var(--accent-soft);background:var(--surface);color:var(--text);caret-color:var(--text);font:400 20px/1.5 Roboto,Arial,sans-serif;letter-spacing:normal;text-transform:none;box-sizing:border-box;white-space:pre-wrap}
 .visual-inline-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;letter-spacing:normal;line-height:normal}
 .visual-inline-actions button{min-height:36px;font-size:10px;font-style:normal;white-space:normal}
 .visual-inline-actions button:disabled{opacity:.45;cursor:default}

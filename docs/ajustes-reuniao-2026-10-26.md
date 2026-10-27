@@ -76,6 +76,10 @@ maiúsculas. O fluxo continua sendo **Concluir edição → Salvar rascunho →
 Publicar alterações**. Cancelar a edição desfaz também a mudança de destaque.
 Nenhum título ou rascunho existente foi alterado por essa atualização.
 
+Durante a edição, o campo usa letras em tamanho de leitura e acompanha a altura
+do texto, sem recortar as primeiras linhas na capa. Ao concluir a edição, a
+frase volta ao tamanho e à composição da Home.
+
 ## Preservação dos dados
 
 A migração acrescenta a tabela da grade e referências de tamanho nos itens de

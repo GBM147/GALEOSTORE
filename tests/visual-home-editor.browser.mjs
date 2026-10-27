@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 // Every API, media file and socket in this suite stays in local browser fixtures.
 // Refuse production even if FRONTEND_TEST_URL was accidentally set globally.
@@ -105,6 +106,65 @@ const toolbar = page => page.getByRole('toolbar', { name:'Editor visual da loja'
 const mutations = calls => calls.filter(call => !['GET', 'HEAD'].includes(call.method))
 const saves = calls => calls.filter(call => call.method === 'PUT')
 const publications = calls => calls.filter(call => call.path === '/api/admin/home/publish')
+
+for (const width of [1366, 390]) for (const theme of ['dark', 'light']) {
+  test(`the active Hero text remains readable and unclipped at ${width}px in ${theme} mode`, async t => {
+    const { page, calls } = await fixture(t, { width, navigate:editorUrl + '&theme=' + theme })
+    await page.setViewportSize({ width, height:width === 390 ? 844 : 768 })
+    await toolbar(page).waitFor()
+    if (await page.evaluate(() => document.documentElement.dataset.theme) !== theme) {
+      await page.getByRole('button', { name:theme === 'light' ? 'Ativar modo claro' : 'Ativar modo escuro', exact:true }).click()
+    }
+    await page.waitForFunction(value => document.documentElement.dataset.theme === value, theme)
+    await page.getByRole('button', { name:'Editar Título do Hero', exact:true }).click()
+    const input = page.getByRole('textbox', { name:'Título do Hero', exact:true })
+    const sentence = 'Kit lupa + boné\n' + Array.from({ length:12 }, (_, index) => 'Coleção ' + (index + 1) + ' — peças para o seu movimento').join('\n') + '\n'
+    await input.fill(sentence)
+    await input.evaluate(element => { element.focus(); element.setSelectionRange(0, 0); element.scrollTop = 0 })
+    const geometry = await input.evaluate(element => {
+      const css = getComputedStyle(element), rect = element.getBoundingClientRect()
+      const hero = document.querySelector('.hero-full').getBoundingClientRect()
+      const luminance = color => {
+        const rgb = color.match(/[\d.]+/g).slice(0, 3).map(value => {
+          const normalized = Number(value) / 255
+          return normalized <= .04045 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4
+        })
+        return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722
+      }
+      const foreground = luminance(css.color), background = luminance(css.backgroundColor)
+      return { fontSize:parseFloat(css.fontSize), contrast:(Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05),
+        top:rect.top, bottom:rect.bottom, left:rect.left, right:rect.right, heroTop:hero.top, heroBottom:hero.bottom, heroLeft:hero.left, heroRight:hero.right,
+        clientHeight:element.clientHeight, scrollHeight:element.scrollHeight, overflowY:css.overflowY, scrollTop:element.scrollTop }
+    })
+    assert.equal(await input.inputValue(), sentence)
+    assert.ok(geometry.fontSize >= 16 && geometry.fontSize <= 24, 'the input must use a readable editing size rather than the oversized storefront heading')
+    assert.ok(geometry.contrast >= 4.5, 'the normal text must remain readable against the actual input background')
+    assert.ok(geometry.top >= geometry.heroTop && geometry.bottom <= geometry.heroBottom, 'the Hero must grow to contain the whole text field instead of clipping its first lines')
+    assert.ok(geometry.left >= geometry.heroLeft && geometry.right <= geometry.heroRight, 'the text field must stay inside the Hero horizontally')
+    assert.equal(geometry.scrollTop, 0, 'the first line must be reachable')
+    if (geometry.scrollHeight > geometry.clientHeight + 2) {
+      assert.ok(['auto', 'scroll'].includes(geometry.overflowY), 'long text must remain scrollable inside its field')
+      assert.ok(await input.evaluate(element => { element.scrollTop = element.scrollHeight; return element.scrollTop > 0 }), 'the last lines must be reachable')
+      await input.evaluate(element => { element.scrollTop = 0 })
+    }
+    await page.getByRole('textbox', { name:'Trecho em destaque', exact:true }).focus()
+    const afterBlur = await input.boundingBox()
+    const hero = await page.locator('.hero-full').boundingBox()
+    assert.ok(afterBlur.y >= hero.y && afterBlur.y + afterBlur.height <= hero.y + hero.height, 'blurring the field must not push it behind the Hero clipping edge')
+    const captureDirectory = process.env.EDITOR_VISIBILITY_CAPTURE_DIR
+    if (captureDirectory) {
+      mkdirSync(captureDirectory, { recursive:true })
+      await input.fill('Kit lupa + boné\n')
+      await input.press('ArrowRight')
+      await input.scrollIntoViewIfNeeded()
+      await page.screenshot({ path:join(captureDirectory, 'after-local-' + width + '-' + theme + '.png') })
+    }
+    await page.getByRole('button', { name:'Concluir edição', exact:true }).click()
+    assert.equal(await page.locator('.hero-title').evaluate(element => parseFloat(getComputedStyle(element).fontSize) > 24), true, 'the storefront heading must keep its display typography after editing')
+    assert.equal(mutations(calls).length, 0, 'visibility checks must not save or publish content')
+  })
+}
+
 async function edit(page, label, value) {
   await page.getByRole('button', { name:'Editar ' + label, exact:true }).click()
   await page.getByRole('textbox', { name:label, exact:true }).fill(value)
