@@ -12,6 +12,7 @@ import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 import { formatProductPrice, productHasPrice } from './productAvailability'
 import { loadStorefrontJson } from './storefrontData'
 import { editorialSegments, editorialType, textHighlightPath } from './editorialText'
+import { useHeroTitleFit } from './useHeroTitleFit'
 
 const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
@@ -350,6 +351,7 @@ function HeroTitle({ text, highlight }) {
 
 function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults, visualDefaults }) {
   const editor = useVisualEditor()
+  const heroElement = useRef(null)
   const editing = Boolean(editor?.editing)
   const hero = homeSectionContent(homeSections, 'hero', homeLoaded)
   const utility = homeSectionContent(homeSections, 'utility', homeLoaded)
@@ -378,12 +380,13 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
   ]).filter(item => item && typeof item === 'object' && !Array.isArray(item))
   const heroTitle = text(hero.title, 'Vista o que representa você')
   const heroDescription = text(hero.description, 'Curadoria de marcas, peças e estilos para quem não precisa seguir o mesmo caminho')
+  useHeroTitleFit(heroElement, [heroTitle, hero.title_highlight, heroDescription, hero.description_highlight, editing, homeLoaded, hero.__visible])
   const categoryItems = Array.isArray(categorySection.items) ? categorySection.items : MALE_CATEGORIES.slice(0,3).map(title => ({ title, url:'/shop?category=' + encodeURIComponent(title) }))
   const effect = campaignDefaults?.effect || campaigns.defaults?.effect || 'zoom'
   const reveal = editing ? { enabled:false } : visualDefaults?.interaction?.scroll_reveal
   const defaultOrder = ['hero','utility','categories','featured_products','campaigns','manifesto','newsletter']
   const sections = {
-    hero: (editing || hero.__visible !== false) && <section data-home-section="hero" className="hero-full section-shell" onClick={editing ? event => { if (!event.target.closest('button,a,[role="button"],textarea,input')) editor.select({sectionKey:'hero',kind:'media'}) } : undefined}>
+    hero: (editing || hero.__visible !== false) && <section ref={heroElement} data-home-section="hero" className="hero-full section-shell" onClick={editing ? event => { if (!event.target.closest('button,a,[role="button"],textarea,input')) editor.select({sectionKey:'hero',kind:'media'}) } : undefined}>
       <div className="hero-full-media"><HeroVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} speed={campaignDefaults?.speed ?? campaigns.defaults?.speed ?? 'slow'} durationSeconds={campaignDefaults?.duration_seconds ?? campaigns.defaults?.duration_seconds ?? 6} editorPaused={editing} /><div className="hero-full-shade" /></div>
       <EditorMediaButton sectionKey="hero" label="Trocar imagem ou vídeo do Hero" />
       <div className="hero-full-content">

@@ -80,6 +80,11 @@ Durante a edição, o campo usa letras em tamanho de leitura e acompanha a altur
 do texto, sem recortar as primeiras linhas na capa. Ao concluir a edição, a
 frase volta ao tamanho e à composição da Home.
 
+Na prévia e na Home pública, a capa ajusta automaticamente a quebra de linhas
+e o tamanho do título conforme o espaço disponível. Frases muito grandes
+aumentam a altura da capa para manter todas as palavras legíveis, preservando
+o trecho em destaque.
+
 ## Preservação dos dados
 
 A migração acrescenta a tabela da grade e referências de tamanho nos itens de

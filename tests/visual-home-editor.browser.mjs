@@ -34,13 +34,13 @@ before(async () => {
 })
 after(async () => { await browser?.close() })
 
-async function fixture(t, { width = 1280, role = 'owner', handle, navigate = editorUrl, reducedMotion = 'reduce' } = {}) {
-  const context = await browser.newContext({ viewport:{ width, height:900 }, reducedMotion, hasTouch:width <= 700 })
+async function fixture(t, { width = 1280, height = 900, role = 'owner', handle, navigate = editorUrl, reducedMotion = 'reduce', heroDraft = {}, heroPublished = {} } = {}) {
+  const context = await browser.newContext({ viewport:{ width, height }, reducedMotion, hasTouch:width <= 700 })
   t.after(() => context.close())
   const page = await context.newPage()
   page.setDefaultTimeout(12000)
   const calls = [], errors = [], unexpected = []
-  const sections = keys.map((key, index) => ({ key, order:(index + 1) * 10, visible:true, published_order:(index + 1) * 10, published_visible:true, draft:structuredClone(content[key]), published:{ ...structuredClone(content[key]), ...(key === 'hero' ? { title:'Título que está publicado', description:'Descrição pública' } : {}) }, updated_at:'2026-10-10T12:00:00Z', published_at:'2026-10-09T12:00:00Z' }))
+  const sections = keys.map((key, index) => ({ key, order:(index + 1) * 10, visible:true, published_order:(index + 1) * 10, published_visible:true, draft:{ ...structuredClone(content[key]), ...(key === 'hero' ? structuredClone(heroDraft) : {}) }, published:{ ...structuredClone(content[key]), ...(key === 'hero' ? { title:'Título que está publicado', description:'Descrição pública', ...structuredClone(heroPublished) } : {}) }, updated_at:'2026-10-10T12:00:00Z', published_at:'2026-10-09T12:00:00Z' }))
   const settings = [
     { key:'campaign_defaults', value:{ effect:'static', transition:'crossfade', speed:'slow', duration_seconds:6 }, published:{ effect:'static', transition:'crossfade', speed:'slow', duration_seconds:6 } },
     { key:'storefront_visual_defaults', value:{ theme:'dark', interaction:{ smooth_scroll:{ enabled:false }, scroll_reveal:{ enabled:false }, hero_text_reveal:{ enabled:false } } }, published:{ theme:'dark' } },
@@ -174,6 +174,104 @@ async function saveDraft(page) {
   const response = page.waitForResponse(response => new URL(response.url()).pathname.startsWith('/api/admin/home/') && response.request().method() === 'PUT')
   await toolbar(page).getByRole('button', { name:'Salvar rascunho', exact:true }).click()
   await response
+}
+
+async function heroLayout(page) {
+  return page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const hero = document.querySelector('.hero-full')
+    const heading = hero.querySelector('.hero-title')
+    const rect = element => {
+      const value = element.getBoundingClientRect()
+      return { top:value.top, bottom:value.bottom, left:value.left, right:value.right, height:value.height, width:value.width }
+    }
+    const fragments = []
+    const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      if (!walker.currentNode.textContent.trim()) continue
+      const range = document.createRange()
+      range.selectNodeContents(walker.currentNode)
+      for (const value of range.getClientRects()) {
+        if (value.width && value.height) fragments.push({ top:value.top, bottom:value.bottom, left:value.left, right:value.right })
+      }
+    }
+    return {
+      hero:rect(hero), heading:rect(heading), description:rect(hero.querySelector('.hero-full-content > p')),
+      button:rect(hero.querySelector('.hero-full-actions .button')), fragments,
+      fontSize:parseFloat(getComputedStyle(heading).fontSize), minHeight:parseFloat(getComputedStyle(hero).minHeight),
+      documentWidth:document.documentElement.scrollWidth, viewport:innerWidth,
+      text:heading.innerText.replace(/\s+/g, ' ').trim()
+    }
+  })
+}
+
+function assertHeroFits(layout, expectedText, label) {
+  assert.equal(layout.text, expectedText.replace(/\s+/g, ' ').trim(), label + ': all title words must remain in the rendered text')
+  assert.ok(layout.fragments.length, label + ': measure real text fragments, not just the heading box')
+  for (const [index, bounds] of [...layout.fragments, layout.heading, layout.description, layout.button].entries()) {
+    assert.ok(bounds.top >= layout.hero.top - 2 && bounds.bottom <= layout.hero.bottom + 2, label + ': fragment ' + index + ' must not be clipped vertically')
+    assert.ok(bounds.left >= layout.hero.left - 2 && bounds.right <= layout.hero.right + 2, label + ': fragment ' + index + ' must not escape horizontally')
+  }
+  assert.ok(layout.documentWidth <= layout.viewport + 2, label + ': the page must not acquire horizontal overflow')
+  assert.ok(layout.fontSize >= (layout.viewport <= 760 ? 28 : 36) - .5, label + ': the title must remain readable')
+}
+
+for (const [width, height] of [[1366, 768], [1440, 900], [390, 844], [320, 740]]) {
+  test(`a multiline promotion fits both the client preview and public Hero at ${width}x${height}`, async t => {
+    const promotion = 'Kit lupa + boné\nAPENAS\n150,00 R$'
+    const { page, calls } = await fixture(t, { width, height })
+    await page.getByRole('button', { name:'Editar Título do Hero', exact:true }).click()
+    await page.getByRole('textbox', { name:'Título do Hero', exact:true }).fill(promotion)
+    await page.getByRole('textbox', { name:'Trecho em destaque', exact:true }).fill('150,00 R$')
+    await page.getByRole('button', { name:'Concluir edição', exact:true }).click()
+    await toolbar(page).getByRole('button', { name:'Ver como cliente', exact:true }).click()
+    assertHeroFits(await heroLayout(page), promotion, 'client preview')
+    assert.equal(await page.locator('.hero-title em').innerText(), '150,00 R$')
+    assert.equal(mutations(calls).length, 0)
+
+    const publicView = await fixture(t, { width, height, role:null, navigate:'/', heroPublished:{ title:promotion, title_highlight:'150,00 R$' } })
+    await publicView.page.locator('.hero-title em').waitFor()
+    assertHeroFits(await heroLayout(publicView.page), promotion, 'published Home')
+    assert.equal(await publicView.page.locator('.hero-title em').innerText(), '150,00 R$')
+    assert.equal(mutations(publicView.calls).length, 0)
+  })
+}
+
+test('Hero fitting reduces a long title, restores short-title size and recalculates after viewport changes', async t => {
+  const longTitle = 'Uma coleção feita para representar o seu estilo\nCom peças especiais para todos os seus movimentos\nConheça as novidades da GALEO\nSeu novo kit está aqui'
+  const { page, calls } = await fixture(t, { width:1366, height:768, heroDraft:{ title:longTitle } })
+  await toolbar(page).getByRole('button', { name:'Ver como cliente', exact:true }).click()
+  const longLayout = await heroLayout(page)
+  assertHeroFits(longLayout, longTitle, 'long title')
+  await toolbar(page).getByRole('button', { name:'Voltar a editar', exact:true }).click()
+  await edit(page, 'Título do Hero', 'Seu kit')
+  await toolbar(page).getByRole('button', { name:'Ver como cliente', exact:true }).click()
+  const shortLayout = await heroLayout(page)
+  assertHeroFits(shortLayout, 'Seu kit', 'short title')
+  assert.ok(shortLayout.fontSize > longLayout.fontSize + 8, 'shortening the title must restore its larger display size')
+  await page.setViewportSize({ width:390, height:844 })
+  const mobile = await heroLayout(page)
+  assertHeroFits(mobile, 'Seu kit', 'resized mobile title')
+  assert.ok(mobile.fontSize < shortLayout.fontSize - 8, 'the responsive size must follow the new mobile width')
+  await page.setViewportSize({ width:1440, height:900 })
+  const desktop = await heroLayout(page)
+  assertHeroFits(desktop, 'Seu kit', 'resized desktop title')
+  assert.ok(desktop.fontSize > mobile.fontSize + 8, 'growing the viewport must not leave the mobile fitting size stuck')
+  assert.equal(mutations(calls).length, 0)
+})
+
+for (const [width, height] of [[1366, 768], [320, 740]]) {
+  test(`extreme Hero text expands the banner instead of becoming tiny or losing words at ${width}px`, async t => {
+    const title = Array.from({ length:20 }, (_, index) => 'Coleção ' + (index + 1)).join('\n') + '\n' + 'PEÇASESPECIAIS'.repeat(10)
+    const { page, calls } = await fixture(t, { width, height, role:null, navigate:'/', heroPublished:{ title, title_highlight:'Coleção 20' } })
+    await page.locator('.hero-title em').waitFor()
+    const layout = await heroLayout(page)
+    assertHeroFits(layout, title, 'extreme published title')
+    assert.ok(layout.hero.height > layout.minHeight + 80, 'the banner must be allowed to grow after the title reaches its readable minimum size')
+    assert.ok(layout.fontSize <= (width <= 760 ? 28 : 36) + 1, 'extreme text should reach the readable size floor before growing the banner')
+    assert.equal(mutations(calls).length, 0)
+  })
 }
 
 for (const width of [1440, 390]) for (const reducedMotion of ['reduce', 'no-preference']) {
