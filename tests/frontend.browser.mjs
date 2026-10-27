@@ -46,6 +46,7 @@ async function fixture(t, { homeSections = [utilitySection], settings = [], cart
     if (path === '/api/store/home/settings' || path === '/api/admin/home/settings') return json({ settings })
     if (path === '/api/admin/home') return json({ sections:homeSections.map((section) => ({ ...section, draft:section.content })) })
     if (path === '/api/auth/me') return json({ user:{ id:1, email:'admin@example.test', role:'owner' }, csrfToken:'test-csrf' })
+    if (path === '/api/store/shipping/config') return json({ configured:false, connected:false, available:false })
     if (path === '/api/customer/me') return json({ authenticated:true, user:{ id:7, name:'Cliente Teste', phone:'11999999999', email:'cliente@example.test' }, csrfToken:'test-csrf' })
     if (path === '/api/customer/orders') return json({ orders:[] })
     if (path === '/api/admin/products') return json([product])

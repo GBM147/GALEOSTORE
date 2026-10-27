@@ -53,6 +53,7 @@ async function fixture(t, { cart = [] } = {}) {
     if (path === '/api/store/home/settings') return json({ settings: [] })
     if (path === '/api/store/products/' + pending.id) return json({ product: pending, related: [ready] })
     if (path === '/api/store/products/' + ready.id) return json({ product: ready, related: [pending] })
+    if (path === '/api/store/shipping/config') return json({ configured:false, connected:false, available:false })
     if (path === '/api/customer/me') return json({ authenticated: true, user: { id: 71, name: 'Cliente local', phone: '11999999999', email: 'cliente@example.test' }, csrfToken: 'local-test-csrf' })
     if (path === '/api/auth/me') return json({ authenticated: false }, 401)
     unexpectedApi.push(request.method() + ' ' + path)

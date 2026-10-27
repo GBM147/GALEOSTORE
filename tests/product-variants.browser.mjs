@@ -30,6 +30,7 @@ async function fixture(t, { cart = [] } = {}) {
     calls.push({ path, method, body })
     const json = (data, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
     if (path === '/api/auth/me') return json({ user: { id: 1, email: 'owner@example.test', role: 'owner' }, csrfToken: 'size-local-csrf' })
+    if (path === '/api/store/shipping/config') return json({ configured:false, connected:false, available:false })
     if (path === '/api/customer/me') return json({ authenticated: true, user: { id: 7, name: 'Cliente local', phone: '11999999999', email: 'buyer@example.test' }, csrfToken: 'size-local-csrf' })
     if (path === '/api/store' || path === '/api/store/categories') return json(path.endsWith('/categories') ? categories : { products, categories })
     if (path === '/api/store/home') return json({ sections: [] })

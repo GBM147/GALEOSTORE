@@ -1,0 +1,82 @@
+.cart-shipping {
+  min-width: 0;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cart-shipping h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+.cart-shipping p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cart-shipping p.form-error { color: #d37a69; }
+.shipping-postal-label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.shipping-postal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+.shipping-postal-row input {
+  flex: 1 1 120px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.shipping-postal-row input:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.shipping-postal-row .button {
+  flex: 1 0 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+.shipping-options {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+}
+.shipping-options legend {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.shipping-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.shipping-option:has(input:checked) { border-color: var(--accent); }
+.shipping-option:has(input:focus-visible) { outline: 1px solid var(--accent); outline-offset: 2px; }
+.shipping-option input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.shipping-option span { min-width: 0; display: grid; gap: 5px; }
+.shipping-option strong { font-size: 12px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.shipping-option small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+@media (max-width: 380px) {
+  .shipping-option { grid-template-columns: 18px minmax(0, 1fr); }
+  .shipping-option > strong { grid-column: 2; }
+}

@@ -10,6 +10,7 @@ import { adminApi as api, clearAdminCsrfToken, getAdminCsrfToken } from './admin
 import { directUploadsEnabled, uploadDirectMedia } from './directUpload'
 import { activeProductVariants, productHasVariants } from './productVariants'
 import './product-variants.css'
+import './Admin.css'
 
 const money = (v) => Number(v || 0).toLocaleString('pt-BR', {
   style: 'currency',
@@ -87,6 +88,10 @@ const emptyProduct = {
   image_asset_id: null,
   image_variant: null,
   video: '',
+  shipping_weight: '',
+  shipping_width: '',
+  shipping_height: '',
+  shipping_length: '',
   active: true
 }
 
@@ -153,6 +158,10 @@ function ProductForm({ product, categories, onClose, onDone }) {
     image_asset_id: null,
     image_variant: null,
     category_id: product.category_id || '',
+    shipping_weight: product.shipping_weight ?? '',
+    shipping_width: product.shipping_width ?? '',
+    shipping_height: product.shipping_height ?? '',
+    shipping_length: product.shipping_length ?? '',
     active: Boolean(product.active)
   } : emptyProduct)
   const [media, setMedia] = useState([])
@@ -331,8 +340,13 @@ function ProductForm({ product, categories, onClose, onDone }) {
     try {
       const inventoryChanged = !editing || inventoryFormValue(sizesEnabled, variantRows, form.stock) !== inventoryBaseline.current.value
       if (inventoryChanged && sizesEnabled && (!variantRows.some(row => row.active) || variantRows.some(row => !String(row.size || '').trim()))) throw new Error('Preencha os tamanhos da grade antes de salvar.')
+      const shippingKeys = ['shipping_weight', 'shipping_width', 'shipping_height', 'shipping_length']
+      const shippingPresent = shippingKeys.filter(key => String(form[key] ?? '').trim() !== '')
+      if (shippingPresent.length && shippingPresent.length !== shippingKeys.length) throw new Error('Preencha o peso e as três medidas para entrega, ou deixe todos esses campos vazios.')
+      if (shippingPresent.some(key => !Number.isFinite(Number(form[key])) || Number(form[key]) <= 0)) throw new Error('O peso e as medidas para entrega precisam ser maiores que zero.')
       const body = {
         ...form,
+        ...Object.fromEntries(shippingKeys.map(key => [key, shippingPresent.length ? Number(form[key]) : null])),
         image_asset_id: Number(form.image_asset_id) || null,
         image_variant: Number(form.image_asset_id) ? form.image_variant : null,
         price: Number(form.price || 0), cost: Number(form.cost || 0),
@@ -426,6 +440,17 @@ function ProductForm({ product, categories, onClose, onDone }) {
             {row.active ? <button type="button" onClick={() => removeSize(row)}>{row.id ? 'Desativar tamanho' : 'Remover tamanho'}</button> : <button type="button" onClick={() => changeSize(row._key, 'active', true)}>Reativar tamanho</button>}
           </div>)}</div><button type="button" className="button button-ghost" onClick={addSize}>Adicionar tamanho</button><strong className="product-size-total">Total: {variantsStock} unidade{variantsStock === 1 ? '' : 's'}</strong></>}
         </section>
+
+        <details className="admin-shipping-product">
+          <summary>Dados para entrega</summary>
+          <p>Informe o peso e as medidas reais de uma unidade já embalada. Esses dados permitem calcular o frete no carrinho. Preencha os quatro campos ou deixe todos vazios para completar depois.</p>
+          <div className="admin-form-grid">
+            <label>Peso embalado (kg)<input type="number" inputMode="decimal" min="0.001" max="1000" step="0.001" value={form.shipping_weight} onChange={event => set('shipping_weight', event.target.value)} placeholder="Peso real em kg" /></label>
+            <label>Largura da embalagem (cm)<input type="number" inputMode="decimal" min="0.01" max="1000" step="0.01" value={form.shipping_width} onChange={event => set('shipping_width', event.target.value)} /></label>
+            <label>Altura da embalagem (cm)<input type="number" inputMode="decimal" min="0.01" max="1000" step="0.01" value={form.shipping_height} onChange={event => set('shipping_height', event.target.value)} /></label>
+            <label>Comprimento da embalagem (cm)<input type="number" inputMode="decimal" min="0.01" max="1000" step="0.01" value={form.shipping_length} onChange={event => set('shipping_length', event.target.value)} /></label>
+          </div>
+        </details>
 
         <label>Descrição<textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows="4" placeholder="Descrição, composição, medidas, cuidados…" /></label>
 
@@ -1076,6 +1101,8 @@ function HomeEditor({ user }) {
 function OnlineOrderModal({ order, onClose, onStatus }) {
   const [status,setStatus]=useState(order.status)
   const [saving,setSaving]=useState(false)
+  let shippingDetails = order.shipping_details
+  if (typeof shippingDetails === 'string') { try { shippingDetails = JSON.parse(shippingDetails) } catch { shippingDetails = null } }
   const statuses=[['RECEIVED','Recebido'],['CONFIRMED','Confirmado'],['PREPARING','Em preparação'],['SHIPPED','Enviado'],['DELIVERED','Entregue'],['CANCELLED','Cancelado']]
   async function save(){setSaving(true);try{await onStatus(order.id,status);onClose()}finally{setSaving(false)}}
   return <div className="modal-backdrop"><div className="modal-panel online-order-modal">
@@ -1083,10 +1110,63 @@ function OnlineOrderModal({ order, onClose, onStatus }) {
     <div className="online-order-summary"><div><span>Cliente</span><strong>{order.customer_name}</strong><small>{order.customer_email}{order.customer_phone?' · '+order.customer_phone:''}</small></div><div><span>Total</span><strong>{money(order.total)}</strong><small>{dateBR(order.created_at)}</small></div></div>
     <div className="online-order-payment"><div><span>Pagamento</span><strong>{({PENDING:'Aguardando',APPROVED:'Aprovado',REJECTED:'Recusado',CANCELLED:'Cancelado',REFUNDED:'Estornado'})[order.payment_status]||'Não informado'}</strong><small>{order.payment_provider ? order.payment_provider + (order.payment_method?' · '+order.payment_method:'') : 'Ainda não vinculado'}</small></div><div><span>Venda</span><strong>{order.sale_id ? 'VDA-' + String(order.sale_id).padStart(6,'0') : 'Será criada automaticamente'}</strong></div></div>
     <div className="online-order-address"><h3>Entrega</h3><p>{order.street}, {order.number}{order.complement?' · '+order.complement:''}<br />{order.neighborhood} · {order.city} / {order.state}<br />CEP {order.postal_code}</p></div>
+    {shippingDetails && <div className="online-order-address"><h3>Frete escolhido</h3><p>{[shippingDetails.company, shippingDetails.name].filter(Boolean).join(' · ')}<br />{money(order.shipping_fee)}{Number.isFinite(Number(shippingDetails.delivery_days)) && <> · {Number(shippingDetails.delivery_days)} {Number(shippingDetails.delivery_days) === 1 ? 'dia útil' : 'dias úteis'}</>}</p></div>}
     <div className="online-order-items"><h3>Itens</h3>{order.items?.map((item,index)=><div key={item.id ?? index}><span>{item.quantity} × {item.product_name}{item.size_label && ' — tamanho ' + item.size_label}</span><strong>{money(item.line_total)}</strong></div>)}</div>
     <label className="online-order-status">Status<select value={status} onChange={(e)=>setStatus(e.target.value)}>{statuses.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <div className="modal-actions"><button className="button button-ghost" type="button" onClick={onClose}>Voltar</button><button className="button button-primary" type="button" disabled={saving||status===order.status} onClick={save}>{saving?'Salvando…':'Salvar status'}</button></div>
   </div></div>
+}
+
+function ShippingSettings({ search }) {
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  const statusRequest = useRef(null)
+  const callback = new URLSearchParams(search).get('shipping')
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    if (!statusRequest.current || statusRequest.current.retry !== retry) statusRequest.current = { retry, promise: api('/api/admin/shipping') }
+    statusRequest.current.promise.then(data => { if (active) setStatus(data) })
+      .catch(err => { if (active) setError(err.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [retry])
+
+  async function connect() {
+    if (connecting) return
+    setConnecting(true)
+    setError('')
+    try {
+      const data = await api('/api/admin/shipping/connect', { method:'POST' })
+      const url = new URL(data.authorization_url)
+      const expectedHost = status?.environment === 'sandbox' ? 'sandbox.melhorenvio.com.br' : 'melhorenvio.com.br'
+      if (url.protocol !== 'https:' || url.hostname !== expectedHost || url.port || url.username || url.password) throw new Error('O servidor não confirmou um endereço seguro para conectar o Melhor Envio.')
+      window.location.assign(url.href)
+    } catch (err) { setError(err.message); setConnecting(false) }
+  }
+
+  if (loading) return <section className="admin-panel admin-shipping-settings"><p role="status">Verificando a conexão com o Melhor Envio…</p></section>
+  const postalCode = String(status?.origin_postal_code || '').replace(/\D/g, '')
+  return <section className="admin-panel admin-shipping-settings">
+    <h2>Melhor Envio</h2>
+    {callback === 'connected' && status?.connected && <p className="admin-shipping-success" role="status">Conta conectada com sucesso.</p>}
+    {callback === 'error' && <p className="admin-error" role="alert">Não foi possível concluir a conexão. Tente conectar a conta novamente.</p>}
+    {error && <div role="alert"><p className="admin-error">{error}</p><button type="button" className="button button-ghost" onClick={() => setRetry(value => value + 1)}>Verificar novamente</button></div>}
+    {status && <>
+      <dl className="admin-shipping-status"><div><dt>Conexão</dt><dd>{status.connected ? 'Conta conectada' : 'Conta ainda não conectada'}</dd></div><div><dt>CEP de origem</dt><dd>{postalCode.length === 8 ? postalCode.slice(0, 5) + '-' + postalCode.slice(5) : 'Ainda não configurado'}</dd></div>{status.environment === 'sandbox' && <div><dt>Ambiente</dt><dd>Teste — as cotações não são de produção</dd></div>}</dl>
+      {!status.configured ? <p>As credenciais do Melhor Envio precisam ser configuradas na hospedagem para conectar a conta.</p> : <>
+        <p>{status.connected ? 'Os clientes poderão consultar as opções de frete no carrinho quando as peças tiverem peso e medidas cadastrados.' : 'Conecte a conta da loja para calcular os preços e os prazos de entrega no carrinho.'}</p>
+        <button type="button" className="button button-primary" disabled={connecting} onClick={connect}>{connecting ? 'Abrindo Melhor Envio…' : status.connected ? 'Reconectar Melhor Envio' : 'Conectar Melhor Envio ↗'}</button>
+      </>}
+      <p>Em Produtos e estoque, abra cada peça e preencha Dados para entrega com o peso e as medidas reais da embalagem.</p>
+      <p>Esta etapa calcula o frete. A compra e a emissão de etiquetas serão feitas em uma próxima etapa.</p>
+    </>}
+  </section>
 }
 
 function VisualEditorLaunch() {
@@ -1112,7 +1192,7 @@ function Admin({ user, onLogout }) {
   const location = useLocation()
   const navigate = useNavigate()
   const requestedTab = new URLSearchParams(location.search).get('tab')
-  const tab = requestedTab === 'movements' ? 'products' : ['dashboard','editor','products','pdv','sales','online-orders','finance','recurring','library'].includes(requestedTab) ? requestedTab : 'dashboard'
+  const tab = requestedTab === 'movements' ? 'products' : ['dashboard','editor','products','pdv','sales','online-orders','finance','recurring','library', ...(user?.role === 'owner' ? ['shipping'] : [])].includes(requestedTab) ? requestedTab : 'dashboard'
   const advancedEditor = new URLSearchParams(location.search).get('mode') === 'advanced'
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
@@ -1278,7 +1358,8 @@ function Admin({ user, onLogout }) {
     'online-orders': 'Pedidos do site',
     finance: 'Gastos da loja',
     recurring: 'Gastos recorrentes',
-    library: 'Biblioteca de mídia'
+    library: 'Biblioteca de mídia',
+    shipping: 'Entregas'
   }[tab]
 
   const cta = {
@@ -1300,7 +1381,8 @@ function Admin({ user, onLogout }) {
           ['online-orders', 'Pedidos do site'],
           ['finance', 'Gastos da loja'],
           ['recurring', 'Gastos recorrentes'],
-          ['library', 'Biblioteca de mídia']
+          ['library', 'Biblioteca de mídia'],
+          ...(user?.role === 'owner' ? [['shipping', 'Entregas']] : [])
         ].map(([key, label]) => (
           <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => selectTab(key)} key={key}>{label}</button>
         ))}
@@ -1320,6 +1402,7 @@ function Admin({ user, onLogout }) {
         {loading ? <div className="admin-loading">Carregando dados reais…</div> : null}
         {loadError && <div className="admin-panel" role="alert"><p>{loadError}</p><button type="button" onClick={() => load(false)}>Tentar novamente</button></div>}
         {!loading && tab === 'editor' && user?.role === 'owner' && (advancedEditor ? <HomeEditor user={user} /> : <VisualEditorLaunch />)}
+        {!loading && tab === 'shipping' && user?.role === 'owner' && <ShippingSettings search={location.search} />}
         {!loading && tab === 'library' && <MediaLibrary api={api} csrf={getAdminCsrfToken} role={user?.role} />}
         {!loading && tab === 'pdv' && <PointOfSale api={api} operatorId={user.id} onSaleCreated={() => load(true)} />}
         {!loading && tab === 'dashboard' && dash && (

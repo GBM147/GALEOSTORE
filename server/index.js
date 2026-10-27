@@ -30,6 +30,7 @@ import { businessMonthStart, registerExpenseManagement } from './expense-managem
 import { createBackgroundTasks } from './background-tasks.js'
 import { MySqlRateLimitStore, RATE_LIMIT_DDL, pruneRateLimits } from './mysql-rate-limit-store.js'
 import { validateRuntimeSchema } from './runtime-schema.js'
+import { createMelhorEnvio, ensureMelhorEnvioSchema, MelhorEnvioError } from './melhor-envio.js'
 import { createDirectUploads, getVerifiedDirectAsset } from './direct-uploads.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -165,6 +166,7 @@ const confirmationEmailConfigured = transactionalEmail.confirmationConfigured
 const newsletter = createNewsletter({ db, emailService: transactionalEmail, appUrl, protection: dataProtection })
 const directUploads = createDirectUploads({ multipartUpload, cloudinary, query, sessionSecret: process.env.SESSION_SECRET, cloudinaryConfigurado })
 const mediaUpload = directUploads.mediaUpload
+const shippingService = createMelhorEnvio({ db, query, sessionSecret: process.env.SESSION_SECRET, protection: dataProtection })
 
 function configuredConnectionLimit() {
   const raw = process.env.DB_CONNECTION_LIMIT
@@ -255,6 +257,7 @@ const limitarAlteracaoSenha = criarLimitador({
 
 const limitarConfirmacaoEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-confirmation' })
 const limitarReenvioEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-resend' })
+const limitarCotacaoFrete = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 30, prefixo: 'shipping-quotes' })
 
 const Store = MySQLStoreFactory(session)
 // Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
@@ -597,6 +600,7 @@ async function init({ preserveCategories = false } = {}) {
   await recoverOperationalSequences(query, { ...recovery, missingTables: recovery.missingTables.filter(table => table !== 'newsletter_subscriptions') })
   await ensureHomeWorkflowSchema(query)
   await ensureProductDeletionSchema({ query, ensureColumn })
+  await ensureMelhorEnvioSchema({ query, ensureColumn })
   // Existing customers retain their data, but must confirm ownership of their
   // email before a new or previously issued customer session can be used.
   await ensureColumn('customers', 'email_verified_at', 'DATETIME NULL')
@@ -809,6 +813,8 @@ function gerarCsrfToken(req) {
 
 function validarCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
+  // Anonymous quotations are read-only, rate-limited and never buy labels.
+  if (req.path === '/api/store/shipping/quotes') return next()
   if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/customer/verify-email' || req.path === '/api/customer/resend-verification' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
 
   const expected = String(req.session.csrfToken || '')
@@ -834,6 +840,61 @@ function exigirPapel(...papeisPermitidos) {
 }
 
 const exigirOwner = exigirPapel('owner')
+
+function shippingError(res, error) {
+  if (error instanceof MelhorEnvioError) return res.status(error.status || 400).json({ error: error.message, code: error.code })
+  console.error('Erro na integração de entregas:', error?.code || 'SHIPPING_FAILED')
+  return res.status(503).json({ error: 'Não foi possível consultar as entregas agora. Tente novamente em instantes.', code: 'SHIPPING_UNAVAILABLE' })
+}
+
+app.get('/api/admin/shipping', exigirLogin, exigirOwner, async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  try { res.json(await shippingService.status()) }
+  catch (error) { shippingError(res, error) }
+})
+
+app.post('/api/admin/shipping/connect', exigirLogin, exigirOwner, async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  try {
+    const result = await shippingService.startAuthorization(req)
+    await salvarSessao(req)
+    res.json(result)
+  } catch (error) { shippingError(res, error) }
+})
+
+app.get('/api/integrations/melhor-envio/callback', exigirLogin, exigirOwner, async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  try {
+    await shippingService.completeAuthorization(req)
+    await salvarSessao(req)
+  } catch (error) {
+    console.error('Falha na conexão de entregas:', error instanceof MelhorEnvioError ? error.code : 'SHIPPING_CONNECTION_FAILED')
+    return res.redirect(303, '/admin?tab=shipping&shipping=error')
+  }
+  await audit(req.admin.id, 'CONECTAR', 'integracao', 'melhor-envio').catch(() => {})
+  res.redirect(303, '/admin?tab=shipping&shipping=connected')
+})
+
+app.get('/api/store/shipping/config', async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  try {
+    const { configured, connected, available } = await shippingService.status()
+    res.json({ configured, connected, available })
+  } catch (error) { shippingError(res, error) }
+})
+
+app.post('/api/store/shipping/quotes', limitarCotacaoFrete, async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  const items = Array.isArray(req.body?.items) ? req.body.items : []
+  if (!items.length || items.length > 50) return res.status(400).json({ error: 'Confira os produtos do carrinho antes de calcular o frete.' })
+  const ids = [...new Set(items.map(item => Number(item?.product_id)))]
+  if (ids.some(id => !Number.isSafeInteger(id) || id < 1)) return res.status(400).json({ error: 'Há produtos inválidos no carrinho.' })
+  try {
+    const products = await query('SELECT * FROM products WHERE id IN (' + ids.map(() => '?').join(',') + ')', ids)
+    await attachProductVariants(query, products)
+    res.json(await shippingService.calculateQuotes({ items, postal_code: req.body?.postal_code, products }))
+  } catch (error) { shippingError(res, error) }
+})
 
 async function registrarEventoIntegracao(conn, provider, eventId, eventType, payload) {
   if (!eventId) return true
@@ -1518,13 +1579,17 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
       subtotal+=lineTotal
       lines.push({product_id:Number(product.id),variant_id:selection.variant_id,size_label:selection.size_label,product_name:product.name,brand:product.brand,quantity,unit_price:unitPrice,line_total:lineTotal})
     }
-    const shippingFee=0
-    const total=subtotal+shippingFee
+    const delivery = shippingService.required()
+      ? shippingService.validateQuote({ token:req.body?.shipping_quote, items:itemsInput, postal_code:fields.postal_code, products:[...byId.values()] })
+      : { price:0, details:null }
+    const shippingFee=delivery.price
+    const total=Math.round((subtotal+shippingFee)*100)/100
     const code='GALEO-'+Date.now().toString(36).toUpperCase().slice(-7)+'-'+randomBytes(2).toString('hex').toUpperCase()
     const insertSql="INSERT INTO store_orders(code,customer_id,customer_name,customer_email,customer_phone,status,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state) VALUES(?,?,?,?,?,'RECEIVED',?,?,?,?,?,?,?,?,?,?)"
     const orderResult=await insertPrivateBusiness(conn, 'store_orders', insertSql,
       [code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state],
       { customer_name:2, customer_email:3, customer_phone:4, postal_code:8, street:9, number:10, complement:11, neighborhood:12, city:13, state:14 })
+    if (delivery.details) await conn.execute('UPDATE store_orders SET shipping_details=? WHERE id=?', [JSON.stringify(delivery.details),orderResult.insertId])
     for(const line of lines){
       await conn.execute('INSERT INTO store_order_items(order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.variant_id,line.size_label,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
       const product=byId.get(line.product_id)
@@ -1539,6 +1604,7 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     res.json({success:true,payment_configured:mercadoPagoOnlineConfigured(),order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
   } catch(error) {
     await conn.rollback().catch(()=>{})
+    if (error instanceof MelhorEnvioError) return shippingError(res,error)
     console.error('Erro ao criar pedido:',error)
     res.status(400).json({error:error.message||'Não foi possível registrar seu pedido.'})
   } finally { conn.release() }
@@ -2242,6 +2308,18 @@ app.get('/api/admin/products', exigirLogin, async (req, res) => {
   res.json(rows)
 })
 
+const shippingMeasurementFields = ['shipping_weight','shipping_width','shipping_height','shipping_length']
+
+function productShippingMeasurements(input, previous = {}) {
+  const values = shippingMeasurementFields.map(key => input[key] === undefined ? previous[key] ?? null : input[key])
+  const normalized = values.map(value => value === null || value === '' ? null : Number(value))
+  if (normalized.every(value => value === null)) return normalized
+  if (normalized.some((value,index) => !['number','string'].includes(typeof values[index]) || value === null || !Number.isFinite(value) || value < (index === 0 ? 0.001 : 0.01) || value > 1000 || Math.abs(value - Number(value.toFixed(index === 0 ? 3 : 2))) > 0.0000001)) {
+    throw new MelhorEnvioError('Preencha peso, largura, altura e comprimento da peça embalada com valores positivos, ou deixe os quatro campos vazios.', 400, 'SHIPPING_MEASUREMENTS_INVALID')
+  }
+  return normalized
+}
+
 function validarDadosProduto(product) {
   if (!String(product.name || '').trim()) return 'Nome do produto é obrigatório.'
   try { normalizeVariants(product.variants) } catch (error) { return error.message }
@@ -2254,6 +2332,10 @@ function validarDadosProduto(product) {
     if (!Number.isInteger(value) || value < 0 || value > 2147483647) return 'Estoque e estoque mínimo devem ser inteiros não negativos.'
   }
   if (product.category_id && (!Number.isInteger(Number(product.category_id)) || Number(product.category_id) < 1)) return 'Categoria inválida.'
+  // Partial updates are merged with the stored measurements under the row lock.
+  if (shippingMeasurementFields.every(key => product[key] !== undefined)) {
+    try { productShippingMeasurements(product) } catch (error) { return error.message }
+  }
   return null
 }
 
@@ -2271,8 +2353,8 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
 
     const [result] = await conn.execute(
       `INSERT INTO products
-       (name,brand,category_id,description,price,cost,stock,min_stock,image,video,active)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+       (name,brand,category_id,description,price,cost,stock,min_stock,image,video,active,shipping_weight,shipping_width,shipping_height,shipping_length)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         name,
         String(b.brand || '').trim(),
@@ -2284,7 +2366,8 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
         Number(b.min_stock || 0),
         image,
         String(b.video || ''),
-        b.active === false ? 0 : 1
+        b.active === false ? 0 : 1,
+        ...productShippingMeasurements(b)
       ]
     )
 
@@ -2311,7 +2394,7 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
     res.status(201).json(rows[0])
   } catch (error) {
     await conn.rollback()
-    if (error instanceof ProductImageSelectionError || error instanceof ProductVariantError) return res.status(error.status).json({ error: error.message })
+    if (error instanceof ProductImageSelectionError || error instanceof ProductVariantError || error instanceof MelhorEnvioError) return res.status(error.status).json({ error: error.message })
     console.error('Erro ao criar produto:', error)
     res.status(500).json({ error: 'Não foi possível criar o produto.' })
   } finally {
@@ -2409,7 +2492,7 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
     const newStock=grade.hasVariants ? grade.stock : (requestedStock ?? Number(product.stock))
     await conn.execute(
       `UPDATE products SET
-       name=?,brand=?,category_id=?,description=?,price=?,cost=?,stock=?,min_stock=?,image=?,video=?,active=?
+       name=?,brand=?,category_id=?,description=?,price=?,cost=?,stock=?,min_stock=?,image=?,video=?,active=?,shipping_weight=?,shipping_width=?,shipping_height=?,shipping_length=?
        WHERE id=?`,
       [
         String(b.name || '').trim(),
@@ -2423,6 +2506,7 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
         image,
         String(b.video || ''),
         b.active === false ? 0 : 1,
+        ...productShippingMeasurements(b,product),
         productId
       ]
     )
@@ -2450,7 +2534,7 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
     res.json(rows[0])
   } catch (error) {
     await conn.rollback()
-    if (error instanceof ProductImageSelectionError || error instanceof ProductVariantError) return res.status(error.status).json({ error: error.message, ...(error.code ? { code:error.code } : {}) })
+    if (error instanceof ProductImageSelectionError || error instanceof ProductVariantError || error instanceof MelhorEnvioError) return res.status(error.status).json({ error: error.message, ...(error.code ? { code:error.code } : {}) })
     console.error('Erro ao editar produto:', error)
     res.status(500).json({ error: 'Não foi possível editar o produto.' })
   } finally {

@@ -3,7 +3,7 @@ import { PRIVATE_FIELD_MAP } from './database-privacy.js'
 export const REQUIRED_RUNTIME_COLUMNS = Object.freeze({
   admin_users: ['id', 'email', 'password_hash', 'role', 'active'],
   categories: ['id', 'name', 'sort_order'],
-  products: ['id', 'name', 'stock', 'image', 'video', 'active'],
+  products: ['id', 'name', 'stock', 'image', 'video', 'active', 'shipping_weight', 'shipping_width', 'shipping_height', 'shipping_length'],
   product_variants: ['id', 'product_id', 'size', 'stock', 'active', 'sort_order'],
   product_media: ['id', 'product_id', 'public_id', 'url', 'sort_order'],
   sessions: ['session_id', 'expires', 'data'],
@@ -17,7 +17,8 @@ export const REQUIRED_RUNTIME_COLUMNS = Object.freeze({
   audit_logs: ['id', 'details', 'created_at'],
   customers: ['id', 'email', 'email_verified_at'],
   customer_email_verifications: ['customer_id', 'token_hash', 'expires_at'],
-  store_orders: ['id', 'customer_id', 'payment_status', 'payment_url', 'sale_id'],
+  store_orders: ['id', 'customer_id', 'payment_status', 'payment_url', 'sale_id', 'shipping_details'],
+  shipping_integrations: ['provider', 'encrypted_tokens', 'expires_at', 'state_hash', 'state_expires_at'],
   store_order_items: ['id', 'order_id', 'product_id', 'product_name', 'brand', 'variant_id', 'size_label'],
   payments: ['id', 'payment_url', 'raw_payload'],
   integration_events: ['id', 'payload'],

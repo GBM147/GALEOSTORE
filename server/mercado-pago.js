@@ -49,6 +49,7 @@ export async function createMercadoPagoOnlineOrder({ order, items, idempotencyKe
   const baseUrl = String(process.env.APP_URL || '').trim().replace(/\/$/, '')
   const firstName = String(order.customer_name || '').trim().split(/\s+/)[0] || 'Cliente'
   const lastName = String(order.customer_name || '').trim().split(/\s+/).slice(1).join(' ') || ''
+  const shippingFee = Number(order.shipping_fee || 0)
 
   const payload = {
     type: 'online',
@@ -89,7 +90,14 @@ export async function createMercadoPagoOnlineOrder({ order, items, idempotencyKe
       unit_price: Number(item.unit_price).toFixed(2),
       unit_measure: 'unit',
       total_amount: Number(item.line_total).toFixed(2)
-    })),
+    })).concat(shippingFee > 0 ? [{
+      external_code: 'GALEO-SHIPPING',
+      title: 'Frete',
+      quantity: 1,
+      unit_price: shippingFee.toFixed(2),
+      unit_measure: 'unit',
+      total_amount: shippingFee.toFixed(2)
+    }] : []),
     description: 'Pedido ' + String(order.code) + ' — GALEO Store'
   }
 

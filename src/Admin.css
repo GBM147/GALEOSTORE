@@ -1,0 +1,12 @@
+.admin-shipping-product { border: 1px solid var(--line); padding: 16px; }
+.admin-shipping-product summary { cursor: pointer; font-size: 14px; font-weight: 500; }
+.admin-shipping-product p, .admin-shipping-settings p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.admin-shipping-product .admin-form-grid { margin-top: 16px; }
+.admin-shipping-settings { max-width: 800px; padding: 24px; }
+.admin-shipping-settings h2 { margin-top: 0; font-size: 22px; }
+.admin-shipping-settings .admin-shipping-success { color: var(--accent); }
+.admin-shipping-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 24px 0; }
+.admin-shipping-status div { min-width: 0; }
+.admin-shipping-status dt { color: var(--muted); font-size: 12px; }
+.admin-shipping-status dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 650px) { .admin-shipping-status { grid-template-columns: 1fr; } .admin-shipping-settings { padding: 18px; } }
