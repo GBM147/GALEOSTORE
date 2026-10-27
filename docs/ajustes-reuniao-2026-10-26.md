@@ -1,7 +1,9 @@
 # Ajustes da reunião da GALEO
 
-Revisão preparada em 26–27/10/2026. Implementação e testes locais concluídos;
-publicação e conferência em produção devem ser registradas após o deploy.
+Atualização publicada e conferida em 27/10/2026 em
+https://galeo-store.netlify.app. Código: `ad4197d`; deploy Netlify:
+`6ae0ab8e5e7651d531f9d753`. A hospedagem permanece no plano Free, sem
+recarga automática nem período de teste pago.
 
 ## Mudanças para os donos
 
@@ -75,7 +77,8 @@ leituras e autenticação, sem compras ou clientes fictícios.
 - 37 testes de produtos passaram, incluindo 17 de grade, reserva, venda,
   cancelamento e concorrência de estoque.
 - 12 testes de gastos, 29 de integração principal/pagamentos simulados,
-  8 de recuperação de esquema e 7 do runtime Netlify passaram.
+  8 de recuperação de esquema, 14 de limpeza operacional em banco isolado
+  e 7 do runtime Netlify passaram. Nenhuma limpeza foi executada na produção.
 - A revisão de navegador cobriu painel, tamanhos, estoque concorrente,
   biblioteca, rolagem, editor, tipografia e carregamento. A execução conjunta
   passou 117 de 118 casos; o único caso dependia de uma atualização do DOM e
@@ -89,6 +92,26 @@ pixels, de 670.651 para 367.138 bytes; o PNG original foi preservado. A consulta
 da visão geral passou de sete para quatro consultas ao banco. Esses números
 medem os arquivos e consultas; o tempo percebido ainda depende da conexão e
 da inicialização dos serviços gratuitos.
+
+## Conferência da publicação
+
+A revisão com HTTPS validado passou em larguras de 1.440 e 390 pixels, cobrindo
+Home, catálogo, produto, painel e editor. Não houve erros JavaScript nem
+alterações comerciais durante os testes; login e logout responderam normalmente.
+Comparar, editar e consultar vínculos de mídia mantiveram a rolagem com
+deslocamento de **0 pixels**, restaurando o foco ao fechar os diálogos.
+O título dos destaques pôde ser apagado e reescrito em memória; as alterações
+locais foram desfeitas, sem salvar ou publicar conteúdo de teste.
+
+As consultas de catálogo, Home e configurações começaram em paralelo. As
+respostas de API observadas ficaram entre 307 e 959 ms; a primeira navegação
+HTML levou aproximadamente 5,2 segundos neste ambiente. São medições pontuais,
+não uma garantia de tempo de resposta em toda visita.
+
+Os resumos criptográficos anteriores e posteriores confirmaram que produtos,
+movimentações, financeiro, recorrências, vendas, pedidos, Home publicada e
+configurações foram preservados. Os 18 produtos existentes continuam sem
+grade cadastrada, aguardando os tamanhos e quantidades reais dos donos.
 
 ## Pendências fora desta entrega
 
