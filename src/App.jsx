@@ -11,6 +11,7 @@ import VisualHomeEditor, { EditableSection, EditableText, EditorLink, EditorMedi
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 import { formatProductPrice, productHasPrice } from './productAvailability'
 import { loadStorefrontJson } from './storefrontData'
+import { editorialSegments, editorialType, textHighlightPath } from './editorialText'
 
 const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
@@ -333,39 +334,18 @@ function homeSectionContent(sections, key, loaded = false) {
   return { ...(section?.content || {}), __visible: section ? section.visible !== false : !loaded }
 }
 
-function splitEditorialText(text) {
-  return String(text || '').split(/\n+/).filter(Boolean)
+function EditorialTitle({ text, highlight, type = 'generic' }) {
+  return editorialSegments(text, highlight, type).map((part, index) => part.type === 'break'
+    ? <br key={index} />
+    : part.type === 'highlight' ? <em className="editorial-highlight" key={index}>{part.text}</em> : part.text)
 }
 
-function EditorialTitle({ text, type = 'generic' }) {
-  const value = String(text || '')
-  if (type === 'hero' && value === 'Vista o que representa você') {
-    return <>Vista o que<br /><em>representa você</em></>
-  }
-  if (type === 'featured' && value === 'Seleção multimarcas') {
-    return <>Seleção <em>multimarcas</em></>
-  }
-  if (type === 'campaign' && value === 'Peças que marcam presença') {
-    return <>Peças que<br /><em>marcam presença</em></>
-  }
-  if (type === 'campaign' && value === 'Seu estilo, sem rótulo') {
-    return <>Seu estilo,<br /><em>sem rótulo</em></>
-  }
-  if (type === 'campaign' && value === 'Feito para ser notado') {
-    return <>Feito para<br /><em>ser notado</em></>
-  }
-  if (type === 'manifesto' && value === 'Não seguimos o padrão Criamos o nosso') {
-    return <>Não seguimos o padrão<br /><em>Criamos o nosso</em></>
-  }
-  return value
-}
-
-function HeroTitle({ text }) {
-  if (text === 'Vista o que representa você') return <>
+function HeroTitle({ text, highlight }) {
+  if (highlight === undefined && text === 'Vista o que representa você') return <>
     <span className="hero-title-mask">Vista o que</span><br />
-    <span className="hero-title-mask"><em>representa você</em></span>
+    <span className="hero-title-mask"><em className="editorial-highlight">representa você</em></span>
   </>
-  return <span className="hero-title-mask"><EditorialTitle text={text} type="hero" /></span>
+  return <span className="hero-title-mask"><EditorialTitle text={text} highlight={highlight} type="hero" /></span>
 }
 
 function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults, visualDefaults }) {
@@ -379,7 +359,15 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
   const manifesto = homeSectionContent(homeSections, 'manifesto', homeLoaded)
   const newsletter = homeSectionContent(homeSections, 'newsletter', homeLoaded)
   const text = (value, fallback) => typeof value === 'string' ? value : fallback
-  const field = (key, path, label, value, children = value) => <EditableText sectionKey={key} path={path} label={label} value={value}>{children}</EditableText>
+  const contents = { hero, utility, categories:categorySection, featured_products:featured, campaigns, manifesto, newsletter }
+  const field = (key, path, label, value) => {
+    const highlightPath = textHighlightPath(path)
+    const highlight = highlightPath?.reduce((current, part) => current?.[part], contents[key])
+    const children = key === 'hero' && path === 'title'
+      ? <HeroTitle text={value} highlight={highlight} />
+      : highlightPath ? <EditorialTitle text={value} highlight={highlight} type={editorialType(key, path)} /> : value
+    return <EditableText sectionKey={key} path={path} label={label} value={value}>{children}</EditableText>
+  }
   const shownProducts = featured?.source === 'manual' && Array.isArray(featured.product_ids)
     ? featured.product_ids.map(id => products.find(product => Number(product.id) === Number(id))).filter(Boolean).slice(0, 8)
     : products.slice(0, 8)
@@ -399,7 +387,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       <div className="hero-full-media"><HeroVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} speed={campaignDefaults?.speed ?? campaigns.defaults?.speed ?? 'slow'} durationSeconds={campaignDefaults?.duration_seconds ?? campaigns.defaults?.duration_seconds ?? 6} editorPaused={editing} /><div className="hero-full-shade" /></div>
       <EditorMediaButton sectionKey="hero" label="Trocar imagem ou vídeo do Hero" />
       <div className="hero-full-content">
-        <h1 className="hero-title"><span className="hero-title-line">{field('hero','title','Título do Hero',heroTitle,<HeroTitle text={heroTitle} />)}</span></h1>
+        <h1 className="hero-title"><span className="hero-title-line">{field('hero','title','Título do Hero',heroTitle)}</span></h1>
         <p>{field('hero','description','Descrição do Hero',heroDescription)}</p>
         <div className="hero-full-actions"><EditorLink sectionKey="hero" labelPath="button_label" urlPath="button_url" className="button button-primary" to={hero.button_url || '/shop'}>{text(hero.button_label,'Explorar coleção')} <span>↗</span></EditorLink></div>
       </div>
@@ -416,7 +404,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       })}</RevealGrid>
     </section>,
     featured_products: (editing || featured.__visible !== false) && (editing || shownProducts.length > 0) && <section data-home-section="featured_products" className="section-shell section-block featured-selection" id="destaques">
-      <div className="section-heading row-heading" data-reveal><div><h2>{field('featured_products','title','Título dos destaques',text(featured.title,'Seleção multimarcas'),<EditorialTitle text={text(featured.title,'Seleção multimarcas')} type="featured" />)}</h2></div><EditorLink sectionKey="featured_products" labelPath="button_label" urlPath="button_url" className="text-link" to={featured.button_url || '/shop'}>{text(featured.button_label,'Ver todos')} ↗</EditorLink></div>
+      <div className="section-heading row-heading" data-reveal><div><h2>{field('featured_products','title','Título dos destaques',text(featured.title,'Seleção multimarcas'))}</h2></div><EditorLink sectionKey="featured_products" labelPath="button_label" urlPath="button_url" className="text-link" to={featured.button_url || '/shop'}>{text(featured.button_label,'Ver todos')} ↗</EditorLink></div>
       <EditorMediaButton sectionKey="featured_products" kind="products" label="Escolher produtos em destaque" />
       <RevealGrid className="product-grid product-grid-editorial" items={shownProducts} reveal={reveal}>{shownProducts.map((product,index) => <ProductCard key={product.id || index} product={product} />)}</RevealGrid>
       {editing && shownProducts.length === 0 && <p className="visual-editor-empty">Escolha os produtos que aparecerão nesta seção.</p>}
@@ -425,7 +413,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       {campaignItems.map((item,index) => <article className={index === 0 ? 'campaign-card campaign-card-wide' : 'campaign-card'} key={index}>
         <CampaignCarousel item={item} variant={index + 1} defaults={campaignDefaults} sectionDefaults={campaigns.defaults} editorPaused={editing} editorNavigation={Boolean(editor)} onEdit={() => editor?.select({ sectionKey:'campaigns',kind:'campaign',itemIndex:index })}>
           <div className="campaign-card-copy">
-            <strong>{field('campaigns',['items',index,'title'],'Título da campanha ' + (index + 1),text(item.title,'Nova campanha'),<EditorialTitle text={text(item.title,'Nova campanha')} type="campaign" />)}</strong>
+            <strong>{field('campaigns',['items',index,'title'],'Título da campanha ' + (index + 1),text(item.title,'Nova campanha'))}</strong>
             <small>{field('campaigns',['items',index,'button_label'],'Texto do botão da campanha ' + (index + 1),text(item.button_label,'Explorar'))} ↗</small>
           </div>
         </CampaignCarousel>
@@ -434,7 +422,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       {editing && campaignItems.length === 0 && <p className="visual-editor-empty">Use “Opções” da seção para adicionar a primeira campanha.</p>}
     </RevealGrid>,
     manifesto: (editing || manifesto.__visible !== false) && <section data-home-section="manifesto" className="manifesto section-shell" id="sobre" data-reveal>
-      <p>{field('manifesto','text','Texto do manifesto',text(manifesto.text,'Não seguimos o padrão\nCriamos o nosso'),<EditorialTitle text={text(manifesto.text,'Não seguimos o padrão\nCriamos o nosso')} type="manifesto" />)}</p>
+      <p>{field('manifesto','text','Texto do manifesto',text(manifesto.text,'Não seguimos o padrão\nCriamos o nosso'))}</p>
     </section>,
     newsletter: (editing || newsletter.__visible !== false) && <section data-home-section="newsletter" className="newsletter section-shell" data-reveal>
       <div><h2>{field('newsletter','title','Título da newsletter',text(newsletter.title,'Entre para a próxima fase'))}</h2></div>

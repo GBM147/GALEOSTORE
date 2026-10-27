@@ -60,6 +60,7 @@ a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 h1, h2, h3, h4, h5, h6, strong, b, th { font-weight: 500; }
+.editorial-highlight { color: var(--accent-soft); font-family: var(--font-body); font-style: italic; font-weight: 400; }
 
 .app { min-height: 100vh; overflow-x: clip; }
 

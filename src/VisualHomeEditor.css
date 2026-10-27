@@ -33,6 +33,15 @@
 .visual-inline-editor textarea{display:block;width:100%;max-width:100%;min-height:1.2em;resize:vertical;overflow:hidden;margin:0;padding:2px;border:1px solid var(--accent-soft);background:var(--surface);color:inherit;font:inherit;letter-spacing:inherit;line-height:inherit;text-transform:inherit;box-sizing:border-box;white-space:pre-wrap}
 .visual-inline-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;letter-spacing:normal;line-height:normal}
 .visual-inline-actions button{min-height:36px;font-size:10px;font-style:normal;white-space:normal}
+.visual-inline-actions button:disabled{opacity:.45;cursor:default}
+.visual-formatted-field{display:grid;gap:8px;min-width:0}
+.visual-highlight-options{display:grid;gap:6px;min-width:0;white-space:normal;text-transform:none;letter-spacing:normal;font:400 12px/1.5 Roboto,Arial,sans-serif;color:var(--text)}
+.visual-inline-editor .visual-highlight-options{max-width:520px;margin-top:10px}
+.visual-highlight-field{display:grid;gap:6px;min-width:0;font:400 12px/1.5 Roboto,Arial,sans-serif}
+.visual-highlight-field input{width:100%;min-width:0;min-height:44px;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:400 16px/1.5 Roboto,Arial,sans-serif;border-radius:0;text-transform:none;letter-spacing:normal}
+.visual-highlight-field input:focus{outline:2px solid var(--accent-soft);outline-offset:-2px}
+.visual-highlight-hint{color:var(--muted);font:400 12px/1.5 Roboto,Arial,sans-serif}
+.visual-highlight-hint.is-invalid{color:#f4a997}
 .visual-home-editor[data-editing=true] button.text-link{appearance:none;border:0;padding:0;background:transparent;font-family:inherit;text-align:left;cursor:pointer}
 .visual-media-button{position:relative;z-index:6;margin:12px 0;min-height:44px;pointer-events:auto;background:var(--surface);border-color:var(--accent)}
 .visual-home-editor[data-editing=true] .hero-full>.visual-media-button,.visual-home-editor[data-editing=true] .hero-full-media>.visual-media-button{position:absolute;bottom:20px;right:20px}

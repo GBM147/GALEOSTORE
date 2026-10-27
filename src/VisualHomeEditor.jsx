@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation } from 'react-router-dom'
 import { adminApi } from './adminApi'
 import { CAMPAIGN_DEFAULTS, MAX_CAMPAIGN_SLIDES, isCampaignVideo } from './campaign-model'
+import { textHighlightPath, editorialType, defaultTextHighlight } from './editorialText'
 import './VisualHomeEditor.css'
 
 const EditorContext = createContext(null)
@@ -17,6 +18,14 @@ function writePath(value, path, nextValue) {
   if (!keys.length) return nextValue
   const next = Array.isArray(value) ? [...value] : { ...(value || {}) }
   next[keys[0]] = writePath(value?.[keys[0]], keys.slice(1), nextValue)
+  return next
+}
+function deletePath(value, path) {
+  const keys = pathParts(path)
+  if (!keys.length || value == null) return value
+  const next = Array.isArray(value) ? [...value] : { ...value }
+  if (keys.length === 1) delete next[keys[0]]
+  else next[keys[0]] = deletePath(value[keys[0]], keys.slice(1))
   return next
 }
 const sorted = (sections) => [...sections].sort((left, right) => Number(left.order) - Number(right.order))
@@ -35,14 +44,28 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
 })
 export const useVisualEditor = () => useContext(EditorContext)
 
+function TextHighlightField({ text, value, type, onChange, label = 'Trecho em destaque', disabled = false }) {
+  const hintId = useId()
+  const highlight = String(value ?? defaultTextHighlight(text, type))
+  const invalid = Boolean(highlight && !String(text).includes(highlight))
+  return <span className="visual-highlight-options">
+    <label className="visual-highlight-field"><span>{label}</span><input type="text" aria-label={label} value={highlight} disabled={disabled} aria-describedby={hintId} aria-invalid={invalid || undefined} onChange={event => onChange(event.target.value)} /></label>
+    <span id={hintId} className={invalid ? 'visual-highlight-hint is-invalid' : 'visual-highlight-hint'}>{invalid ? 'Esse trecho precisa fazer parte do texto acima. Confira as palavras e as letras maiúsculas.' : 'Estas palavras ficam em dourado e itálico. Deixe vazio para usar o texto comum.'}</span>
+  </span>
+}
+
 export function EditableText({ sectionKey, path, label = 'texto', value, children }) {
   const editor = useVisualEditor()
   const [active, setActive] = useState(false)
-  const original = useRef('')
+  const original = useRef(null)
+  const [selection, setSelection] = useState({ start: 0, end: 0 })
   const trigger = useRef(null)
   const input = useRef(null)
   const id = useId()
-  const text = String(readPath(editor?.sections.find((item) => item.key === sectionKey)?.content,path) ?? value ?? '')
+  const sectionContent = editor?.sections.find((item) => item.key === sectionKey)?.content
+  const text = String(readPath(sectionContent,path) ?? value ?? '')
+  const highlightPath = textHighlightPath(path)
+  const highlight = highlightPath ? readPath(sectionContent, highlightPath) : undefined
   useLayoutEffect(() => {
     if (!active) return
     input.current?.focus({ preventScroll:true })
@@ -60,19 +83,39 @@ export function EditableText({ sectionKey, path, label = 'texto', value, childre
     if (editor.busy) return
     const content = editor.sections.find((item) => item.key === sectionKey)?.content
     const current = readPath(content, path) ?? value ?? ''
-    original.current = String(current)
+    const parts = highlightPath || []
+    original.current = {
+      text: String(current),
+      highlight: highlightPath ? readPath(content, highlightPath) : undefined,
+      hasHighlight: parts.length > 0 && Object.hasOwn(readPath(content, parts.slice(0, -1)) || {}, parts.at(-1))
+    }
     setActive(true)
   }
   function finish(cancel = false) {
-    if (cancel) editor.updateSection(sectionKey, (content) => writePath(content, path, original.current))
+    if (cancel) editor.updateSection(sectionKey, (content) => {
+      const restored = writePath(content, path, original.current.text)
+      if (!highlightPath) return restored
+      return original.current.hasHighlight ? writePath(restored, highlightPath, original.current.highlight) : deletePath(restored, highlightPath)
+    })
     setActive(false)
     window.requestAnimationFrame(() => trigger.current?.focus({ preventScroll:true }))
   }
   return <span className={'visual-editable-text' + (active ? ' is-editing' : '')}>
-    {active ? <span className="visual-inline-editor" onClick={(event) => event.stopPropagation()}>
+    {active ? <span className="visual-inline-editor" onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); finish(true) } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); finish() } }}>
       <textarea ref={input} id={id} aria-label={label} rows="1" value={text} disabled={editor.busy}
         onChange={(event) => editor.updateSection(sectionKey, (content) => writePath(content, path, event.target.value))}
-        onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); finish(true) } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); finish() } }} />
+        onSelect={event => setSelection({ start: event.target.selectionStart, end: event.target.selectionEnd })} />
+      {highlightPath && <>
+        <span className="visual-inline-actions"><button type="button" disabled={editor.busy || selection.start === selection.end} onPointerDown={event => event.preventDefault()} onClick={() => {
+          const start = input.current.selectionStart, end = input.current.selectionEnd
+          if (start === end) return
+          editor.updateSection(sectionKey, content => writePath(content, highlightPath, text.slice(start, end)))
+          input.current.focus({ preventScroll: true })
+          input.current.setSelectionRange(start, end)
+        }}>Destacar seleção</button></span>
+        <TextHighlightField text={text} value={highlight} type={editorialType(sectionKey, path)} disabled={editor.busy} onChange={value => editor.updateSection(sectionKey, content => writePath(content, highlightPath, value))} />
+      </>}
       <span className="visual-inline-actions"><button type="button" disabled={editor.busy} onClick={() => finish()}>Concluir edição</button><button type="button" disabled={editor.busy} onClick={() => finish(true)}>Cancelar edição</button></span>
     </span> : <span ref={trigger} role="button" tabIndex={editor.busy ? -1 : 0} className={'visual-text-trigger' + (!text.trim() ? ' is-empty' : '')} aria-label={'Editar ' + label} onClick={begin}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') begin(event) }}>{text.trim() ? (children ?? value ?? text) : <span className="visual-text-placeholder">Clique para escrever</span>}</span>}
@@ -250,10 +293,10 @@ function SelectionPanel({ selection, editor, onClose }) {
   const dialogTitle = picker ? 'Escolher mídia' : titles[kind] || 'Editar rascunho'
   return <EditorDialog title={dialogTitle} onClose={onClose} busy={editor.busy}>
     {picker ? <MediaPicker target={picker} onPick={applyAsset} onBack={closePicker} busy={editor.busy} /> : <fieldset disabled={editor.busy} className="visual-panel-fields">
-      {textFields.map(([path,label,multiline]) => <Field key={path} label={label} multiline={multiline} value={readPath(content,path)} onChange={(value) => update(path,value)} />)}
+      {textFields.map(([path,label,multiline]) => <span className="visual-formatted-field" key={path}><Field label={label} multiline={multiline} value={readPath(content,path)} onChange={(value) => update(path,value)} /><TextHighlightField label={'Trecho em destaque — ' + label} text={readPath(content,path) || ''} value={readPath(content,textHighlightPath(path))} type={editorialType(section.key,path)} onChange={value => update(textHighlightPath(path),value)} /></span>)}
       {kind === 'media' && <><p>Troque a imagem principal, a versão para celular ou o vídeo da capa. O vídeo tem prioridade sobre a foto.</p>{[['desktop','Imagem para computador','image'],['mobile','Imagem para celular','image'],['video','Vídeo da capa','video']].map(([prefix,label,type]) => <MediaSlot key={prefix} label={label} type={type} url={content[prefix + '_media_url']} onChoose={() => chooseTarget({prefix,label,type})} onClear={() => editor.updateSection(section.key,(old) => ({ ...old,[prefix + '_media_id']:null,[prefix + '_media_url']:'' }))} />)}</>}
       {kind === 'link' && <><Field label="Texto do botão" value={readPath(content,selection.labelPath)} onChange={(value) => update(selection.labelPath,value)} /><Field label="Destino do botão" value={readPath(content,selection.urlPath)} placeholder="Ex.: /shop" onChange={(value) => update(selection.urlPath,value)} /><p>Use /shop para o catálogo ou cole o endereço de uma página.</p></>}
-      {kind === 'category' && item && <><Field label="Nome da categoria" value={item.title} onChange={(value) => updateItem({ ...item,title:value })} /><Field label="Destino da categoria" value={item.url} onChange={(value) => updateItem({ ...item,url:value })} /><MediaSlot label="Foto da categoria" url={item.media_url} onChoose={() => chooseTarget({itemPath:['items',itemIndex],label:'Foto da categoria',type:'image'})} onClear={() => updateItem({ ...item,media_id:null,media_url:'' })} /></>}
+      {kind === 'category' && item && <><Field label="Nome da categoria" value={item.title} onChange={(value) => updateItem({ ...item,title:value })} /><TextHighlightField label="Trecho em destaque — Nome da categoria" text={item.title || ''} value={item.title_highlight} type="generic" onChange={value => updateItem({ ...item,title_highlight:value })} /><Field label="Destino da categoria" value={item.url} onChange={(value) => updateItem({ ...item,url:value })} /><MediaSlot label="Foto da categoria" url={item.media_url} onChoose={() => chooseTarget({itemPath:['items',itemIndex],label:'Foto da categoria',type:'image'})} onClear={() => updateItem({ ...item,media_id:null,media_url:'' })} /></>}
       {['categories','campaigns','utility'].includes(kind) && <><p>Organize o que aparece nesta seção. Todas as mudanças ficam no rascunho.</p><div className="visual-item-list">{items.map((value,index) => <div key={index} className="visual-list-row">{kind === 'utility' ? <Field label={'Mensagem ' + (index + 1)} value={value} onChange={(text) => update(['items',index],text)} /> : <button className="visual-list-select" type="button" onClick={() => editor.select({ sectionKey:section.key,kind:kind === 'categories' ? 'category' : 'campaign',itemIndex:index })}>{value.title || 'Item ' + (index + 1)} <span>Editar →</span></button>}<div className="visual-row-actions"><button type="button" aria-label={'Mover item ' + (index + 1) + ' para cima'} disabled={index === 0} onClick={() => moveItem(index,-1)}>↑</button><button type="button" aria-label={'Mover item ' + (index + 1) + ' para baixo'} disabled={index === items.length - 1} onClick={() => moveItem(index,1)}>↓</button><button type="button" aria-label={'Remover item ' + (index + 1)} onClick={() => update('items',items.filter((_,current) => current !== index))}>Remover</button></div></div>)}</div><button type="button" onClick={newItem}>+ {kind === 'categories' ? 'Adicionar categoria' : kind === 'campaigns' ? 'Adicionar campanha' : 'Adicionar mensagem'}</button></>}
       {kind === 'campaign' && item && <CampaignOptions item={item} defaults={editor.settings.campaign_defaults} onChange={updateItem} onChoose={(target) => chooseTarget({ ...target,campaign:true,campaignIndex:itemIndex })} />}
       {kind === 'products' && <ProductChoices content={content} products={editor.products} onChange={(value) => editor.updateSection(section.key,() => value)} />}
@@ -274,7 +317,7 @@ function CampaignOptions({ item, defaults, onChange, onChoose }) {
   const animation = item.animation || { use_default:true }
   function changeSlides(next) { onChange(withSlides(item,next)) }
   function move(index,direction) { const next = [...slides]; [next[index],next[index + direction]] = [next[index + direction],next[index]]; changeSlides(next) }
-  return <><Field label="Título da campanha" value={item.title} onChange={(value) => onChange({ ...item,title:value })} /><Field label="Texto do botão" value={item.button_label} onChange={(value) => onChange({ ...item,button_label:value })} /><Field label="Destino do botão" value={item.button_url} onChange={(value) => onChange({ ...item,button_url:value })} />
+  return <><Field label="Título da campanha" value={item.title} onChange={(value) => onChange({ ...item,title:value })} /><TextHighlightField label="Trecho em destaque — Título da campanha" text={item.title || ''} value={item.title_highlight} type="campaign" onChange={value => onChange({ ...item,title_highlight:value })} /><Field label="Texto do botão" value={item.button_label} onChange={(value) => onChange({ ...item,button_label:value })} /><Field label="Destino do botão" value={item.button_url} onChange={(value) => onChange({ ...item,button_url:value })} />
     {slides.map((slide,index) => <section className="visual-campaign-slide" key={index}><h3>Foto ou vídeo {index + 1}</h3>{[[false,'Para computador'],[true,'Para celular (opcional)']].map(([mobile,label]) => <MediaSlot key={label} label={label} url={mobile ? slide.mobile_video_media_url || slide.mobile_media_url : slide.video_media_url || slide.media_url} onChoose={() => onChoose({slideIndex:index,mobile,label})} onClear={() => { const prefix = mobile ? 'mobile_' : ''; changeSlides(slides.map((old,current) => current === index ? { ...old,[prefix + 'media_id']:null,[prefix + 'media_url']:'',[prefix + 'video_media_id']:null,[prefix + 'video_media_url']:'' } : old)) }} />)}<div className="visual-row-actions"><button type="button" aria-label={'Mover foto ' + (index + 1) + ' para cima'} disabled={!index} onClick={() => move(index,-1)}>↑</button><button type="button" aria-label={'Mover foto ' + (index + 1) + ' para baixo'} disabled={index === slides.length - 1} onClick={() => move(index,1)}>↓</button><button type="button" disabled={slides.length === 1} onClick={() => changeSlides(slides.filter((_,current) => current !== index))}>{'Remover foto ' + (index + 1)}</button></div></section>)}
     <button type="button" disabled={slides.length >= MAX_CAMPAIGN_SLIDES} onClick={() => changeSlides([...slides,{media_url:'',media_type:'image',mobile_media_url:''}])}>+ Adicionar foto ou vídeo</button>
     <details className="visual-advanced-options"><summary>Movimento da campanha</summary><label className="visual-checkbox"><input type="checkbox" checked={animation.use_default !== false} onChange={(event) => onChange({ ...item,animation:{ ...CAMPAIGN_DEFAULTS,...defaults,...animation,use_default:event.target.checked } })} /> Usar padrão da GALEO</label>{animation.use_default === false && <AnimationFields value={animation} onChange={(value) => onChange({ ...item,animation:{ ...value,use_default:false } })} />}</details>

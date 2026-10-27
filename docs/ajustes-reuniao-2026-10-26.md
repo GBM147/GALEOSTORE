@@ -62,6 +62,20 @@ conflito. **Atualizar quantidades** recarrega o saldo sem apagar as alterações
 de nome e descrição. Salvar apenas os textos não sobrescreve o saldo atual.
 Não foram criados tamanhos, preços ou estoques para os produtos existentes.
 
+## Destacar palavras no editor
+
+Clique no texto da Home para editá-lo. Selecione as palavras no campo do texto
+e clique em **Destacar seleção**, ou preencha **Trecho em destaque** com as
+palavras exatas que deseja realçar. Ao clicar em **Concluir edição**, esse
+trecho aparece em itálico e na cor de destaque da loja, mantendo a Roboto.
+Para remover o efeito, deixe **Trecho em destaque** vazio.
+
+A opção também aparece no painel de opções dos títulos. Se o trecho não
+estiver no texto, o editor mostra um aviso para conferir as palavras e as
+maiúsculas. O fluxo continua sendo **Concluir edição → Salvar rascunho →
+Publicar alterações**. Cancelar a edição desfaz também a mudança de destaque.
+Nenhum título ou rascunho existente foi alterado por essa atualização.
+
 ## Preservação dos dados
 
 A migração acrescenta a tabela da grade e referências de tamanho nos itens de
