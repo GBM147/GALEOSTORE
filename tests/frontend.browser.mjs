@@ -41,6 +41,7 @@ async function fixture(t, { homeSections = [utilitySection], settings = [], cart
     const json = async (data, status = 200) => route.fulfill({ status, contentType:'application/json', body:JSON.stringify(data) })
     if (custom) return json(custom.data, custom.status || 200)
     if (path === '/api/store') return json({ products:[product], categories:[{ id:301, name:'Camisetas', sort_order:10 }] })
+    if (path === '/api/store/categories') return json([{ id:301, name:'Camisetas', sort_order:10 }])
     if (path === '/api/store/home') return json({ sections:homeSections })
     if (path === '/api/store/home/settings' || path === '/api/admin/home/settings') return json({ settings })
     if (path === '/api/admin/home') return json({ sections:homeSections.map((section) => ({ ...section, draft:section.content })) })
@@ -197,9 +198,9 @@ test('CMS visibility, order, categories and responsive media preserve typography
     const italic = getComputedStyle(title.querySelector('em'))
     return { family:normal.fontFamily, weight:Number(normal.fontWeight), editorialFamily:italic.fontFamily, editorialStyle:italic.fontStyle }
   })
-  assert.ok(typography.family.includes('Inter'))
-  assert.ok(typography.weight >= 800)
-  assert.ok(typography.editorialFamily.includes('Georgia'))
+  assert.ok(typography.family.includes('Roboto'))
+  assert.ok(typography.weight >= 400 && typography.weight <= 600)
+  assert.ok(typography.editorialFamily.includes('Roboto'))
   assert.equal(typography.editorialStyle, 'italic')
   await page.setViewportSize({ width:390, height:844 })
   await page.waitForFunction(() => document.querySelector('.hero-full picture img')?.currentSrc.endsWith('test-hero-mobile.svg'))
@@ -263,8 +264,8 @@ test('static campaign setting disables decorative motion', async (t) => {
 })
 
 async function openPointOfSale(page) {
-  await page.getByRole('button', { name:'PDV — loja física', exact:true }).click()
-  await page.getByRole('heading', { name:'Caixa da loja', exact:true }).waitFor()
+  await page.getByRole('button', { name:'Frente de caixa', exact:true }).click()
+  await page.getByRole('heading', { name:'Frente de caixa', level:2, exact:true }).waitFor()
 }
 
 async function preparePhysicalSale(page) {

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './point-of-sale.css'
+import { activeProductVariants, cartLineKey, findProductVariant, productForVariant, productHasVariants } from './productVariants'
+import './product-variants.css'
 
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', {
   style: 'currency', currency: 'BRL'
@@ -84,31 +86,37 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
     return availableProducts.filter((product) => searchText([product.name, product.brand, product.category].join(' ')).includes(term))
   }, [availableProducts, search])
 
-  const cartItems = items.map((item) => ({
-    ...item,
-    product: availableProducts.find((product) => Number(product.id) === item.product_id)
-  }))
+  const cartItems = items.map((item) => {
+    const source = availableProducts.find((product) => Number(product.id) === Number(item.product_id))
+    const variant = findProductVariant(source, item.variant_id)
+    return { ...item, product: source ? productForVariant(source, item.variant_id) : null, missingVariant: productHasVariants(source) && !variant, size_label: variant?.size || item.size_label || '' }
+  })
   const estimatedTotal = cartItems.reduce((sum, item) => sum + Math.round(Number(item.product?.price || 0) * 100) * Number(item.quantity || 0), 0) / 100
   const total = confirmationPending ? confirmedTotal : estimatedTotal
-  const invalidItem = cartItems.some((item) => !item.product || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.quantity) > Number(item.product.stock))
+  const invalidItem = cartItems.some((item) => !item.product || item.missingVariant || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.quantity) > Number(item.product.stock))
   const blocked = saving || loadingProducts || Boolean(productsError) || confirmationPending
 
-  function addProduct(product) {
+  function addProduct(product, variantId = null) {
     if (blocked) return
+    const variant = findProductVariant(product, variantId)
+    if (productHasVariants(product) && !variant) return
+    const selected = productForVariant(product, variantId)
+    if (Number(selected.stock) < 1) return
     setError('')
     setItems((current) => {
-      const existing = current.find((item) => item.product_id === Number(product.id))
+      const identity = cartLineKey({ product_id: product.id, variant_id: variant?.id })
+      const existing = current.find((item) => cartLineKey(item) === identity)
       if (existing) {
-        return current.map((item) => item === existing ? { ...item, quantity: Math.min(Number(item.quantity || 0) + 1, Number(product.stock)) } : item)
+        return current.map((item) => item === existing ? { ...item, quantity: Math.min(Number(item.quantity || 0) + 1, Number(selected.stock)) } : item)
       }
-      return [...current, { product_id: Number(product.id), quantity: 1 }]
+      return [...current, { product_id: Number(product.id), ...(variant ? { variant_id: Number(variant.id), size_label: variant.size } : {}), quantity: 1 }]
     })
   }
 
-  function setQuantity(productId, value) {
+  function setQuantity(identity, value) {
     if (blocked) return
     setError('')
-    setItems((current) => current.map((item) => item.product_id === productId ? { ...item, quantity: value === '' ? '' : Number(value) } : item))
+    setItems((current) => current.map((item) => cartLineKey(item) === identity ? { ...item, quantity: value === '' ? '' : Number(value) } : item))
   }
 
   async function submit(event) {
@@ -127,7 +135,7 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
       customer_name: customerName.trim(),
       payment_method: paymentMethod,
       expected_total: total,
-      items: items.map((item) => ({ product_id: item.product_id, quantity: Number(item.quantity) }))
+      items: items.map((item) => ({ product_id: item.product_id, ...(item.variant_id ? { variant_id: Number(item.variant_id) } : {}), quantity: Number(item.quantity) }))
     }
     try { window.sessionStorage.setItem(storageKey, JSON.stringify({ ...payload, total })) } catch {}
     setConfirmedTotal(total)
@@ -196,7 +204,7 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
           <ul className="pdv-receipt-items">
             {receipt.items.map((item) => (
               <li key={item.id || item.product_id}>
-                <div><strong>{item.product}</strong><span>{item.quantity} × {money(item.unit_price)}</span></div>
+                <div><strong>{item.product}</strong>{item.size_label && <small className="pdv-item-size">Tamanho: {item.size_label}</small>}<span>{item.quantity} × {money(item.unit_price)}</span></div>
                 <strong>{money(item.line_total)}</strong>
               </li>
             ))}
@@ -213,7 +221,7 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
   return (
     <section className="pdv" aria-labelledby="pdv-title">
       <div className="pdv-heading">
-        <h2 id="pdv-title">Caixa da loja</h2>
+        <h2 id="pdv-title">Frente de caixa</h2>
         <p>Selecione os produtos, receba o pagamento e registre a venda.</p>
       </div>
       <div className="pdv-layout">
@@ -227,6 +235,11 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
               <p className="pdv-count">{visibleProducts.length} {visibleProducts.length === 1 ? 'produto encontrado' : 'produtos encontrados'}</p>
               <ul className="pdv-products">
                 {visibleProducts.map((product) => {
+                  if (productHasVariants(product)) return <li key={product.id}><div className="pdv-product-size-group"><div className="pdv-product-size-heading"><span><strong>{product.name}</strong><small>{[product.brand, product.category].filter(Boolean).join(' · ')}</small></span><strong>{money(product.price)}</strong></div><span>Escolha o tamanho para adicionar</span><div className="pdv-product-size-buttons">{activeProductVariants(product).map(variant => {
+                    const selected = items.find(item => cartLineKey(item) === cartLineKey({ product_id: product.id, variant_id: variant.id }))
+                    const available = Number(variant.stock)
+                    return <button type="button" key={variant.id} disabled={blocked || available < 1 || Number(selected?.quantity || 0) >= available} onClick={() => addProduct(product, variant.id)} aria-label={'Adicionar ' + product.name + ' tamanho ' + variant.size + ' à venda'}>{variant.size} · {available > 0 ? available + ' un.' : 'Esgotado'}{selected ? ' · ' + selected.quantity + ' na venda' : ''}</button>
+                  })}</div></div></li>
                   const selected = items.find((item) => item.product_id === Number(product.id))
                   const available = Number(product.stock)
                   const atLimit = Number(selected?.quantity || 0) >= available
@@ -251,18 +264,18 @@ export default function PointOfSale({ api, onSaleCreated, operatorId = 'session'
           {!items.length && <p className="pdv-empty">Adicione os produtos usando a lista ao lado.</p>}
           <ul className="pdv-cart-items">
             {cartItems.map((item) => (
-              <li key={item.product_id}>
-                <div className="pdv-cart-line"><strong>{item.product?.name || 'Produto indisponível'}</strong><button type="button" className="pdv-remove" disabled={blocked} onClick={() => setItems((current) => current.filter((line) => line.product_id !== item.product_id))} aria-label={'Remover ' + (item.product?.name || 'produto')}>Remover</button></div>
+              <li key={cartLineKey(item)}>
+                <div className="pdv-cart-line"><strong>{item.product?.name || 'Produto indisponível'}</strong><button type="button" className="pdv-remove" disabled={blocked} onClick={() => setItems((current) => current.filter((line) => cartLineKey(line) !== cartLineKey(item)))} aria-label={'Remover ' + (item.product?.name || 'produto')}>Remover</button></div>
                 <div className="pdv-cart-line">
                   <div className="pdv-quantity">
-                    <button type="button" disabled={blocked || Number(item.quantity) <= 1} onClick={() => setQuantity(item.product_id, Number(item.quantity) - 1)} aria-label={'Diminuir quantidade de ' + item.product?.name}>−</button>
-                    <input type="number" min="1" max={item.product?.stock || 0} step="1" required value={item.quantity} disabled={blocked} onChange={(event) => setQuantity(item.product_id, event.target.value)} aria-label={'Quantidade de ' + item.product?.name} />
-                    <button type="button" disabled={blocked || !item.product || Number(item.quantity) >= Number(item.product.stock)} onClick={() => setQuantity(item.product_id, Number(item.quantity || 0) + 1)} aria-label={'Aumentar quantidade de ' + item.product?.name}>+</button>
+                    <button type="button" disabled={blocked || Number(item.quantity) <= 1} onClick={() => setQuantity(cartLineKey(item), Number(item.quantity) - 1)} aria-label={'Diminuir quantidade de ' + item.product?.name}>−</button>
+                    <input type="number" min="1" max={item.product?.stock || 0} step="1" required value={item.quantity} disabled={blocked} onChange={(event) => setQuantity(cartLineKey(item), event.target.value)} aria-label={'Quantidade de ' + item.product?.name} />
+                    <button type="button" disabled={blocked || !item.product || Number(item.quantity) >= Number(item.product.stock)} onClick={() => setQuantity(cartLineKey(item), Number(item.quantity || 0) + 1)} aria-label={'Aumentar quantidade de ' + item.product?.name}>+</button>
                   </div>
                   <strong>{money(Math.round(Number(item.product?.price || 0) * 100) * Number(item.quantity || 0) / 100)}</strong>
                 </div>
-                <small className="pdv-unit-price">{money(item.product?.price)} por unidade</small>
-                {!confirmationPending && (!item.product || Number(item.quantity) > Number(item.product.stock)) && <p className="pdv-error">{item.product ? 'Disponível: ' + item.product.stock + ' unidades. Ajuste a quantidade.' : 'Remova este produto da venda.'}</p>}
+                {item.size_label && <small className="pdv-item-size">Tamanho: {item.size_label}</small>}<small className="pdv-unit-price">{money(item.product?.price)} por unidade</small>
+                {!confirmationPending && (!item.product || item.missingVariant || Number(item.quantity) > Number(item.product.stock)) && <p className="pdv-error">{item.missingVariant ? 'Escolha novamente um tamanho disponível para esta peça.' : item.product ? 'Disponível: ' + item.product.stock + ' unidades. Ajuste a quantidade.' : 'Remova este produto da venda.'}</p>}
               </li>
             ))}
           </ul>

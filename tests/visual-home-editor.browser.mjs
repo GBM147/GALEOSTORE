@@ -132,7 +132,7 @@ test('editing the actual draft heading preserves typography and saves only chang
   const { page, calls } = await fixture(t)
   assert.equal(mutations(calls).length, 0)
   const title = page.locator('.hero-title')
-  assert.equal(await title.locator('em').evaluate(element => getComputedStyle(element).fontFamily.includes('Georgia')), true)
+  assert.equal(await title.locator('em').evaluate(element => getComputedStyle(element).fontFamily.includes('Roboto')), true)
   await page.getByRole('button', { name:'Editar Título do Hero', exact:true }).click()
   await page.getByRole('textbox', { name:'Título do Hero', exact:true }).fill('Vista o que representa a sua história')
   assert.equal(mutations(calls).length, 0, 'digitar deve alterar somente o rascunho em memória')
@@ -164,6 +164,60 @@ test('unsaved edits in different sections remain visible until both are saved', 
   assert.deepEqual(saves(calls).map(call => call.path).sort(), ['/api/admin/home/categories', '/api/admin/home/hero'])
   assert.equal(saves(calls).find(call => call.path.endsWith('/categories')).body.content.items[0].retained_metadata, 'preservar')
   assert.equal(publications(calls).length, 0)
+})
+
+for (const [sectionKey, label, selector] of [
+  ['hero', 'Título do Hero', '.hero-title'],
+  ['featured_products', 'Título dos destaques', '[data-home-section="featured_products"] h2']
+]) test(`an empty ${sectionKey} title stays editable without storing placeholder text`, async t => {
+  const { page, calls } = await fixture(t, { width: 390 })
+  await edit(page, label, '')
+  const trigger = page.getByRole('button', { name: 'Editar ' + label, exact: true })
+  assert.equal(await trigger.innerText(), 'Clique para escrever')
+  const box = await trigger.boundingBox()
+  assert.ok(box.width >= 100 && box.height >= 44, 'o texto vazio precisa manter uma área clicável')
+  await saveDraft(page)
+  assert.equal(saves(calls).at(-1).body.content.title, '')
+  await toolbar(page).getByRole('button', { name: 'Ver como cliente', exact: true }).click()
+  assert.equal((await page.locator(selector).innerText()).trim(), '', 'a prévia deve manter o texto vazio sem mostrar um título antigo')
+  await toolbar(page).getByRole('button', { name: 'Voltar a editar', exact: true }).click()
+  await edit(page, label, 'Uma nova frase para a loja')
+  await saveDraft(page)
+  assert.equal(saves(calls).at(-1).body.content.title, 'Uma nova frase para a loja')
+})
+
+test('the section options restore a deleted featured heading and publish that exact text', async t => {
+  const { page, calls } = await fixture(t)
+  await edit(page, 'Título dos destaques', '')
+  await saveDraft(page)
+  await page.getByRole('button', { name: 'Opções de Produtos em destaque', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Escolher produtos em destaque', exact: true })
+  const field = dialog.getByRole('textbox', { name: 'Título dos destaques', exact: true })
+  assert.equal(await field.inputValue(), '')
+  await field.fill('Escolhas para o seu dia')
+  await dialog.getByRole('button', { name: 'Concluir', exact: true }).click()
+  await saveDraft(page)
+  await toolbar(page).getByRole('button', { name: 'Publicar alterações', exact: true }).click()
+  await page.getByRole('button', { name: 'Confirmar publicação', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: 'Alterações publicadas na loja.' }).waitFor()
+  await page.goto(baseUrl + '/')
+  await page.locator('[data-home-section="featured_products"] h2').getByText('Escolhas para o seu dia', { exact: true }).waitFor()
+  assert.equal(publications(calls).length, 1)
+  assert.equal(saves(calls).at(-1).body.content.title, 'Escolhas para o seu dia')
+})
+
+test('Roboto is loaded locally with a lighter heading on the draft', async t => {
+  const { page } = await fixture(t)
+  const typography = await page.locator('.hero-title').evaluate(async title => {
+    await document.fonts.load('500 24px Roboto')
+    const computed = getComputedStyle(title)
+    return { family: computed.fontFamily, weight: Number(computed.fontWeight), loaded: document.fonts.check('500 24px Roboto'), sources: [...document.fonts].filter(face => face.family === 'Roboto').map(face => face.status) }
+  })
+  assert.ok(typography.family.includes('Roboto'))
+  assert.ok(typography.weight >= 400 && typography.weight <= 600)
+  assert.equal(typography.loaded, true)
+  assert.ok(typography.sources.includes('loaded'))
+  assert.equal(await page.locator('link[rel="preload"][href="/fonts/roboto-latin-normal.woff2"]').count(), 1)
 })
 
 test('publication is a separate confirmed action after saving and never follows typing automatically', async t => {

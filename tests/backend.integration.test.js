@@ -114,7 +114,7 @@ async function productFixture(stock = 10) {
 async function customerFixture() {
   const email = `customer-${suffix}-${fixtures.customers.length}@example.invalid`
   const customer = await execute(
-    'INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',
+    'INSERT INTO customers(name,email,password_hash,phone,email_verified_at) VALUES(?,?,?,?,NOW())',
     ['Cliente de teste', email, passwordHash, '11999999999']
   )
   fixtures.customers.push(customer.insertId)
@@ -347,16 +347,14 @@ test('configurações visuais aceitam as cores CSS usadas no padrão da loja', a
   }
 })
 
-test('consultas simultâneas ao dashboard geram uma única recorrência com vencimento válido', async () => {
+test('consultas simultâneas ao dashboard não registram gastos recorrentes antes da confirmação do dono', async () => {
   const recurring = await execute('INSERT INTO recurring_expenses(description,amount,due_day) VALUES(?,10,31)', ['Recorrência de teste ' + suffix])
   fixtures.recurring.push(recurring.insertId)
   const client = await operationsClient()
   const results = await Promise.all(Array.from({ length: 4 }, () => client.request('/api/admin/dashboard')))
   for (const result of results) assert.equal(result.response.status, 200, result.data.error)
-  const dates = await execute("SELECT DATE_FORMAT(CURRENT_DATE,'%Y-%m') AS month, DAY(LAST_DAY(CURRENT_DATE)) AS last_day")
-  const entries = await execute("SELECT DATE_FORMAT(due_date,'%Y-%m-%d') AS due_date FROM financial_entries WHERE reference_id=?", [`recurring:${recurring.insertId}:${dates[0].month}`])
-  assert.equal(entries.length, 1)
-  assert.equal(entries[0].due_date, `${dates[0].month}-${String(dates[0].last_day).padStart(2, '0')}`)
+  const entries = await execute("SELECT id FROM financial_entries WHERE reference_id LIKE ?", [`recurring:${recurring.insertId}:%`])
+  assert.equal(entries.length, 0)
 })
 
 test('venda física baixa estoque e receita; cancelamento restitui ambos uma única vez', async () => {
@@ -455,25 +453,38 @@ test('criação e edição rejeitam preços negativos e estoques negativos ou fr
   assert.equal(unchanged[0].min_stock, 2)
 })
 
-test('login e cadastro do cliente renovam a sessão e enviam cookie persistente', async () => {
-  const { client, email, login } = await customerFixture()
+test('login verificado renova sessão persistente e cadastro sem envio não cria conta nem autentica', async () => {
+  const { client, email, login, customerId } = await customerFixture()
   const original = client.cookie
   assert.ok(/;\s*Expires=/i.test(login.cookies.find(cookie => cookie.startsWith('galeo_sid='))))
   const second = await client.request('/api/customer/login', { method: 'POST', body: { email, password } })
   assert.equal(second.response.status, 200, second.data.error)
   assert.notEqual(client.cookie, original)
   assert.ok(/;\s*Expires=/i.test(second.cookies.find(cookie => cookie.startsWith('galeo_sid='))))
-  const beforeRegistration = client.cookie
-  const registered = await client.request('/api/customer/register', {
-    method: 'POST', body: { name: 'Cliente cadastrado no teste', email: `registered-${suffix}@example.invalid`, password, phone: '11999999999' }
+  const authenticated = await client.request('/api/customer/me')
+  assert.equal(authenticated.response.status, 200)
+  assert.equal(authenticated.data.user.id, customerId)
+
+  // Delivery and verification have their own mocked-provider suite. The core
+  // integration server deliberately has no email provider configured.
+  const anonymous = new Client()
+  const availability = await anonymous.request('/api/customer/registration-status')
+  assert.equal(availability.response.status, 200)
+  assert.equal(availability.data.registration_available, false)
+  const registrationEmail = `registered-${suffix}@example.invalid`
+  const registered = await anonymous.request('/api/customer/register', {
+    method: 'POST', body: { name: 'Cliente cadastrado no teste', email: registrationEmail, password, phone: '11999999999' }
   })
-  if (registered.data.user?.id) fixtures.customers.push(registered.data.user.id)
-  assert.equal(registered.response.status, 200, registered.data.error)
-  assert.notEqual(client.cookie, beforeRegistration)
-  assert.ok(/;\s*Expires=/i.test(registered.cookies.find(cookie => cookie.startsWith('galeo_sid='))))
-  const me = await client.request('/api/customer/me')
-  assert.equal(me.response.status, 200)
-  assert.equal(me.data.user.id, registered.data.user.id)
+  const created = await execute('SELECT id FROM customers WHERE email=?', [registrationEmail])
+  fixtures.customers.push(...created.map(row => row.id))
+  assert.equal(registered.response.status, 503)
+  assert.equal(registered.data.code, 'EMAIL_DELIVERY_UNAVAILABLE')
+  assert.equal(created.length, 0, 'a failure to deliver confirmation must roll back registration')
+  assert.equal(anonymous.cookie, '')
+  assert.equal(registered.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false)
+  const me = await anonymous.request('/api/customer/me')
+  assert.equal(me.response.status, 401)
+  assert.equal(me.data.authenticated, false)
 })
 
 test('ajuste de estoque aceita zero e não aceita quantidade fracionada', async () => {

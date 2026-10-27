@@ -115,13 +115,13 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
     <div className="campaign-line campaign-line-b" />
     {videoUrl ? <>
       <video ref={video} className={'campaign-media campaign-video' + (mobileUrl ? ' campaign-desktop-video' : '')}
-        src={videoUrl} poster={mediaUrl || mobileUrl || '/images/galeo-brand.png'} muted loop playsInline
+        src={videoUrl} poster={mediaUrl || mobileUrl || '/images/galeo-brand.webp'} muted loop playsInline
         preload={canPlayVideo ? 'metadata' : 'none'} />
-      {mobileUrl && <img src={mobileUrl} alt={alt} className="campaign-media campaign-mobile-image" loading="lazy" />}
+      {mobileUrl && <img src={mobileUrl} alt={alt} className="campaign-media campaign-mobile-image" loading="eager" fetchPriority="high" decoding="async" />}
     </> : imageUrl ? <picture>
       {mobileUrl && <source media="(max-width: 700px)" srcSet={mobileUrl} />}
-      <img src={imageUrl} alt={alt} className="campaign-media" loading="lazy" />
-    </picture> : <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />}
+      <img src={imageUrl} alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" />
+    </picture> : <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" fetchPriority="high" decoding="async" />}
     <div className="campaign-scan" />
   </div>
 }

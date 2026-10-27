@@ -41,6 +41,7 @@ async function fixture(t) {
     if (pathname === '/api/auth/me') return json({ success: true, user: { id: 1, role: 'owner', email: 'owner@example.invalid' }, csrfToken: 'fixture-csrf' })
     if (pathname === '/api/customer/me') return json({ authenticated: false }, 401)
     if (pathname === '/api/store') return json({ products: [product], categories: [{ id: 301, name: 'Camisetas' }] })
+    if (pathname === '/api/store/categories') return json([{ id:301, name:'Camisetas' }])
     if (pathname === '/api/store/home') return json({ sections: [] })
     if (pathname === '/api/store/home/settings') return json({ settings: [] })
     if (pathname === '/api/admin/dashboard') return json({ products: { count: 1, stock: 2, low_stock: 0 }, stock: {}, sales: {} })

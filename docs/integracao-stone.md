@@ -6,7 +6,7 @@ Nenhuma integração Stone está implementada ou habilitada na GALEO neste momen
 
 ## Fluxo desejado
 
-Funcionário seleciona as peças no PDV → escolhe débito, crédito ou Pix → GALEO
+Funcionário seleciona as peças na **Frente de caixa** → escolhe débito, crédito ou Pix → GALEO
 cria a cobrança → terminal recebe o pagamento → Stone confirma a aprovação →
 GALEO conclui a venda e atualiza estoque e financeiro uma única vez.
 
@@ -40,8 +40,13 @@ em produção. As credenciais devem permanecer somente no backend.
 
 A implementação precisará tratar cobrança pendente, aprovação, recusa,
 cancelamento, expiração e estorno, sem duplicar venda, estoque ou lançamento
-financeiro quando a operadora repetir uma notificação. A seleção de tamanhos
-e o estoque real das peças também precisam estar prontos para a operação.
+financeiro quando a operadora repetir uma notificação.
+
+A atualização dos ajustes da reunião inclui a grade por tamanho no produto,
+carrinho, reservas, Frente de caixa e histórico. Os donos ainda precisam
+cadastrar os tamanhos e conferir o estoque real de cada peça antes da
+operação. Essa grade não habilita a comunicação com a maquininha: a integração
+Stone continua pendente da confirmação acima.
 
 ## Fontes oficiais
 

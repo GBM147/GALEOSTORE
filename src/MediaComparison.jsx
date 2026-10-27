@@ -64,7 +64,7 @@ function MediaVersion({ item, variant, active, onSelect, disabled, pending }) {
 export default function MediaComparison({ item, activeVariant, onSelect, onClose, disabled = false, pendingVariant = '', readOnly = false }) {
   const titleId = useId()
   const heading = useRef(null)
-  useEffect(() => { heading.current?.focus() }, [item.id])
+  useEffect(() => { heading.current?.focus({ preventScroll:true }) }, [item.id])
 
   return (
     <section className="media-comparison" aria-labelledby={titleId} data-testid="media-comparison" aria-busy={Boolean(pendingVariant)}>
@@ -129,7 +129,7 @@ export function MediaLibraryPicker({ api, currentUrl, onChoose, onCancel, disabl
   const selected = photos.find((item) => item.id === selectedId)
   function closeComparison() {
     setSelectedId(null)
-    window.requestAnimationFrame(() => compareTrigger.current?.focus())
+    window.requestAnimationFrame(() => compareTrigger.current?.focus({ preventScroll:true }))
   }
 
   return (

@@ -8,16 +8,16 @@ import { HomeWorkflowRuntime } from './helpers/home-workflow-runtime.mjs'
 // by HomeWorkflowRuntime and its provider network guard.
 const removedTables = [
   'payments', 'integration_events', 'store_order_items', 'sale_items',
-  'store_orders', 'sales', 'stock_movements', 'product_media', 'products',
+  'store_orders', 'sales', 'stock_movements', 'product_media', 'product_variants', 'products',
   'financial_entries', 'recurring_expenses', 'customer_email_verifications',
   'customers', 'newsletter_subscriptions'
 ]
 const preservedTables = [
   'admin_users', 'audit_logs', 'categories', 'financial_accounts',
   'financial_categories', 'home_sections', 'home_settings', 'home_versions',
-  'media_assets', 'media_library_preferences', 'sessions'
+  'media_assets', 'media_library_preferences', 'sessions', 'rate_limit_counters'
 ]
-const plainRows = rows => rows.map(row => ({ ...row }))
+const plainRows = rows => rows.map(row => Object.fromEntries(Object.entries(row).map(([field, value]) => [field, Buffer.isBuffer(value) ? value.toString('hex') : value])))
 const parseJson = value => typeof value === 'string' ? JSON.parse(value) : value
 
 async function stopApi(runtime) {
@@ -50,7 +50,7 @@ async function structure(runtime) {
 async function preservedContent(runtime) {
   const result = {}
   for (const table of preservedTables.filter(name => !['audit_logs', 'sessions'].includes(name))) {
-    const order = table === 'home_settings' ? 'setting_key' : 'id'
+    const order = table === 'home_settings' ? 'setting_key' : table === 'rate_limit_counters' ? 'bucket_key' : 'id'
     result[table] = plainRows(await runtime.query('SELECT * FROM `' + table + '` ORDER BY ' + order))
   }
   return result
@@ -90,7 +90,7 @@ async function requestWithSession(runtime, path, id, options = {}) {
   return { status: response.status, data: await response.json() }
 }
 
-test('startup recovers the 14 dropped operational tables and removes stale identities without overwriting owners or Home', { timeout: 120000 }, async t => {
+test('startup recovers the 15 dropped operational tables and removes stale identities without overwriting owners or Home', { timeout: 120000 }, async t => {
   const runtime = new HomeWorkflowRuntime()
   const sessionIds = Object.fromEntries(['owner', 'mixed', 'customer'].map(kind => [kind, 'recovery-' + kind + '-' + runtime.suffix]))
   const csrfToken = randomBytes(32).toString('hex')
@@ -132,6 +132,7 @@ test('startup recovers the 14 dropped operational tables and removes stale ident
     ])
     await runtime.query('UPDATE media_library_preferences SET auto_prepare=1,updated_by=? WHERE id=1', [runtime.ownerId])
     await runtime.query("UPDATE financial_accounts SET initial_balance=987.65 WHERE name='Caixa da loja'")
+    await runtime.query('INSERT INTO rate_limit_counters(bucket_key,hits,reset_at) VALUES(?,?,?)', [Buffer.alloc(32, 7), 3, Date.now() + 14 * 86400000])
     for (const [kind, id] of Object.entries(sessionIds)) {
       const data = { ...sessionData, ...(kind === 'customer' ? {} : { userId: runtime.ownerId }), ...(kind === 'owner' ? {} : { customerId: 42 }) }
       await runtime.query('INSERT INTO sessions(session_id,expires,data) VALUES(?,?,?)', [id, expires, JSON.stringify(data)])
@@ -142,7 +143,7 @@ test('startup recovers the 14 dropped operational tables and removes stale ident
     const ownerSessionBefore = (await runtime.query('SELECT * FROM sessions WHERE session_id=?', [sessionIds.owner]))[0]
     const mixedSessionBefore = (await runtime.query('SELECT * FROM sessions WHERE session_id=?', [sessionIds.mixed]))[0]
 
-    await t.test('the reproduction leaves exactly the eleven tables shown in Adminer without disabling foreign key checks', async () => {
+    await t.test('the reproduction leaves exactly twelve preserved tables without disabling foreign key checks', async () => {
       for (const table of removedTables) await runtime.query('DROP TABLE `' + table + '`')
       assert.deepEqual(await tables(runtime), [...preservedTables].sort())
       assert.equal((await runtime.query('SELECT @@FOREIGN_KEY_CHECKS AS enabled'))[0].enabled, 1)
@@ -156,7 +157,7 @@ test('startup recovers the 14 dropped operational tables and removes stale ident
       for (const table of removedTables) assert.equal((await runtime.query('SELECT COUNT(*) AS count FROM `' + table + '`'))[0].count, 0, table + ' must start empty')
       const floor = await runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${removedTables.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, removedTables)
-      assert.equal(floor.length, 13)
+      assert.equal(floor.length, 14)
       for (const row of floor) assert.ok(Number(row.next_id) >= 1_000_000_000, row.name + ' cannot reuse an old operational identifier')
     })
 
@@ -259,7 +260,7 @@ test('an interrupted schema recovery reserves identifiers at CREATE time and a l
     assert.deepEqual(partialTables, [...preservedTables, ...removedTables.filter(table => table !== 'newsletter_subscriptions')].sort())
     const createdCounters = await runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
       WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${removedTables.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, removedTables)
-    assert.equal(createdCounters.length, 12)
+    assert.equal(createdCounters.length, 13)
     for (const row of createdCounters) assert.ok(Number(row.next_id) >= 1_000_000_000, row.name + ' reserves safe IDs even when the process stops before ALTER')
     assert.deepEqual(await preservedContent(runtime), beforeContent)
 
@@ -271,7 +272,7 @@ test('an interrupted schema recovery reserves identifiers at CREATE time and a l
     for (const table of removedTables) assert.equal((await runtime.query('SELECT COUNT(*) AS count FROM `' + table + '`'))[0].count, 0)
     const finalCounters = await runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
       WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${removedTables.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, removedTables)
-    assert.equal(finalCounters.length, 13)
+    assert.equal(finalCounters.length, 14)
     for (const row of finalCounters) assert.ok(Number(row.next_id) >= 1_000_000_000)
     const inserted = await runtime.query('INSERT INTO customers(name,email,password_hash) VALUES(?,?,?)', ['Cliente posterior', 'partial-' + runtime.suffix + '@example.invalid', 'unused-fixture-hash'])
     assert.ok(Number(inserted.insertId) >= 1_000_000_000)

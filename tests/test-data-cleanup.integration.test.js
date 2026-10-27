@@ -8,6 +8,9 @@ import bcrypt from 'bcrypt'
 import { createDataProtection } from '../server/data-protection.js'
 import { NEWSLETTER_DDL } from '../server/newsletter.js'
 import { ensureHomeWorkflowSchema } from '../server/home-workflow.js'
+import { ensureProductVariantSchema } from '../server/product-variants.js'
+import { ensureProductDeletionSchema } from '../server/product-deletion-schema.js'
+import { RATE_LIMIT_DDL } from '../server/mysql-rate-limit-store.js'
 import { createDatabasePrivacy } from '../server/database-privacy.js'
 import { DELETE_TABLES, PRESERVED_TABLES, buildCleanupConnectionConfig, runTestDataCleanup } from '../server/test-data-cleanup.js'
 
@@ -57,6 +60,7 @@ before(async () => {
   const managementSource = await readFile(new URL('../server/media-management.js', import.meta.url), 'utf8')
   ddl.push(managementSource.match(/const PREFERENCES_DDL = `(CREATE TABLE IF NOT EXISTS [\s\S]*?)`/)?.[1])
   ddl.push('CREATE TABLE sessions (session_id VARCHAR(128) NOT NULL PRIMARY KEY,expires INT UNSIGNED NOT NULL,data MEDIUMTEXT) ENGINE=InnoDB')
+  ddl.push(RATE_LIMIT_DDL)
 })
 
 after(async () => {
@@ -81,6 +85,13 @@ async function fixture(fn) {
   const connection = await mysql.createConnection({ ...connectionConfig, database: name })
   try {
     for (const statement of ddl) await connection.query(statement)
+    const ensureColumn = async (table, column, definition) => {
+      const found = await sql(connection, 'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?', [table, column])
+      if (!found.length) await sql(connection, 'ALTER TABLE `' + table + '` ADD COLUMN `' + column + '` ' + definition)
+    }
+    const query = (statement, values) => sql(connection, statement, values)
+    await ensureProductVariantSchema({ query, ensureColumn })
+    await ensureProductDeletionSchema({ query, ensureColumn })
     await ensureHomeWorkflowSchema((statement, params) => sql(connection, statement, params))
     await connection.query('ALTER TABLE admin_users ADD private_data JSON NULL')
     await connection.query('ALTER TABLE audit_logs ADD private_data JSON NULL')
@@ -113,15 +124,17 @@ async function seed(connection) {
   await sql(connection, "INSERT INTO financial_categories(id,name,type) VALUES(4,'Receita preservada','RECEITA')")
   await sql(connection, "INSERT INTO financial_accounts(id,name,initial_balance,active) VALUES(8,'Caixa preservado',123.45,1),(9,'Conta desativada',0,0)")
   await sql(connection, "INSERT INTO products(id,name,category_id,description,price,cost,stock) VALUES(17,'Peça de teste',3,'Descrição de teste',50,10,4),(18,'Outra peça de teste',3,'Descrição de teste',40,8,2)")
+  await sql(connection, "INSERT INTO product_variants(id,product_id,size,stock) VALUES(27,17,'M',4)")
+  await sql(connection, 'INSERT INTO rate_limit_counters(bucket_key,hits,reset_at) VALUES(?,?,?)', [Buffer.alloc(32, 9), 4, Date.now() + 86400000])
   await sql(connection, "INSERT INTO product_media(id,product_id,media_type,url,public_id) VALUES(19,17,'image','https://example.invalid/product.png','fixture-product-media')")
   await sql(connection, "INSERT INTO customers(id,name,email,password_hash,phone,email_verified_at) VALUES(11,'Cliente de teste','customer@example.invalid',?,'11999999999',UTC_TIMESTAMP())", [ownerHash])
   await sql(connection, "INSERT INTO customer_email_verifications(customer_id,token_hash,expires_at,sent_at) VALUES(11,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 24 HOUR),UTC_TIMESTAMP())", ['a'.repeat(64)])
   await sql(connection, "INSERT INTO sales(id,code,customer_name,total,user_id) VALUES(15,'LOCAL-CLEANUP-SALE','Cliente de teste',50,5)")
-  await sql(connection, "INSERT INTO sale_items(id,sale_id,product_id,quantity,unit_price,unit_cost,line_total) VALUES(20,15,17,1,50,10,50)")
+  await sql(connection, "INSERT INTO sale_items(id,sale_id,product_id,variant_id,size_label,quantity,unit_price,unit_cost,line_total) VALUES(20,15,17,27,'M',1,50,10,50)")
   await sql(connection, "INSERT INTO store_orders(id,code,customer_id,customer_name,customer_email,customer_phone,sale_id,subtotal,total) VALUES(13,'LOCAL-CLEANUP-ORDER',11,'Cliente de teste','customer@example.invalid','11999999999',15,50,50)")
-  await sql(connection, "INSERT INTO store_order_items(id,order_id,product_id,product_name,brand,quantity,unit_price,line_total) VALUES(22,13,17,'Peça de teste','Marca',1,50,50)")
+  await sql(connection, "INSERT INTO store_order_items(id,order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total) VALUES(22,13,17,27,'M','Peça de teste','Marca',1,50,50)")
   await sql(connection, "INSERT INTO payments(id,channel,store_order_id,sale_id,provider,status,amount) VALUES(21,'ONLINE',13,15,'LOCAL_FIXTURE','APPROVED',50)")
-  await sql(connection, "INSERT INTO stock_movements(id,product_id,type,quantity,stock_before,stock_after,reason,user_id) VALUES(23,17,'SAIDA',1,5,4,'Venda de teste',5)")
+  await sql(connection, "INSERT INTO stock_movements(id,product_id,variant_id,size_label,type,quantity,stock_before,stock_after,reason,user_id) VALUES(23,17,27,'M','SAIDA',1,5,4,'Venda de teste',5)")
   await sql(connection, "INSERT INTO recurring_expenses(id,description,category_id,account_id,amount,due_day) VALUES(24,'Despesa de teste',4,8,10,1)")
   await sql(connection, "INSERT INTO financial_entries(id,account_id,category_id,type,description,amount,status,user_id) VALUES(25,8,4,'RECEITA','Venda de teste',50,'PAGO',5)")
   await sql(connection, "INSERT INTO integration_events(id,provider,event_id,event_type,payload) VALUES(26,'LOCAL_FIXTURE','fixture-event','LOCAL_TEST',?)", [JSON.stringify({ local: true })])
@@ -144,7 +157,7 @@ async function seed(connection) {
     cookie, protected_session: protection.encryptJSON(ownerSession, { table: 'sessions', field: 'data', rowId: 'local-owner-session' })
   })])
   const securityPrivate = protection.encryptJSON({ details: { local: 'security-event' } }, { table: 'audit_logs', field: 'private_data', rowId: 40 })
-  await sql(connection, "INSERT INTO audit_logs(id,user_id,action,entity,entity_id,details,private_data) VALUES(40,5,'LOGIN','admin_user','5',NULL,?),(41,5,'PUBLICAR','home','31',?,NULL),(42,5,'LIBRARY_UPLOAD','media_assets','34',?,NULL),(43,5,'CREATE','produto','17',NULL,NULL),(44,5,'CREATE','venda','15',NULL,NULL),(45,5,'CREATE','pedido_online','13',NULL,NULL),(46,5,'CREATE','lancamento_financeiro','25',NULL,NULL),(47,5,'CREATE','despesa_recorrente','24',NULL,NULL),(48,5,'AJUSTE','estoque','17',NULL,NULL)", [
+  await sql(connection, "INSERT INTO audit_logs(id,user_id,action,entity,entity_id,details,private_data) VALUES(40,5,'LOGIN','admin_user','5',NULL,?),(41,5,'PUBLICAR','home','31',?,NULL),(42,5,'LIBRARY_UPLOAD','media_assets','34',?,NULL),(43,5,'CREATE','produto','17',NULL,NULL),(44,5,'CREATE','venda','15',NULL,NULL),(45,5,'CREATE','pedido_online','13',NULL,NULL),(46,5,'CREATE','lancamento_financeiro','25',NULL,NULL),(47,5,'CREATE','despesa_recorrente','24',NULL,NULL),(48,5,'AJUSTE','estoque','17',NULL,NULL),(49,5,'CRIAR','gasto','25',NULL,NULL),(50,5,'REGISTRAR','gasto_recorrente','24',NULL,NULL)", [
     JSON.stringify(securityPrivate), JSON.stringify({ publication: 'preserved' }), JSON.stringify({ upload: 'preserved' })
   ])
   await privacy.completeInsert('audit_logs', 41, { details: { publication: 'preserved' } }, connection)
@@ -211,7 +224,7 @@ test('dry-run uses the real MySQL schema and does not change any row, balance, o
     assert.equal(report.after, null)
     for (const table of DELETE_TABLES) assert.ok(Number(report.before.counts[table]) > 0, table + ' must appear in the inventory')
     assert.equal(Number(report.before.accounts_with_test_balance), 1)
-    assert.equal(Number(report.before.operational_audit_logs), 6)
+    assert.equal(Number(report.before.operational_audit_logs), 8)
     assert.equal(Number(report.before.stock_units), 6)
     assert.deepEqual(await snapshot(connection), before)
     assert.equal(trace.statements.some(writes), false, 'dry-run must issue no data-changing statements')

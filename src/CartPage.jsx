@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { customerApi, readCart, STORE_API_BASE, writeCart } from './storeApi'
 import { formatProductPrice, productHasPrice } from './productAvailability'
+import { cartLineKey, findProductVariant, productForVariant, productHasVariants } from './productVariants'
+import './product-variants.css'
 
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 
@@ -58,13 +60,17 @@ export default function CartPage() {
   }, [])
 
   const items = useMemo(() => cart.map((item) => {
-    const current = catalog.find((product) => Number(product.id) === Number(item.id))
-    return { ...item, current, quantity: Math.max(1, Number(item.quantity || 1)) }
+    const product = catalog.find((product) => Number(product.id) === Number(item.id))
+    if (!product) return { ...item, current: null }
+    const variant = findProductVariant(product, item.variant_id)
+    return { ...item, current: productForVariant(product, item.variant_id), missingVariant: productHasVariants(product) && !variant, size_label: variant?.size || item.size_label || '', quantity: Math.max(1, Number(item.quantity || 1)) }
   }).filter((item) => item.current), [cart, catalog])
 
   const subtotal = items.reduce((sum,item) => sum + Number(item.current.price || 0) * item.quantity, 0)
   const pricePending = items.some((item) => !productHasPrice(item.current))
-  const availabilityError = pricePending
+  const availabilityError = items.some(item => item.missingVariant)
+    ? 'Escolha novamente o tamanho na página da peça e remova a versão antiga do carrinho.'
+    : pricePending
     ? 'O preço de uma peça do seu carrinho ainda não foi definido. Remova essa peça para continuar.'
     : items.some((item) => item.quantity > Number(item.current.stock || 0))
       ? 'Uma peça do seu carrinho está sem estoque suficiente. Ajuste a quantidade ou remova essa peça para continuar.'
@@ -72,11 +78,11 @@ export default function CartPage() {
 
   function changeQuantity(item, value) {
     const next = Math.max(1, Math.min(Number(item.current?.stock || 1), Number(value || 1)))
-    setCart(writeCart(cart.map((entry) => Number(entry.id) === Number(item.id) ? { ...entry, quantity:next } : entry)))
+    setCart(writeCart(cart.map((entry) => cartLineKey(entry) === cartLineKey(item) ? { ...entry, quantity:next } : entry)))
   }
 
-  function removeItem(id) {
-    setCart(writeCart(cart.filter((entry) => Number(entry.id) !== Number(id))))
+  function removeItem(item) {
+    setCart(writeCart(cart.filter((entry) => cartLineKey(entry) !== cartLineKey(item))))
   }
 
   async function startPayment(order) {
@@ -118,7 +124,7 @@ export default function CartPage() {
     try {
       const data = await customerApi('/api/store/orders', {
         method:'POST',
-        body:{ items:items.map((item) => ({ product_id:Number(item.id), quantity:item.quantity })), shipping:form }
+        body:{ items:items.map((item) => ({ product_id:Number(item.id), ...(item.variant_id ? { variant_id:Number(item.variant_id) } : {}), quantity:item.quantity })), shipping:form }
       })
       const order = { id:Number(data.order?.id || 0), code:data.order?.code || '', paymentConfigured:Boolean(data.payment_configured) }
       if (!Number.isInteger(order.id) || order.id <= 0) throw new Error('O servidor não confirmou o registro do pedido.')
@@ -142,7 +148,7 @@ export default function CartPage() {
       <div className="page-heading"><h1>Seu carrinho</h1></div>
       {catalogError ? <div className="empty-catalog cart-empty" role="alert"><h2>Não foi possível carregar o carrinho</h2><p>{catalogError}</p><button className="button button-primary" type="button" onClick={() => window.location.reload()}>Tentar novamente ↗</button></div> : !items.length ? <div className="empty-catalog cart-empty"><h2>Seu carrinho está vazio</h2><p>Adicione uma peça do catálogo para começar seu pedido</p><Link className="button button-primary" to="/shop">Explorar catálogo ↗</Link></div> : (
         <div className="cart-layout">
-          <section className="cart-items">{items.map((item) => <article className="cart-item" key={item.id}><Link to={'/produto/' + item.id} className="cart-item-image"><img src={item.current.image || item.image || '/images/product-placeholder.svg'} alt="" /></Link><div className="cart-item-info"><span>{item.current.brand || item.current.category || 'GALEO'}</span><Link to={'/produto/' + item.id}><strong>{item.current.name}</strong></Link><small>{formatProductPrice(item.current.price)}</small><div className="quantity-control"><button type="button" onClick={() => changeQuantity(item,item.quantity-1)}>−</button><span>{item.quantity}</span><button type="button" onClick={() => changeQuantity(item,item.quantity+1)}>+</button></div></div><div className="cart-item-total"><strong>{productHasPrice(item.current) ? money(Number(item.current.price) * item.quantity) : 'Preço a definir'}</strong><button type="button" onClick={() => removeItem(item.id)}>Remover</button></div></article>)}<button className="text-button" type="button" onClick={() => setCart(writeCart([]))}>Limpar carrinho</button></section>
+          <section className="cart-items">{items.map((item) => <article className="cart-item" key={cartLineKey(item)}><Link to={'/produto/' + item.id} className="cart-item-image"><img src={item.current.image || item.image || '/images/product-placeholder.svg'} alt="" /></Link><div className="cart-item-info"><span>{item.current.brand || item.current.category || 'GALEO'}</span><Link to={'/produto/' + item.id}><strong>{item.current.name}</strong></Link><small>{formatProductPrice(item.current.price)}</small>{item.size_label && <span className="cart-item-size">Tamanho: {item.size_label}</span>}<div className="quantity-control"><button type="button" onClick={() => changeQuantity(item,item.quantity-1)}>−</button><span>{item.quantity}</span><button type="button" onClick={() => changeQuantity(item,item.quantity+1)}>+</button></div></div><div className="cart-item-total"><strong>{productHasPrice(item.current) ? money(Number(item.current.price) * item.quantity) : 'Preço a definir'}</strong><button type="button" onClick={() => removeItem(item)}>Remover</button></div></article>)}<button className="text-button" type="button" onClick={() => setCart(writeCart([]))}>Limpar carrinho</button></section>
           <aside className="cart-summary"><div><span>Subtotal</span><strong>{pricePending ? 'Preço a definir' : money(subtotal)}</strong></div><div><span>Frete</span><strong>A calcular</strong></div><div className="cart-summary-total"><span>Total do pedido</span><strong>{pricePending ? 'Preço a definir' : money(subtotal)}</strong></div>
             {availabilityError ? <p className="form-error" role="alert">{availabilityError}</p> : !customer ? <div className="cart-login-box"><span>Para finalizar o pedido</span><strong>Entre ou crie sua conta</strong><Link className="button button-primary" to="/conta?return=/carrinho">Entrar / criar conta ↗</Link></div> : (
               <form className="checkout-form" onSubmit={submitOrder}><h2 className="checkout-title">Entrega</h2><label>Nome<input value={form.name} onChange={(e) => setForm((c)=>({...c,name:e.target.value}))} required /></label><label>Telefone<input value={form.phone} onChange={(e) => setForm((c)=>({...c,phone:e.target.value}))} required /></label><div className="checkout-grid"><label>CEP<input value={form.postal_code} onChange={(e) => setForm((c)=>({...c,postal_code:e.target.value}))} required /></label><label>Estado<input value={form.state} onChange={(e) => setForm((c)=>({...c,state:e.target.value.toUpperCase()}))} maxLength="2" required /></label></div><label>Rua<input value={form.street} onChange={(e) => setForm((c)=>({...c,street:e.target.value}))} required /></label><div className="checkout-grid"><label>Número<input value={form.number} onChange={(e) => setForm((c)=>({...c,number:e.target.value}))} required /></label><label>Complemento<input value={form.complement} onChange={(e) => setForm((c)=>({...c,complement:e.target.value}))} /></label></div><label>Bairro<input value={form.neighborhood} onChange={(e) => setForm((c)=>({...c,neighborhood:e.target.value}))} required /></label><label>Cidade<input value={form.city} onChange={(e) => setForm((c)=>({...c,city:e.target.value}))} required /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary" type="submit" disabled={submitting}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></form>

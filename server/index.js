@@ -9,6 +9,7 @@ import { createDatabasePrivacy } from './database-privacy.js'
 import { protectSessionStore } from './protected-session-store.js'
 import { inspectMySqlSecurity } from './mysql-security-status.js'
 import { ensureProductDeletionSchema } from './product-deletion-schema.js'
+import { ProductVariantError, ensureProductVariantSchema, attachProductVariants, normalizeVariants, lockProductInventory, inventorySelection, changeInventory, recordInventoryMovement, saveProductVariants, assertInventoryToken } from './product-variants.js'
 import { issueEmailVerification, consumeEmailVerification, verificationRequired, EmailVerificationError } from './email-verification.js'
 import { createTransactionalEmail } from './transactional-email.js'
 import { createNewsletter, registerNewsletter, NEWSLETTER_DDL } from './newsletter.js'
@@ -25,6 +26,7 @@ import { registerMediaLibrary } from './media-library.js'
 import { ensureHomeWorkflowSchema, createHomeWorkflow, registerHomeWorkflow } from './home-workflow.js'
 import { compactAuditDetails, createAuditRetentionQueue } from './audit-retention.js'
 import { ProductImageSelectionError, resolveProductImage } from './product-image-selection.js'
+import { businessMonthStart, registerExpenseManagement } from './expense-management.js'
 import { createBackgroundTasks } from './background-tasks.js'
 import { MySqlRateLimitStore, RATE_LIMIT_DDL, pruneRateLimits } from './mysql-rate-limit-store.js'
 import { validateRuntimeSchema } from './runtime-schema.js'
@@ -75,7 +77,6 @@ function startPersistentServices() {
   }, 30000)
   wss.on('close', () => clearInterval(websocketHeartbeat))
   scheduledJobs.push(cron.schedule('15 * * * *', () => auditRetention.run(), { timezone: 'America/Sao_Paulo' }))
-  scheduledJobs.push(cron.schedule('10 3 * * *', seedAndScheduleRecurring, { timezone: 'America/Sao_Paulo' }))
 }
 
 if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
@@ -592,6 +593,7 @@ async function init({ preserveCategories = false } = {}) {
     const floor = recovery.missingTables.includes(table) && /\bAUTO_INCREMENT\b/.test(statement) ? ' AUTO_INCREMENT=' + recovery.nextId : ''
     await query(statement + floor)
   }
+  await ensureProductVariantSchema({ query, ensureColumn, ...(recovery.missingTables.includes('product_variants') ? { recoveredIdFloor: recovery.nextId } : {}) })
   await recoverOperationalSequences(query, { ...recovery, missingTables: recovery.missingTables.filter(table => table !== 'newsletter_subscriptions') })
   await ensureHomeWorkflowSchema(query)
   await ensureProductDeletionSchema({ query, ensureColumn })
@@ -683,7 +685,7 @@ async function init({ preserveCategories = false } = {}) {
 
   await query(
     "INSERT INTO home_settings(setting_key,setting_value) VALUES('storefront_visual_defaults',?) ON DUPLICATE KEY UPDATE setting_key=setting_key",
-    [JSON.stringify({"visual_direction":"editorial_multibrand","theme":"dark","palette":{"background":"#050505","surface":"#0d0c0b","surface_alt":"#15120f","text":"#f2eadb","muted":"#978b78","accent":"#c4934c","accent_soft":"#e2c27f","accent_deep":"#72501f","line":"rgba(224,189,125,.19)"},"typography":{"display":{"family":"Inter","weight":850,"tracking":"-0.075em","line_height":0.88},"editorial":{"family":"Georgia","weight":400,"style":"italic"},"ui":{"family":"Inter","weight":700,"tracking":"0.11em","transform":"uppercase"}},"layout":{"max_width":1440,"side_gutter":28,"section_spacing":128,"borders":"hairline","corners":"minimal","shadows":"restrained"},"interaction":{"smooth_scroll":{"enabled":true,"library":"Lenis","duration":1.05,"wheel_multiplier":0.95,"sync_with_scroll_animations":true},"scroll_reveal":{"enabled":true,"library":"GSAP ScrollTrigger","duration":0.8,"stagger":0.06,"distance":24,"once":true},"hero_text_reveal":{"enabled":true,"duration":0.9,"stagger":0.08,"style":"line-rise"},"image_hover":{"enabled":true,"duration":0.45,"scale":1.035,"directional_overlay":true},"product_hover":{"enabled":true,"image_scale":1.04,"lift_px":6}},"accessibility":{"respect_reduced_motion":true,"preserve_native_scroll":true,"no_motion_only_information":true},"guardrails":{"no_neon":true,"no_heavy_glassmorphism":true,"no_excessive_gradients":true,"no_permanent_cursor_effects":true,"no_animation_on_every_element":true,"prioritize_content_and_product_images":true},"inspiration":{"component_language":"Inspira UI","smooth_scroll":"Lenis","animation_system":"GSAP"}})]
+    [JSON.stringify({"visual_direction":"editorial_multibrand","theme":"dark","palette":{"background":"#050505","surface":"#0d0c0b","surface_alt":"#15120f","text":"#f2eadb","muted":"#978b78","accent":"#c4934c","accent_soft":"#e2c27f","accent_deep":"#72501f","line":"rgba(224,189,125,.19)"},"typography":{"display":{"family":"Roboto","weight":500,"tracking":"-0.075em","line_height":0.88},"editorial":{"family":"Roboto","weight":400,"style":"italic"},"ui":{"family":"Roboto","weight":500,"tracking":"0.11em","transform":"uppercase"}},"layout":{"max_width":1440,"side_gutter":28,"section_spacing":128,"borders":"hairline","corners":"minimal","shadows":"restrained"},"interaction":{"smooth_scroll":{"enabled":true,"library":"Lenis","duration":1.05,"wheel_multiplier":0.95,"sync_with_scroll_animations":true},"scroll_reveal":{"enabled":true,"library":"GSAP ScrollTrigger","duration":0.8,"stagger":0.06,"distance":24,"once":true},"hero_text_reveal":{"enabled":true,"duration":0.9,"stagger":0.08,"style":"line-rise"},"image_hover":{"enabled":true,"duration":0.45,"scale":1.035,"directional_overlay":true},"product_hover":{"enabled":true,"image_scale":1.04,"lift_px":6}},"accessibility":{"respect_reduced_motion":true,"preserve_native_scroll":true,"no_motion_only_information":true},"guardrails":{"no_neon":true,"no_heavy_glassmorphism":true,"no_excessive_gradients":true,"no_permanent_cursor_effects":true,"no_animation_on_every_element":true,"prioritize_content_and_product_images":true},"inspiration":{"component_language":"Inspira UI","smooth_scroll":"Lenis","animation_system":"GSAP"}})]
   )
 
   await query(
@@ -851,18 +853,12 @@ async function registrarEventoIntegracao(conn, provider, eventId, eventType, pay
 // O chamador bloqueia o pedido na mesma transação antes de devolver a reserva.
 async function devolverReservaPedido(conn, order, userId = null) {
   if (order.status === 'CANCELLED') return
-  const [items] = await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY product_id', [order.id])
+  const [items] = await conn.execute('SELECT * FROM store_order_items WHERE order_id=? ORDER BY product_id,variant_id,id', [order.id])
+  const products=await lockProductInventory(conn,items.map(item=>item.product_id))
   for (const item of items) {
-    const [products] = await conn.execute('SELECT stock,cost FROM products WHERE id=? FOR UPDATE', [item.product_id])
-    if (!products.length) throw new Error('Produto do pedido não encontrado.')
-    const stockBefore = Number(products[0].stock)
-    const stockAfter = stockBefore + Number(item.quantity)
-    await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, item.product_id])
-    await insertPrivateBusiness(conn, 'stock_movements',
-      "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
-      [item.product_id, item.quantity, stockBefore, stockAfter, 'Cancelamento do pedido ' + order.code, 'store-order:' + order.id, Number(products[0].cost || 0), userId],
-      { reason: 4 }
-    )
+    const product=products.get(Number(item.product_id))
+    const change=await changeInventory(conn,product,item.variant_id,Number(item.quantity),{restoring:true})
+    await recordInventoryMovement(conn,insertPrivateBusiness,item.product_id,change,{type:'ENTRADA',reason:'Cancelamento do pedido '+order.code,referenceId:'store-order:'+order.id,unitCost:product.cost,userId})
   }
 }
 
@@ -906,8 +902,8 @@ async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
     const [productRows] = await conn.execute('SELECT id,cost FROM products WHERE id=? FOR UPDATE', [item.product_id])
     if (!productRows.length) throw new Error('Produto do pedido não encontrado.')
     await conn.execute(
-      'INSERT INTO sale_items(sale_id,product_id,product_name,brand,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?)',
-      [saleId, item.product_id, item.product_name, item.brand, item.quantity, Number(item.unit_price), Number(productRows[0].cost || 0), Number(item.line_total)]
+      'INSERT INTO sale_items(sale_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      [saleId, item.product_id, item.variant_id, item.size_label, item.product_name, item.brand, item.quantity, Number(item.unit_price), Number(productRows[0].cost || 0), Number(item.line_total)]
     )
   }
 
@@ -976,19 +972,12 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
       if(refundOrder?.sale_id){
         const [saleRows]=await conn.execute('SELECT * FROM sales WHERE id=? FOR UPDATE',[refundOrder.sale_id])
         if(saleRows.length && saleRows[0].status!=='CANCELADA'){
-          const [saleItems]=await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id',[refundOrder.sale_id])
+          const [saleItems]=await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY product_id,variant_id,id',[refundOrder.sale_id])
+          const refundProducts=await lockProductInventory(conn,saleItems.map(item=>item.product_id))
           for(const item of saleItems){
-            const [productRows]=await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE',[item.product_id])
-            if(!productRows.length) throw new Error('Produto da venda não encontrado.')
-            const product=productRows[0]
-            const stockBefore=Number(product.stock)
-            const stockAfter=stockBefore+Number(item.quantity)
-            await conn.execute('UPDATE products SET stock=? WHERE id=?',[stockAfter,item.product_id])
-            await insertPrivateBusiness(conn, 'stock_movements',
-              "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,NULL)",
-              [item.product_id,item.quantity,stockBefore,stockAfter,'Estorno do pedido online '+refundOrder.code,'store-order:'+orderId,Number(item.unit_cost||0)],
-              { reason: 4 }
-            )
+            const product=refundProducts.get(Number(item.product_id))
+            const change=await changeInventory(conn,product,item.variant_id,Number(item.quantity),{restoring:true})
+            await recordInventoryMovement(conn,insertPrivateBusiness,item.product_id,change,{type:'ENTRADA',reason:'Estorno do pedido online '+refundOrder.code,referenceId:'store-order:'+orderId,unitCost:item.unit_cost})
           }
           await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?",[refundOrder.sale_id])
           await conn.execute("UPDATE financial_entries SET status='CANCELADO',paid_at=NULL WHERE reference_type='VENDA' AND reference_id=?",['sale:'+refundOrder.sale_id])
@@ -1240,6 +1229,7 @@ app.get('/api/store/products/:id', async (req,res) => {
     if(!products.length) return res.status(404).json({error:'Produto não encontrado.'})
     const media=await query('SELECT id,media_type,url,width,height,duration,sort_order FROM product_media WHERE product_id=? ORDER BY sort_order,id',[productId])
     const related=await query('SELECT p.id,p.name,p.brand,p.price,p.stock,p.image,p.video,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.active=1 AND p.category_id <=> ? AND p.id<>? ORDER BY p.id DESC LIMIT 8',[products[0].category_id,productId])
+    await attachProductVariants(query, [...products, ...related], { publicOnly:true })
     res.json({product:{...products[0],media},related})
   } catch(error) {
     console.error('Erro ao carregar produto público:',error)
@@ -1266,6 +1256,10 @@ app.get('/api/store/home/settings', async (req, res) => {
     res.status(500).json({ error: 'Não foi possível carregar as configurações da home.' })
   }
 })
+app.get('/api/store/categories', async (req, res) => {
+  res.json(await query('SELECT id,name,sort_order FROM categories ORDER BY sort_order,id'))
+})
+
 app.get('/api/store', async (req, res) => {
   try {
     const [products, categories] = await Promise.all([
@@ -1278,66 +1272,13 @@ app.get('/api/store', async (req, res) => {
       `),
       query('SELECT id,name,sort_order FROM categories ORDER BY sort_order,id')
     ])
-    console.log(
-      'STORE CATALOG:',
-      JSON.stringify({
-        activeProducts: products.length,
-        productIds: products.map(product => product.id),
-        categories: categories.map(category => category.name)
-      })
-    )
-
+    await attachProductVariants(query, products, { publicOnly:true })
     res.json({ products, categories })
   } catch (error) {
     console.error('Erro no catálogo:', error)
     res.status(500).json({ error: 'Não foi possível carregar o catálogo.' })
   }
 })
-
-async function generateCurrentRecurring() {
-  const recs = await query(`
-    SELECT r.*, DATE_FORMAT(CURRENT_DATE,'%Y-%m') AS current_month,
-      DAY(LAST_DAY(CURRENT_DATE)) AS last_day
-    FROM recurring_expenses r
-    WHERE r.active=1
-  `)
-
-  for (const rec of recs) {
-    const referenceId = `recurring:${rec.id}:${rec.current_month}`
-    const existing = await query(
-      'SELECT id FROM financial_entries WHERE reference_id=? LIMIT 1',
-      [referenceId]
-    )
-    if (existing.length) continue
-
-    const dueDay = Math.min(Number(rec.due_day), Number(rec.last_day))
-    const dueDate = `${rec.current_month}-${String(dueDay).padStart(2, '0')}`
-    const conn = await db.getConnection()
-    try {
-      await conn.beginTransaction()
-      const original = { description: rec.description }
-      await conn.execute(
-        `INSERT INTO financial_entries
-         (account_id,category_id,type,description,amount,due_date,status,recurring,recurrence,reference_type,reference_id)
-         VALUES(?,?, 'DESPESA',?,?,?,'PENDENTE',1,'MENSAL','RECURRING',?)
-         ON DUPLICATE KEY UPDATE reference_id=reference_id`,
-        [rec.account_id, rec.category_id, privacy.pendingFields('financial_entries', original).description, rec.amount, dueDate, referenceId]
-      )
-      const [created] = await conn.execute('SELECT id FROM financial_entries WHERE reference_id=? FOR UPDATE', [referenceId])
-      await privacy.updateFields('financial_entries', created[0].id, original, conn)
-      await conn.commit()
-    } catch (error) {
-      await conn.rollback().catch(() => {})
-      throw error
-    } finally { conn.release() }
-  }
-}
-
-async function seedAndScheduleRecurring() {
-  try { await generateCurrentRecurring() } catch (error) {
-    console.error('Erro ao gerar recorrências:', error)
-  }
-}
 
 function responderErroVerificacao(res, error) {
   if (error instanceof EmailVerificationError) {
@@ -1527,8 +1468,9 @@ app.put('/api/customer/profile', exigirCliente, async (req,res) => {
 app.get('/api/customer/orders', exigirCliente, async (req,res) => {
   try {
     const orders=await query('SELECT id,code,status,subtotal,shipping_fee,total,created_at,updated_at FROM store_orders WHERE customer_id=? ORDER BY id DESC',[req.customer.id])
+    const allItems=orders.length ? await query('SELECT id,order_id,product_id,variant_id,size_label,product_name AS name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id IN ('+orders.map(()=>'?').join(',')+') ORDER BY id',orders.map(order=>order.id)) : []
     for(const order of orders) {
-      order.items=await query('SELECT id,product_id,product_name AS name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
+      order.items=allItems.filter(item=>Number(item.order_id)===Number(order.id))
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
     }
     res.json({success:true,orders})
@@ -1555,26 +1497,26 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
   }
   for(const key of ['name','phone','postal_code','street','number','neighborhood','city','state']) if(!fields[key]) return res.status(400).json({error:'Preencha todos os dados de entrega.'})
   const ids=[...new Set(itemsInput.map(item=>Number(item.product_id)).filter(id=>Number.isInteger(id)&&id>0))]
-  if(!ids.length||ids.length!==itemsInput.length) return res.status(400).json({error:'Há itens inválidos ou duplicados no carrinho.'})
+  const itemKeys=itemsInput.map(item=>String(Number(item.product_id))+':'+(item.variant_id === undefined || item.variant_id === null || item.variant_id === '' ? '' : String(Number(item.variant_id))))
+  if(!ids.length || itemsInput.some(item=>!Number.isInteger(Number(item.product_id))||Number(item.product_id)<=0) || new Set(itemKeys).size!==itemKeys.length) return res.status(400).json({error:'Há itens inválidos ou duplicados no carrinho.'})
   const conn=await db.getConnection()
   try {
     await conn.beginTransaction()
-    const placeholders=ids.map(()=>'?').join(',')
-    const [products]=await conn.execute('SELECT p.id,p.name,p.brand,p.price,p.stock,p.active,c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id IN ('+placeholders+') AND p.active=1 FOR UPDATE',ids)
-    const byId=new Map(products.map(item=>[Number(item.id),item]))
+    const byId=await lockProductInventory(conn, ids)
     let subtotal=0
     const lines=[]
     for(const input of itemsInput){
       const product=byId.get(Number(input.product_id))
       const quantity=Number(input.quantity)
-      if(!product) throw new Error('Um dos produtos não está mais disponível.')
+      if(!product || !Number(product.active)) throw new Error('Um dos produtos não está mais disponível.')
       if(!Number.isInteger(quantity)||quantity<1||quantity>50) throw new Error('Quantidade inválida para '+product.name+'.')
       const unitPrice=Number(product.price)
       if(!Number.isFinite(unitPrice)||unitPrice<=0) throw new Error('O preço de '+product.name+' ainda não foi definido. Aguarde a atualização da loja.')
-      if(quantity>Number(product.stock)) throw new Error('Estoque insuficiente para '+product.name+'.')
+      const selection=inventorySelection(product,input.variant_id)
+      if(quantity>selection.stock) throw new Error('Estoque insuficiente para '+product.name+(selection.size_label ? ' no tamanho '+selection.size_label : '')+'.')
       const lineTotal=unitPrice*quantity
       subtotal+=lineTotal
-      lines.push({product_id:Number(product.id),product_name:product.name,brand:product.brand,quantity,unit_price:unitPrice,line_total:lineTotal})
+      lines.push({product_id:Number(product.id),variant_id:selection.variant_id,size_label:selection.size_label,product_name:product.name,brand:product.brand,quantity,unit_price:unitPrice,line_total:lineTotal})
     }
     const shippingFee=0
     const total=subtotal+shippingFee
@@ -1584,21 +1526,14 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
       [code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state],
       { customer_name:2, customer_email:3, customer_phone:4, postal_code:8, street:9, number:10, complement:11, neighborhood:12, city:13, state:14 })
     for(const line of lines){
-      await conn.execute('INSERT INTO store_order_items(order_id,product_id,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
-      const [currentRows]=await conn.execute('SELECT stock,cost FROM products WHERE id=? FOR UPDATE',[line.product_id])
-      const currentStock=Number(currentRows[0]?.stock || 0)
-      const nextStock=currentStock-line.quantity
-      if(nextStock<0) throw new Error('Estoque insuficiente para '+line.product_name+'.')
-      await conn.execute('UPDATE products SET stock=? WHERE id=?',[nextStock,line.product_id])
-      await insertPrivateBusiness(conn, 'stock_movements',
-        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,NULL)",
-        [line.product_id,line.quantity,currentStock,nextStock,'Reserva do pedido '+code,'store-order:'+orderResult.insertId,Number(currentRows[0]?.cost || 0)],
-        { reason:4 }
-      )
+      await conn.execute('INSERT INTO store_order_items(order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.variant_id,line.size_label,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
+      const product=byId.get(line.product_id)
+      const change=await changeInventory(conn,product,line.variant_id,-line.quantity)
+      await recordInventoryMovement(conn,insertPrivateBusiness,line.product_id,change,{type:'SAIDA',reason:'Reserva do pedido '+code,referenceId:'store-order:'+orderResult.insertId,unitCost:product.cost})
     }
     await audit(null, 'CRIAR', 'pedido_online', orderResult.insertId, { code, total, payment_status: 'PENDING' }, conn)
     await conn.commit()
-    const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
+    const itemHtml=lines.map(line=>'<li>'+escapeHtml(line.product_name)+(line.size_label ? ' — '+escapeHtml(line.size_label) : '')+' × '+line.quantity+' — '+escapeHtml(moneyBR(line.line_total))+'</li>').join('')
     await Promise.all([sendEmailSafely({to:req.customer.email,subject:'Pedido '+code+' recebido',idempotencyKey:'order-customer-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Pedido recebido</h1><p>Olá, '+escapeHtml(fields.name)+'</p><p>Seu pedido <strong>'+escapeHtml(code)+'</strong> foi registrado</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'}),
     ...(storeNotificationEmail ? [sendEmailSafely({to:storeNotificationEmail,subject:'Novo pedido '+code,idempotencyKey:'order-store-'+orderResult.insertId,html:'<div style="font-family:Arial,sans-serif"><h1>Novo pedido '+escapeHtml(code)+'</h1><p>Cliente: '+escapeHtml(fields.name)+' — '+escapeHtml(req.customer.email)+'</p><ul>'+itemHtml+'</ul><p><strong>Total: '+escapeHtml(moneyBR(total))+'</strong></p></div>'})] : [])])
     res.json({success:true,payment_configured:mercadoPagoOnlineConfigured(),order:{id:orderResult.insertId,code,status:'RECEIVED',payment_status:'PENDING',subtotal,shipping_fee:shippingFee,total}})
@@ -1621,7 +1556,7 @@ app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
     if (!mercadoPagoOnlineConfigured()) return res.json({success:true,payment_configured:false,checkout_url:'',order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
     const existing=await query("SELECT id,private_data,provider_reference,payment_url FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' AND status='PENDING' ORDER BY id DESC LIMIT 1",[orderId])
     if(existing.length && existing[0].payment_url) return res.json({success:true,checkout_url:existing[0].payment_url,payment_reference:existing[0].provider_reference})
-    const items=await query('SELECT product_id,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
+    const items=await query('SELECT product_id,variant_id,size_label,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
     const mpOrder=await createMercadoPagoOnlineOrder({order,items,idempotencyKey:'galeo-order-'+orderId})
     const conn=await db.getConnection()
     try {
@@ -1764,8 +1699,9 @@ app.get('/api/admin/security-status', async (req, res) => {
 app.get('/api/admin/store-orders', async (req,res) => {
   try {
     const orders=await query('SELECT id,private_data,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
+    const allItems=orders.length ? await query('SELECT id,order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id IN ('+orders.map(()=>'?').join(',')+') ORDER BY id',orders.map(order=>order.id)) : []
     for(const order of orders){
-      order.items=await query('SELECT id,product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[order.id])
+      order.items=allItems.filter(item=>Number(item.order_id)===Number(order.id))
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
     }
     res.json(orders)
@@ -1780,7 +1716,7 @@ app.get('/api/admin/store-orders/:id', async (req,res) => {
     const id=Number(req.params.id)
     const rows=await query('SELECT * FROM store_orders WHERE id=? LIMIT 1',[id])
     if(!rows.length) return res.status(404).json({error:'Pedido não encontrado.'})
-    const items=await query('SELECT id,product_id,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[id])
+    const items=await query('SELECT id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[id])
     res.json({...rows[0],items})
   } catch(error){
     console.error('Erro ao detalhar pedido online:',error)
@@ -1945,16 +1881,13 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
 
 app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
   try {
-    await generateCurrentRecurring()
-    const monthStart = new Date()
-    monthStart.setDate(1)
-    monthStart.setHours(0,0,0,0)
-    const currentMonth = monthStart.toISOString().slice(0,10)
+    const currentMonth = businessMonthStart()
 
-    const [productSummary, stockSummary, salesSummary, incomeSummary, expenseSummary, payableSummary, receivableSummary] = await Promise.all([
+    const [productSummary, stockSummary, salesSummary, financialSummary] = await Promise.all([
       query(`
         SELECT
           COUNT(*) AS count,
+          COALESCE(SUM(active=1),0) AS active_count,
           COALESCE(SUM(stock),0) AS stock,
           SUM(CASE WHEN stock<=min_stock AND active=1 THEN 1 ELSE 0 END) AS low_stock
         FROM products
@@ -1971,24 +1904,22 @@ app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
         [currentMonth + ' 00:00:00']
       ),
       query(`
-        SELECT COALESCE(SUM(amount),0) AS total
+        SELECT
+          COALESCE(SUM(CASE WHEN type='RECEITA' AND status='PAGO'
+            AND DATE(COALESCE(paid_at,created_at))>=?
+            AND COALESCE(reference_type,'')<>'VENDA' THEN amount ELSE 0 END),0) AS income,
+          COALESCE(SUM(CASE WHEN type='DESPESA' AND status='PAGO'
+            AND DATE(COALESCE(paid_at,created_at))>=? THEN amount ELSE 0 END),0) AS expense,
+          COALESCE(SUM(CASE WHEN type='DESPESA' AND status='PENDENTE' THEN amount ELSE 0 END),0) AS payable,
+          COALESCE(SUM(CASE WHEN type='RECEITA' AND status='PENDENTE' THEN amount ELSE 0 END),0) AS receivable
         FROM financial_entries
-        WHERE type='RECEITA' AND status='PAGO'
-          AND DATE(COALESCE(paid_at,created_at))>=?
-          AND COALESCE(reference_type,'')<>'VENDA'
-      `, [currentMonth]),
-      query(`
-        SELECT COALESCE(SUM(amount),0) AS total
-        FROM financial_entries
-        WHERE type='DESPESA' AND status='PAGO' AND DATE(COALESCE(paid_at,created_at))>=?
-      `, [currentMonth]),
-      query(`SELECT COALESCE(SUM(amount),0) AS total FROM financial_entries WHERE type='DESPESA' AND status='PENDENTE'`),
-      query(`SELECT COALESCE(SUM(amount),0) AS total FROM financial_entries WHERE type='RECEITA' AND status='PENDENTE'`)
+      `, [currentMonth, currentMonth])
     ])
 
     res.json({
       products: {
         count: Number(productSummary[0]?.count || 0),
+        active_count: Number(productSummary[0]?.active_count || 0),
         stock: Number(productSummary[0]?.stock || 0),
         low_stock: Number(productSummary[0]?.low_stock || 0)
       },
@@ -2000,10 +1931,10 @@ app.get('/api/admin/dashboard', exigirLogin, async (req, res) => {
         count: Number(salesSummary[0]?.count || 0),
         total: Number(salesSummary[0]?.total || 0)
       },
-      income: Number(incomeSummary[0]?.total || 0),
-      expense: Number(expenseSummary[0]?.total || 0),
-      payable: Number(payableSummary[0]?.total || 0),
-      receivable: Number(receivableSummary[0]?.total || 0)
+      income: Number(financialSummary[0]?.income || 0),
+      expense: Number(financialSummary[0]?.expense || 0),
+      payable: Number(financialSummary[0]?.payable || 0),
+      receivable: Number(financialSummary[0]?.receivable || 0)
     })
   } catch (error) {
     console.error('Erro no dashboard:', error)
@@ -2055,16 +1986,20 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
   for (const item of rawItems) {
     const productId = Number(item?.product_id)
     const quantity = Number(item?.quantity)
-    if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(quantity) || quantity <= 0) {
+    const variantId = item?.variant_id === undefined || item?.variant_id === null || item?.variant_id === '' ? null : Number(item.variant_id)
+    if (!Number.isInteger(productId) || productId <= 0 || !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 2147483647 || (variantId !== null && (!Number.isSafeInteger(variantId) || variantId <= 0))) {
       return res.status(400).json({ error: 'Item de venda inválido.' })
     }
-    merged.set(productId, (merged.get(productId) || 0) + quantity)
+    const key=productId+':'+(variantId ?? '')
+    const previous=merged.get(key)
+    merged.set(key,{productId,variantId,quantity:(previous?.quantity || 0)+quantity})
   }
 
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
 
+    const products=await lockProductInventory(conn,[...merged.values()].map(item=>item.productId))
     const paymentMethods = ['PIX','CARTAO_CREDITO','CARTAO_DEBITO','DINHEIRO','TRANSFERENCIA','OUTRO']
     const paymentMethod = paymentMethods.includes(String(body.payment_method || '')) ? String(body.payment_method) : 'PIX'
 
@@ -2078,30 +2013,23 @@ app.post('/api/admin/sales', exigirLogin, async (req, res) => {
     const saleCode = 'VDA-' + String(saleId).padStart(6, '0')
     let total = 0
 
-    for (const [productId, quantity] of merged.entries()) {
-      const [productRows] = await conn.execute('SELECT * FROM products WHERE id=? AND active=1 FOR UPDATE', [productId])
-      if (!productRows.length) throw new Error('Produto não encontrado ou inativo.')
-      const product = productRows[0]
-      const stock = Number(product.stock)
-      if (stock < quantity) throw new Error('Estoque insuficiente para ' + product.name + '. Disponível: ' + stock + '.')
-
+    for (const {productId,variantId,quantity} of merged.values()) {
+      const product=products.get(productId)
+      if (!product || !Number(product.active)) throw new Error('Produto não encontrado ou inativo.')
+      const selection=inventorySelection(product,variantId)
       const unitPrice = Number(product.price)
+      if (!Number.isFinite(unitPrice) || unitPrice<=0) throw new Error('Defina o preço de '+product.name+' antes de registrar a venda.')
       const unitCost = Number(product.cost)
       const lineTotal = unitPrice * quantity
       total += lineTotal
 
       await conn.execute(
-        'INSERT INTO sale_items(sale_id,product_id,product_name,brand,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?)',
-        [saleId, productId, product.name, product.brand, quantity, unitPrice, unitCost, lineTotal]
+        'INSERT INTO sale_items(sale_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        [saleId, productId, selection.variant_id, selection.size_label, product.name, product.brand, quantity, unitPrice, unitCost, lineTotal]
       )
 
-      const stockAfter = stock - quantity
-      await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, productId])
-      await insertPrivateBusiness(conn, 'stock_movements',
-        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'SAIDA',?,?,?,?,?,?,?)",
-        [productId, quantity, stock, stockAfter, 'Venda ' + saleCode, 'sale:' + saleId, unitCost, req.admin.id],
-        { reason:4 }
-      )
+      const change=await changeInventory(conn,product,variantId,-quantity)
+      await recordInventoryMovement(conn,insertPrivateBusiness,productId,change,{type:'SAIDA',reason:'Venda '+saleCode,referenceId:'sale:'+saleId,unitCost,userId:req.admin.id})
     }
 
     await conn.execute('UPDATE sales SET code=?, total=? WHERE id=?', [saleCode, total, saleId])
@@ -2152,20 +2080,12 @@ app.patch('/api/admin/sales/:id/cancel', exigirLogin, async (req, res) => {
     const [onlineOrders] = await conn.execute('SELECT id FROM store_orders WHERE sale_id=? LIMIT 1', [saleId])
     if (onlineOrders.length) throw new Error('Esta venda pertence a um pedido online. O estorno deve ser processado no Mercado Pago.')
 
-    const [items] = await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id', [saleId])
+    const [items] = await conn.execute('SELECT * FROM sale_items WHERE sale_id=? ORDER BY product_id,variant_id,id', [saleId])
+    const products=await lockProductInventory(conn,items.map(item=>item.product_id))
     for (const item of items) {
-      const [productRows] = await conn.execute('SELECT * FROM products WHERE id=? FOR UPDATE', [item.product_id])
-      if (!productRows.length) throw new Error('Produto da venda não encontrado.')
-      const product = productRows[0]
-      const stockBefore = Number(product.stock)
-      const stockAfter = stockBefore + Number(item.quantity)
-
-      await conn.execute('UPDATE products SET stock=? WHERE id=?', [stockAfter, item.product_id])
-      await insertPrivateBusiness(conn, 'stock_movements',
-        "INSERT INTO stock_movements(product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id) VALUES(?,'ENTRADA',?,?,?,?,?,?,?)",
-        [item.product_id, item.quantity, stockBefore, stockAfter, 'Estorno da venda ' + sale.code, 'sale:' + saleId, Number(item.unit_cost || 0), req.admin.id],
-        { reason:4 }
-      )
+      const product=products.get(Number(item.product_id))
+      const change=await changeInventory(conn,product,item.variant_id,Number(item.quantity),{restoring:true})
+      await recordInventoryMovement(conn,insertPrivateBusiness,item.product_id,change,{type:'ENTRADA',reason:'Estorno da venda '+sale.code,referenceId:'sale:'+saleId,unitCost:item.unit_cost,userId:req.admin.id})
     }
 
     await conn.execute("UPDATE sales SET status='CANCELADA' WHERE id=?", [saleId])
@@ -2318,11 +2238,13 @@ app.get('/api/admin/products', exigirLogin, async (req, res) => {
     LEFT JOIN categories c ON c.id=p.category_id
     ORDER BY p.id DESC
   `)
+  await attachProductVariants(query, rows)
   res.json(rows)
 })
 
 function validarDadosProduto(product) {
   if (!String(product.name || '').trim()) return 'Nome do produto é obrigatório.'
+  try { normalizeVariants(product.variants) } catch (error) { return error.message }
   for (const key of ['price', 'cost']) {
     const value = Number(product[key] ?? 0)
     if (!Number.isFinite(value) || value < 0 || value > 9999999999.99) return 'Preço e custo devem ser valores válidos e não negativos.'
@@ -2358,7 +2280,7 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
         String(b.description || ''),
         Number(b.price || 0),
         Number(b.cost || 0),
-        Number(b.stock || 0),
+        Array.isArray(b.variants) && b.variants.length ? 0 : Number(b.stock || 0),
         Number(b.min_stock || 0),
         image,
         String(b.video || ''),
@@ -2367,7 +2289,9 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
     )
 
     const productId = result.insertId
-    if (Number(b.stock) > 0) {
+    const product = { id:productId, stock:Array.isArray(b.variants) && b.variants.length ? 0 : Number(b.stock || 0), variants:[] }
+    const grade=await saveProductVariants(conn,product,b.variants,{ record:change=>recordInventoryMovement(conn,insertPrivateBusiness,productId,change,{type:'ENTRADA',reason:'Estoque inicial por tamanho',userId:req.admin.id}) })
+    if (!grade.hasVariants && Number(b.stock) > 0) {
       await insertPrivateBusiness(conn, 'stock_movements',
         `INSERT INTO stock_movements
          (product_id,type,quantity,stock_before,stock_after,reason,user_id)
@@ -2382,11 +2306,12 @@ app.post('/api/admin/products', exigirLogin, async (req, res) => {
       'SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?',
       [productId], conn
     )
+    await attachProductVariants((sql,params)=>query(sql,params,conn),rows)
     await conn.commit()
     res.status(201).json(rows[0])
   } catch (error) {
     await conn.rollback()
-    if (error instanceof ProductImageSelectionError) return res.status(error.status).json({ error: error.message })
+    if (error instanceof ProductImageSelectionError || error instanceof ProductVariantError) return res.status(error.status).json({ error: error.message })
     console.error('Erro ao criar produto:', error)
     res.status(500).json({ error: 'Não foi possível criar o produto.' })
   } finally {
@@ -2457,8 +2382,8 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
   const b = req.body || {}
   const validationError = validarDadosProduto(b)
   if (validationError) return res.status(400).json({ error: validationError })
-  const newStock = Number(b.stock)
-  if (!Number.isInteger(newStock) || newStock < 0) {
+  const requestedStock = b.stock === undefined ? null : Number(b.stock)
+  if (requestedStock !== null && (!Number.isInteger(requestedStock) || requestedStock < 0)) {
     return res.status(400).json({ error: 'Estoque inválido.' })
   }
 
@@ -2472,6 +2397,16 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
       await conn.rollback()
       return res.status(404).json({ error: 'Produto não encontrado.' })
     }
+    const [oldVariants]=await conn.execute('SELECT * FROM product_variants WHERE product_id=? ORDER BY id FOR UPDATE',[productId])
+    const product={...oldRows[0],variants:oldVariants}
+    const oldStock=Number(product.stock)
+    const normalized=normalizeVariants(b.variants)
+    if (normalized !== undefined || (!oldVariants.length && requestedStock !== null)) assertInventoryToken(product, b.inventory_token)
+    if (!oldVariants.length && normalized?.length && oldStock) {
+      await recordInventoryMovement(conn,insertPrivateBusiness,productId,{variant_id:null,size_label:'',before:oldStock,after:0},{type:'AJUSTE',reason:'Distribuição do estoque para a grade de tamanhos',userId:req.admin.id})
+    }
+    const grade=await saveProductVariants(conn,product,b.variants,{ record:change=>recordInventoryMovement(conn,insertPrivateBusiness,productId,change,{type:'AJUSTE',reason:'Ajuste da grade de tamanhos',userId:req.admin.id}) })
+    const newStock=grade.hasVariants ? grade.stock : (requestedStock ?? Number(product.stock))
     await conn.execute(
       `UPDATE products SET
        name=?,brand=?,category_id=?,description=?,price=?,cost=?,stock=?,min_stock=?,image=?,video=?,active=?
@@ -2492,13 +2427,12 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
       ]
     )
 
-    const oldStock = Number(oldRows[0].stock)
-    if (newStock !== oldStock) {
+    if (!grade.hasVariants && newStock !== Number(product.stock)) {
       await insertPrivateBusiness(conn, 'stock_movements',
         `INSERT INTO stock_movements
          (product_id,type,quantity,stock_before,stock_after,reason,user_id)
          VALUES(?,'AJUSTE',?,?,?,?,?)`,
-        [productId, newStock - oldStock, oldStock, newStock, 'Ajuste manual pelo painel', req.admin.id],
+        [productId, newStock - Number(product.stock), Number(product.stock), newStock, 'Ajuste manual pelo painel', req.admin.id],
         { reason:4 }
       )
     }
@@ -2511,11 +2445,12 @@ app.put('/api/admin/products/:id', exigirLogin, async (req, res) => {
       'SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?',
       [productId], conn
     )
+    await attachProductVariants((sql,params)=>query(sql,params,conn),rows)
     await conn.commit()
     res.json(rows[0])
   } catch (error) {
     await conn.rollback()
-    if (error instanceof ProductImageSelectionError) return res.status(error.status).json({ error: error.message })
+    if (error instanceof ProductImageSelectionError || error instanceof ProductVariantError) return res.status(error.status).json({ error: error.message, ...(error.code ? { code:error.code } : {}) })
     console.error('Erro ao editar produto:', error)
     res.status(500).json({ error: 'Não foi possível editar o produto.' })
   } finally {
@@ -2535,51 +2470,26 @@ app.post('/api/admin/stock', exigirLogin, async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [productRows] = await conn.execute(
-      'SELECT * FROM products WHERE id=? FOR UPDATE',
-      [productId]
-    )
-    if (!productRows.length) throw new Error('Produto não encontrado.')
-
-    const product = productRows[0]
-    let stockAfter
-    if (type === 'ENTRADA') stockAfter = Number(product.stock) + quantity
-    else if (type === 'SAIDA') stockAfter = Number(product.stock) - quantity
-    else stockAfter = quantity
-
-    if (stockAfter < 0) throw new Error('Estoque insuficiente.')
-
-    await conn.execute(
-      'UPDATE products SET stock=? WHERE id=?',
-      [stockAfter, productId]
-    )
-    await insertPrivateBusiness(conn, 'stock_movements',
-      `INSERT INTO stock_movements
-       (product_id,type,quantity,stock_before,stock_after,reason,reference_id,unit_cost,user_id)
-       VALUES(?,?,?,?,?,?,?,?,?)`,
-      [
-        productId,
-        type,
-        type === 'AJUSTE' ? stockAfter - Number(product.stock) : quantity,
-        Number(product.stock),
-        stockAfter,
-        String(req.body?.reason || ''),
-        req.body?.reference_id ? String(req.body.reference_id) : null,
-        Number(req.body?.unit_cost || 0),
-        req.admin.id
-      ],
-      { reason:5 }
-    )
+    const products=await lockProductInventory(conn,[productId])
+    const product=products.get(productId)
+    const selection=inventorySelection(product,req.body?.variant_id)
+    const delta=type==='ENTRADA' ? quantity : type==='SAIDA' ? -quantity : quantity-selection.stock
+    const change=await changeInventory(conn,product,req.body?.variant_id,delta)
+    await recordInventoryMovement(conn,insertPrivateBusiness,productId,change,{type,reason:String(req.body?.reason || ''),referenceId:req.body?.reference_id ? String(req.body.reference_id) : null,unitCost:req.body?.unit_cost,userId:req.admin.id})
 
     await audit(req.admin.id, 'MOVIMENTAR', 'estoque', productId, {
       type,
-      before: Number(product.stock),
-      after: stockAfter
+      before: change.before,
+      after: change.after,
+      size:change.size_label
     }, conn)
     await conn.commit()
     res.json({
-      before: Number(product.stock),
-      after: stockAfter
+      before: change.before,
+      after: change.after,
+      product_stock:change.totalAfter,
+      variant_id:change.variant_id,
+      size_label:change.size_label
     })
   } catch (error) {
     await conn.rollback()
@@ -2714,48 +2624,7 @@ app.patch('/api/admin/finance/entries/:id/pay', exigirLogin, async (req, res) =>
   res.json(rows[0])
 })
 
-app.post('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
-  const b = req.body || {}
-  const dueDay = Number(b.due_day)
-  const amount = Number(b.amount)
-  if (!b.description || !Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31 || !Number.isFinite(amount) || amount <= 0) {
-    return res.status(400).json({ error: 'Recorrência inválida.' })
-  }
-
-  const conn = await db.getConnection()
-  try {
-    await conn.beginTransaction()
-    const result = await insertPrivateBusiness(conn, 'recurring_expenses',
-      'INSERT INTO recurring_expenses(description,category_id,account_id,amount,due_day) VALUES(?,?,?,?,?)',
-      [String(b.description).trim(), Number(b.category_id) || null, Number(b.account_id) || null, amount, dueDay],
-      { description:0 })
-    await audit(req.admin.id, 'CRIAR', 'despesa_recorrente', result.insertId, null, conn)
-    const rows = await query(
-      `SELECT r.*, c.name AS category, a.name AS account
-       FROM recurring_expenses r
-       LEFT JOIN financial_categories c ON c.id=r.category_id
-       LEFT JOIN financial_accounts a ON a.id=r.account_id
-       WHERE r.id=?`,
-      [result.insertId], conn)
-    await conn.commit()
-    res.status(201).json(rows[0])
-  } catch (error) {
-    await conn.rollback().catch(() => {})
-    console.error('Erro ao criar recorrência:', error?.code || 'INTERNAL_ERROR')
-    res.status(500).json({ error:'Não foi possível criar a recorrência.' })
-  } finally { conn.release() }
-})
-
-app.get('/api/admin/finance/recurring', exigirLogin, async (req, res) => {
-  res.json(await query(`
-    SELECT r.*, c.name AS category, a.name AS account
-    FROM recurring_expenses r
-    LEFT JOIN financial_categories c ON c.id=r.category_id
-    LEFT JOIN financial_accounts a ON a.id=r.account_id
-    WHERE r.active=1
-    ORDER BY r.due_day
-  `))
-})
+registerExpenseManagement(app, { db, query, audit, exigirLogin, insertPrivateBusiness })
 
 const dist = path.join(serverDirectory, '..', 'dist')
 const mediaLibrary = registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary, schemaManaged: serverless, serverless, deferBackgroundPromise })
@@ -2823,7 +2692,6 @@ export async function migrateSchema() {
 
 export async function runMaintenance() {
   await initializeRuntime()
-  await generateCurrentRecurring()
   await auditRetention.run()
   const [sessions] = await db.execute('DELETE FROM sessions WHERE expires<UNIX_TIMESTAMP()')
   const rateLimits = await pruneRateLimits(db)
@@ -2850,7 +2718,6 @@ export async function startServer() {
   if (serverless) throw new Error('O runtime serverless não inicia um servidor persistente.')
   if (httpServer?.listening) return httpServer
   await migrateSchema()
-  await seedAndScheduleRecurring()
 
   const productHealth = await query(`
     SELECT

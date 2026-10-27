@@ -4,20 +4,21 @@ export const REQUIRED_RUNTIME_COLUMNS = Object.freeze({
   admin_users: ['id', 'email', 'password_hash', 'role', 'active'],
   categories: ['id', 'name', 'sort_order'],
   products: ['id', 'name', 'stock', 'image', 'video', 'active'],
+  product_variants: ['id', 'product_id', 'size', 'stock', 'active', 'sort_order'],
   product_media: ['id', 'product_id', 'public_id', 'url', 'sort_order'],
   sessions: ['session_id', 'expires', 'data'],
-  stock_movements: ['id', 'product_id', 'reason'],
+  stock_movements: ['id', 'product_id', 'variant_id', 'size_label', 'reason'],
   financial_accounts: ['id', 'name'],
   financial_categories: ['id', 'name', 'type'],
   financial_entries: ['id', 'reference_id', 'description'],
   recurring_expenses: ['id', 'description', 'active'],
   sales: ['id', 'client_reference', 'customer_name', 'notes'],
-  sale_items: ['id', 'sale_id', 'product_id', 'product_name', 'brand'],
+  sale_items: ['id', 'sale_id', 'product_id', 'product_name', 'brand', 'variant_id', 'size_label'],
   audit_logs: ['id', 'details', 'created_at'],
   customers: ['id', 'email', 'email_verified_at'],
   customer_email_verifications: ['customer_id', 'token_hash', 'expires_at'],
   store_orders: ['id', 'customer_id', 'payment_status', 'payment_url', 'sale_id'],
-  store_order_items: ['id', 'order_id', 'product_id', 'product_name', 'brand'],
+  store_order_items: ['id', 'order_id', 'product_id', 'product_name', 'brand', 'variant_id', 'size_label'],
   payments: ['id', 'payment_url', 'raw_payload'],
   integration_events: ['id', 'payload'],
   home_sections: ['id', 'section_key', 'draft_content', 'published_content', 'published_sort_order', 'published_visible'],
@@ -48,23 +49,28 @@ export async function validateRuntimeSchema({ db, privacy, protection }) {
   }
   // Check key continuity without a full-table migration or any startup writes.
   // Individual rows are authenticated again whenever the application reads them.
-  for (const table of Object.keys(PRIVATE_FIELD_MAP)) {
+  const continuityChecks = Object.keys(PRIVATE_FIELD_MAP).map(async table => {
     const [sample] = await db.execute('SELECT id,private_data FROM `' + table + '` WHERE private_data IS NOT NULL LIMIT 1')
     if (sample.length) privacy.decodeRow(table, sample[0])
     if (privacy.enabled) {
       const [plaintext] = await db.execute('SELECT id FROM `' + table + '` WHERE private_data IS NULL LIMIT 1')
       if (plaintext.length) throw migrationRequired()
     }
-  }
-  const [sessions] = await db.execute("SELECT session_id,data FROM sessions WHERE JSON_CONTAINS_PATH(data,'one','$.protected_session')=1 LIMIT 1")
-  for (const row of sessions) {
-    if (!protection) throw migrationRequired()
-    const value = typeof row.data === 'string' ? JSON.parse(row.data) : row.data
-    protection.decryptJSON(value.protected_session, { table: 'sessions', field: 'data', rowId: row.session_id })
-  }
-  if (protection) {
-    const [plaintext] = await db.execute("SELECT session_id FROM sessions WHERE JSON_CONTAINS_PATH(data,'one','$.protected_session')=0 LIMIT 1")
-    if (plaintext.length) throw migrationRequired()
-  }
+  })
+  continuityChecks.push((async () => {
+    const [sessions] = await db.execute("SELECT session_id,data FROM sessions WHERE JSON_CONTAINS_PATH(data,'one','$.protected_session')=1 LIMIT 1")
+    for (const row of sessions) {
+      if (!protection) throw migrationRequired()
+      const value = typeof row.data === 'string' ? JSON.parse(row.data) : row.data
+      protection.decryptJSON(value.protected_session, { table: 'sessions', field: 'data', rowId: row.session_id })
+    }
+    if (protection) {
+      const [plaintext] = await db.execute("SELECT session_id FROM sessions WHERE JSON_CONTAINS_PATH(data,'one','$.protected_session')=0 LIMIT 1")
+      if (plaintext.length) throw migrationRequired()
+    }
+  })())
+  // The pool bounds concurrency. Every continuity check still runs, without
+  // paying one network round trip after another on each serverless cold start.
+  await Promise.all(continuityChecks)
   return { schema: 'ready' }
 }

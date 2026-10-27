@@ -2,7 +2,7 @@
 export const OPERATIONAL_TABLES = Object.freeze([
   'recurring_expenses', 'payments', 'store_order_items', 'sale_items',
   'stock_movements', 'financial_entries', 'store_orders', 'sales',
-  'customer_email_verifications', 'customers', 'product_media', 'products',
+  'customer_email_verifications', 'customers', 'product_media', 'product_variants', 'products',
   'integration_events', 'newsletter_subscriptions'
 ])
 export const RECOVERED_ID_FLOOR = 1000000000

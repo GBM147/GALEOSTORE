@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { addToCart, STORE_API_BASE } from './storeApi'
 import ProductGallery from './ProductGallery'
 import { formatProductPrice, productCanBePurchased, productHasPrice } from './productAvailability'
+import { activeProductVariants, findProductVariant, productForVariant, productHasVariants } from './productVariants'
+import './product-variants.css'
 
 const productGallery = (product) => {
   const uploaded = Array.isArray(product?.media) ? product.media : []
@@ -24,6 +26,7 @@ export default function ProductPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [added, setAdded] = useState(false)
+  const [selectedSize, setSelectedSize] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -40,6 +43,7 @@ export default function ProductPage() {
         setProduct(data.product || null)
         setRelated(Array.isArray(data.related) ? data.related : [])
         setQuantity(1)
+        setSelectedSize('')
       })
       .catch((err) => { if (alive) setError(err.message) })
       .finally(() => { if (alive) setLoading(false) })
@@ -49,8 +53,9 @@ export default function ProductPage() {
   const gallery = useMemo(() => productGallery(product), [product])
 
   function handleAdd() {
-    if (!productCanBePurchased(product)) return
-    addToCart(product, quantity)
+    if (productHasVariants(product) && !findProductVariant(product, selectedSize)) return
+    if (!productCanBePurchased(productForVariant(product, selectedSize))) return
+    addToCart(product, quantity, selectedSize)
     setAdded(true)
     window.setTimeout(() => setAdded(false), 2200)
   }
@@ -58,9 +63,12 @@ export default function ProductPage() {
   if (loading) return <main className="section-shell page-space product-page-state"><h1>Carregando produto</h1></main>
   if (error || !product) return <main className="section-shell page-space product-page-state"><h1>Produto não encontrado</h1><p>{error || 'Este produto não está disponível no catálogo'}</p><Link className="button button-primary" to="/shop">Voltar ao catálogo ↗</Link></main>
 
-  const stock = Math.max(0, Number(product.stock || 0))
+  const hasSizes = productHasVariants(product)
+  const variants = activeProductVariants(product)
+  const variant = findProductVariant(product, selectedSize)
+  const stock = Math.max(0, Number(productForVariant(product, selectedSize).stock || 0))
   const hasPrice = productHasPrice(product)
-  const purchasable = productCanBePurchased(product)
+  const purchasable = (!hasSizes || Boolean(variant)) && productCanBePurchased(productForVariant(product, selectedSize))
 
   return (
     <main className="section-shell product-page">
@@ -73,7 +81,8 @@ export default function ProductPage() {
           <h1>{product.name}</h1>
           <div className="product-detail-price">{formatProductPrice(product.price)}</div>
           <p className="product-detail-description">{product.description || 'Este produto ainda não possui uma descrição cadastrada'}</p>
-          <div className="product-stock-line"><span>{!hasPrice ? 'Compra indisponível: preço a definir' : stock > 0 ? 'Disponível em estoque' : 'Indisponível no momento'}</span>{purchasable && <small>{stock} unidade{stock === 1 ? '' : 's'}</small>}</div>
+          {hasSizes && <fieldset className="product-size-picker"><legend>Tamanho</legend><div className="product-size-options">{variants.map(size => <label className="product-size-option" key={size.id}><input type="radio" name={'product-size-' + product.id} value={size.id} checked={Number(selectedSize) === Number(size.id)} disabled={Number(size.stock) < 1} onChange={() => { setSelectedSize(String(size.id)); setQuantity(1); setAdded(false) }} aria-label={'Tamanho ' + size.size} /><span>{size.size}</span>{Number(size.stock) < 1 && <small>Esgotado</small>}</label>)}</div>{!variant && <p className="product-size-help">Selecione um tamanho disponível para continuar.</p>}</fieldset>}
+          <div className="product-stock-line"><span>{!hasPrice ? 'Compra indisponível: preço a definir' : hasSizes && !variant ? 'Escolha o tamanho' : stock > 0 ? 'Disponível em estoque' : 'Indisponível no momento'}</span>{purchasable && <small>{stock} unidade{stock === 1 ? '' : 's'}</small>}</div>
           <div className="product-purchase-box">
             <div className="quantity-control"><button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Diminuir quantidade">−</button><span>{quantity}</span><button type="button" onClick={() => setQuantity((value) => Math.min(stock || 1, value + 1))} aria-label="Aumentar quantidade">+</button></div>
             <button className="button button-primary product-add-button" type="button" onClick={handleAdd} disabled={!purchasable}>{added ? 'Adicionado ao carrinho' : 'Adicionar ao carrinho'} {added ? '✓' : '↗'}</button>

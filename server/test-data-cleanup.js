@@ -8,16 +8,16 @@ import { createDataProtection } from './data-protection.js'
 export const DELETE_TABLES = Object.freeze([
   'recurring_expenses', 'payments', 'store_order_items', 'sale_items',
   'stock_movements', 'financial_entries', 'store_orders', 'sales',
-  'customer_email_verifications', 'customers', 'product_media', 'products',
+  'customer_email_verifications', 'customers', 'product_media', 'product_variants', 'products',
   'integration_events', 'newsletter_subscriptions'
 ])
 export const PRESERVED_TABLES = Object.freeze([
   'admin_users', 'categories', 'financial_categories', 'financial_accounts',
-  'home_sections', 'home_settings', 'home_versions', 'media_library_preferences', 'media_assets', 'sessions'
+  'home_sections', 'home_settings', 'home_versions', 'media_library_preferences', 'media_assets', 'sessions', 'rate_limit_counters'
 ])
 export const OPERATIONAL_AUDIT_ENTITIES = Object.freeze([
   'produto', 'estoque', 'venda', 'pedido_online',
-  'lancamento_financeiro', 'despesa_recorrente'
+  'lancamento_financeiro', 'despesa_recorrente', 'gasto', 'gasto_recorrente'
 ])
 
 const optionalTables = new Set(['media_assets', 'home_versions', 'media_library_preferences', 'newsletter_subscriptions'])
@@ -25,6 +25,10 @@ const expectedForeignKeys = Object.freeze([
   ['fk_home_version_user', 'home_versions', 'published_by', 'admin_users', 'id', 'SET NULL'],
   ['fk_products_category', 'products', 'category_id', 'categories', 'id', 'SET NULL'],
   ['fk_media_product', 'product_media', 'product_id', 'products', 'id', 'CASCADE'],
+  ['fk_variant_product', 'product_variants', 'product_id', 'products', 'id', 'CASCADE'],
+  ['fk_stock_movements_variant', 'stock_movements', 'variant_id', 'product_variants', 'id', 'SET NULL'],
+  ['fk_sale_items_variant', 'sale_items', 'variant_id', 'product_variants', 'id', 'SET NULL'],
+  ['fk_store_order_items_variant', 'store_order_items', 'variant_id', 'product_variants', 'id', 'SET NULL'],
   ['fk_stock_product', 'stock_movements', 'product_id', 'products', 'id', 'RESTRICT'],
   ['fk_stock_user', 'stock_movements', 'user_id', 'admin_users', 'id', 'SET NULL'],
   ['fk_fin_account', 'financial_entries', 'account_id', 'financial_accounts', 'id', 'SET NULL'],
@@ -248,7 +252,7 @@ async function inspectSchema(connection, targetDatabase) {
     if (!primaryKeys.has(key.TABLE_NAME) || !/^[a-z_]+$/.test(key.COLUMN_NAME)) fail('CLEANUP_SCHEMA_INVALID', 'Chave primária não prevista.')
     primaryKeys.get(key.TABLE_NAME).push(key.COLUMN_NAME)
   }
-  const expectedPrimary = { sessions: 'session_id', home_settings: 'setting_key', customer_email_verifications: 'token_hash' }
+  const expectedPrimary = { sessions: 'session_id', home_settings: 'setting_key', customer_email_verifications: 'token_hash', rate_limit_counters: 'bucket_key' }
   if ([...primaryKeys].some(([table, list]) => list.length !== 1 || list[0] !== (expectedPrimary[table] || 'id'))) {
     fail('CLEANUP_SCHEMA_INVALID', 'Todas as tabelas devem ter a chave primária simples prevista pelo schema.')
   }

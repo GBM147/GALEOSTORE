@@ -154,7 +154,8 @@ before(async () => {
       MERCADO_PAGO_ACCESS_TOKEN: 'galeo-test-token', MERCADO_PAGO_WEBHOOK_SECRET: webhookSecret,
       GALEO_TEST_MP_FIXTURES: fixturePath,
       RESEND_API_KEY: '', EMAIL_FROM: '', STORE_NOTIFICATION_EMAIL: '',
-      CLOUDINARY_CLOUD_NAME: '', CLOUDINARY_API_KEY: '', CLOUDINARY_API_SECRET: ''
+      CLOUDINARY_URL: '', CLOUDINARY_CLOUD_NAME: '', CLOUDINARY_API_KEY: '', CLOUDINARY_API_SECRET: '',
+      MERCADO_PAGO_POINT_TERMINAL_ID: '', DATA_ENCRYPTION_ENABLED: 'false', DATA_ENCRYPTION_KEY: ''
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -176,13 +177,20 @@ before(async () => {
   db = mysql.createPool({ host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 3306), user: process.env.DB_USER, password: process.env.DB_PASSWORD, database: process.env.DB_NAME, connectionLimit: 4 })
   const [database] = await execute('SELECT DATABASE() AS name')
   assert.equal(database.name, 'galeo_store_test')
+  // Buyers are already verified local fixtures. Registration/delivery is tested
+  // separately and must never grant an authenticated session before confirmation.
+  const hash = await bcrypt.hash(password, 12)
+  const customerEmail = 'mp-customer-' + suffix + '@example.invalid'
+  const insertedCustomer = await execute('INSERT INTO customers(name,email,password_hash,phone,email_verified_at) VALUES(?,?,?,?,NOW())',
+    ['Cliente teste MP', customerEmail, hash, '11999999999'])
+  customerId = insertedCustomer.insertId
   customer = new Client()
-  const registered = await customer.request('/api/customer/register', {
-    method: 'POST', body: { name: 'Cliente teste MP', email: 'mp-customer-' + suffix + '@example.invalid', phone: '11999999999', password }
+  const customerLogin = await customer.request('/api/customer/login', {
+    method: 'POST', body: { email: customerEmail, password }
   })
-  assert.equal(registered.response.status, 200, registered.data.error)
-  customerId = registered.data.user.id
-  const insertedAdmin = await execute("INSERT INTO admin_users(email,password_hash,role,active) VALUES(?,?,'owner',1)", ['mp-admin-' + suffix + '@example.invalid', await bcrypt.hash(password, 12)])
+  assert.equal(customerLogin.response.status, 200, customerLogin.data.error)
+  assert.equal(customerLogin.data.user.id, customerId)
+  const insertedAdmin = await execute("INSERT INTO admin_users(email,password_hash,role,active) VALUES(?,?,'owner',1)", ['mp-admin-' + suffix + '@example.invalid', hash])
   adminId = insertedAdmin.insertId
   admin = new Client()
   const login = await admin.request('/api/auth/login', { method: 'POST', body: { email: 'mp-admin-' + suffix + '@example.invalid', password } })

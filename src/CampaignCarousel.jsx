@@ -38,7 +38,7 @@ function CampaignMedia({ slide, variant, effect, active, paused, reduceMotion })
     <div className="campaign-orb" />
     <div className="campaign-line campaign-line-a" />
     <div className="campaign-line campaign-line-b" />
-    {!slide.desktop_url ? <img src="/images/galeo-brand.png" alt="" className="campaign-brand-image" />
+    {!slide.desktop_url ? <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" />
       : !desktopVideo && (!hasMobile || !mobileVideo) ? <picture>
         {hasMobile && <source media="(max-width: 700px)" srcSet={slide.mobile_url} />}
         {renderImage(slide.desktop_url, '')}

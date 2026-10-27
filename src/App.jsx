@@ -1,12 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import AdminGate from './Admin'
-import ProductPage from './ProductPage'
-import CartPage from './CartPage'
-import AccountPage from './AccountPage'
 import CampaignCarousel from './CampaignCarousel'
 import RevealGrid from './RevealGrid'
 import HeroVisual from './HeroVisual'
@@ -14,17 +10,46 @@ import NewsletterSignup, { NewsletterConfirmation } from './NewsletterSignup'
 import VisualHomeEditor, { EditableSection, EditableText, EditorLink, EditorMediaButton, useVisualEditor } from './VisualHomeEditor'
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 import { formatProductPrice, productHasPrice } from './productAvailability'
+import { loadStorefrontJson } from './storefrontData'
+
+const AdminGate = lazy(() => import('./Admin'))
+const ProductPage = lazy(() => import('./ProductPage'))
+const CartPage = lazy(() => import('./CartPage'))
+const AccountPage = lazy(() => import('./AccountPage'))
+import { activeProductVariants, compareSizes } from './productVariants'
+import './product-variants.css'
 
 const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
 
-const fallbackProducts = [
-  { id: 1, name: 'Camiseta Essential', category: 'Camisetas', price: 129.9, image: '/images/product-placeholder.svg' },
-  { id: 2, name: 'Moletom Galeo Core', category: 'Moletons', price: 219.9, image: '/images/product-placeholder.svg' },
-  { id: 3, name: 'Camiseta Oversized', category: 'Camisetas', price: 149.9, image: '/images/product-placeholder.svg' },
-  { id: 4, name: 'Shoulder Bag', category: 'Acessórios', price: 99.9, image: '/images/product-placeholder.svg' },
-  { id: 5, name: 'Calça Essential', category: 'Calças', price: 189.9, image: '/images/product-placeholder.svg' },
-  { id: 6, name: 'Tênis Urban', category: 'Tênis', price: 299.9, image: '/images/product-placeholder.svg' }
-]
+const fallbackProducts = []
+
+function PageLoading({ message = 'Carregando página…' }) {
+  return <main className="section-shell page-space" style={{ minHeight:'70svh' }} aria-busy="true"><p className="page-note" role="status">{message}</p></main>
+}
+
+function RouteScroll() {
+  const { pathname, hash } = useLocation()
+  useLayoutEffect(() => {
+    if (!hash) {
+      window.scrollTo({ top:0, left:0, behavior:'instant' })
+      return undefined
+    }
+    let target
+    try { target = decodeURIComponent(hash.slice(1)) } catch { return undefined }
+    const scroll = () => {
+      const element = document.getElementById(target)
+      if (!element) return false
+      element.scrollIntoView({ block:'start', behavior:'instant' })
+      return true
+    }
+    if (scroll()) return undefined
+    const observer = new MutationObserver(() => { if (scroll()) observer.disconnect() })
+    observer.observe(document.getElementById('root'), { childList:true, subtree:true })
+    const timeout = window.setTimeout(() => observer.disconnect(), 5000)
+    return () => { observer.disconnect(); window.clearTimeout(timeout) }
+  }, [pathname, hash])
+  return null
+}
 
 function KeepAliveSocket() {
   useEffect(() => {
@@ -221,9 +246,9 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
 
   const primaryCategories = Array.isArray(navigation?.items) && navigation.items.length ? navigation.items.slice(0, 8).map((item, index) => ({ id: 'cms-menu-' + index, name: item.label, url: item.url || '/shop' })) : MALE_CATEGORIES.slice(0, 4).map((name, index) => ({ id: 'menu-' + index, name, url: '/shop?category=' + encodeURIComponent(name) }))
 
-  function goToCategory(category) {
-    navigate(category.url || '/shop')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  function startNavigationAtTop(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    window.scrollTo({ top:0, left:0, behavior:'instant' })
   }
 
   function submitSearch(event) {
@@ -233,31 +258,34 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
     const value = search.trim()
     navigate(value ? '/shop?q=' + encodeURIComponent(value) : '/shop')
     setSearchOpen(false)
+    // A header search may change only the query string while the customer is
+    // near the bottom of the catalog. Start the new results at the top.
+    window.scrollTo({ top:0, left:0, behavior:'instant' })
   }
 
   function handleSearchKeyDown(event) {
     if (!searchOpen || event.key !== 'Escape') return
     event.preventDefault()
     setSearchOpen(false)
-    searchTrigger.current?.focus()
+    searchTrigger.current?.focus({ preventScroll:true })
   }
 
   return (
     <header className="site-header" onKeyDown={handleSearchKeyDown}>
-      <Link className="brand" to="/" aria-label="Galeo Store" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : undefined}>
+      <Link className="brand" to="/" aria-label="Galeo Store" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>
         <span className="brand-logo-wrap">
-          <img className="brand-logo" src="/images/galeo-brand.png" alt="GALEO" />
+          <img className="brand-logo" src="/images/galeo-brand.webp" alt="GALEO" />
         </span>
         <span className="brand-wordmark">GALEO</span>
       </Link>
 
       <nav className="desktop-nav" aria-label="Categorias principais">
         {primaryCategories.map((category) => (
-          <Link key={category.id} to={category.url} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : undefined}>
+          <Link key={category.id} to={category.url} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>
             {category.name}
           </Link>
         ))}
-        <Link to="/shop" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : undefined}>{editor?.editing ? 'Editar menu' : 'Catálogo'}</Link>
+        <Link to="/shop" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>{editor?.editing ? 'Editar menu' : 'Catálogo'}</Link>
       </nav>
 
       <div className="header-actions">
@@ -457,9 +485,14 @@ const normalizeSearchText = (value) => String(value || '')
 function Shop({ products = fallbackProducts, categories = [], visualDefaults }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedCategory = searchParams.get('category') || 'Todos'
+  const selectedBrand = searchParams.get('brand') || ''
+  const selectedSize = searchParams.get('size') || ''
+  const onlyAvailable = searchParams.get('stock') === 'available'
   const query = searchParams.get('q') || ''
   const [searchInput, setSearchInput] = useState(query)
   const [sort, setSort] = useState('latest')
+  const availableBrands = useMemo(() => [...new Set(products.map(product => String(product.brand || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [products])
+  const availableSizes = useMemo(() => [...new Set(products.flatMap(product => activeProductVariants(product).filter(variant => Number(variant.stock) > 0).map(variant => variant.size)))].sort(compareSizes), [products])
 
   useEffect(() => {
     setSearchInput(query)
@@ -479,6 +512,9 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
     const result = products.filter((product) => {
       const categoryMatch = selectedCategory === 'Todos' || normalizeSearchText(product?.category) === normalizeSearchText(selectedCategory)
       if (!categoryMatch) return false
+      if (selectedBrand && normalizeSearchText(product.brand) !== normalizeSearchText(selectedBrand)) return false
+      if (selectedSize && !activeProductVariants(product).some(variant => normalizeSearchText(variant.size) === normalizeSearchText(selectedSize) && Number(variant.stock) > 0)) return false
+      if (onlyAvailable && Number(product.stock) < 1) return false
       if (!normalizedQuery) return true
 
       const haystack = [
@@ -492,15 +528,31 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
     })
 
     return [...result].sort((a, b) => {
+      if (sort === 'size-asc' || sort === 'size-desc') {
+        const sizeOf = product => activeProductVariants(product).filter(variant => Number(variant.stock) > 0).map(variant => variant.size).sort(compareSizes)[0]
+        const aSize = sizeOf(a), bSize = sizeOf(b)
+        if (Boolean(aSize) !== Boolean(bSize)) return aSize ? -1 : 1
+        if (aSize && bSize) return compareSizes(aSize, bSize) * (sort === 'size-desc' ? -1 : 1)
+      }
       if (sort === 'price-asc' || sort === 'price-desc') {
         if (productHasPrice(a) !== productHasPrice(b)) return productHasPrice(a) ? -1 : 1
       }
       if (sort === 'price-asc') return Number(a.price || 0) - Number(b.price || 0)
       if (sort === 'price-desc') return Number(b.price || 0) - Number(a.price || 0)
       if (sort === 'name') return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR')
+      if (sort === 'name-desc') return String(b.name || '').localeCompare(String(a.name || ''), 'pt-BR')
+      if (sort === 'brand') return String(a.brand || '').localeCompare(String(b.brand || ''), 'pt-BR')
+      if (sort === 'stock-desc') return Number(b.stock || 0) - Number(a.stock || 0)
       return Number(b.id || 0) - Number(a.id || 0)
     })
-  }, [products, selectedCategory, query, sort])
+  }, [products, selectedCategory, selectedBrand, selectedSize, onlyAvailable, query, sort])
+
+  function selectRefinement(key, value) {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setSearchParams(next)
+  }
 
   function selectCategory(category) {
     const next = new URLSearchParams(searchParams)
@@ -577,10 +629,21 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
           <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Ordenar produtos">
             <option value="latest">Mais recentes</option>
             <option value="name">Nome</option>
+            <option value="name-desc">Nome: Z a A</option>
+            <option value="brand">Marca</option>
             <option value="price-asc">Menor preço</option>
             <option value="price-desc">Maior preço</option>
+            <option value="stock-desc">Maior disponibilidade</option>
+            <option value="size-asc">Tamanho: menor ao maior</option>
+            <option value="size-desc">Tamanho: maior ao menor</option>
           </select>
         </label>
+      </div>
+
+      <div className="catalog-refinements">
+        <label>Marca<select aria-label="Filtrar por marca" value={selectedBrand} onChange={event => selectRefinement('brand', event.target.value)}><option value="">Todas as marcas</option>{availableBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}</select></label>
+        <label>Tamanho disponível<select aria-label="Filtrar por tamanho" value={selectedSize} onChange={event => selectRefinement('size', event.target.value)} disabled={!availableSizes.length && !selectedSize}><option value="">Todos os tamanhos</option>{selectedSize && !availableSizes.includes(selectedSize) && <option value={selectedSize}>{selectedSize}</option>}{availableSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <label>Disponibilidade<select aria-label="Filtrar por disponibilidade" value={onlyAvailable ? 'available' : ''} onChange={event => selectRefinement('stock', event.target.value)}><option value="">Todos os produtos</option><option value="available">Com estoque</option></select></label>
       </div>
 
       {filteredProducts.length > 0 ? (
@@ -613,7 +676,7 @@ function PlaceholderPage({ title }) {
 }
 
 export default function App() {
-  const { pathname } = useLocation()
+  const { pathname, key:visitKey } = useLocation()
   const adminRoute = /^\/admin(?:\/|$)/i.test(pathname)
   const previewMode = new URLSearchParams(window.location.search).get('preview') === 'draft'
   const visualMode = previewMode && pathname === '/' && new URLSearchParams(window.location.search).get('edit') === '1'
@@ -633,10 +696,19 @@ export default function App() {
   const [homeSections, setHomeSections] = useState([])
   const [homeLoaded, setHomeLoaded] = useState(false)
   const [homeSource, setHomeSource] = useState(null)
+  const [homeVisit, setHomeVisit] = useState(null)
+  const [homeError, setHomeError] = useState('')
+  const [homeAttempt, setHomeAttempt] = useState(0)
   const [siteSettings, setSiteSettings] = useState({})
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [settingsSource, setSettingsSource] = useState(null)
   const defaultTheme = siteSettings.storefront_visual_defaults?.theme
   const theme = themePreference || (defaultTheme === 'light' ? 'light' : 'dark')
   const [cartItemsCount, setCartItemsCount] = useState(() => cartCount(readCart()))
+  const needsCatalog = !adminRoute && (pathname === '/' || pathname === '/shop')
+  const needsHome = !adminRoute && pathname === '/'
+  const homeVisitKey = needsHome ? (previewMode ? 'draft:' : 'published:') + visitKey : null
+  const homeReady = homeLoaded && homeVisit === homeVisitKey && homeSource === (previewMode ? 'draft' : 'published')
 
   useEffect(() => {
     const syncCart = () => setCartItemsCount(cartCount(readCart()))
@@ -645,68 +717,74 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!needsCatalog) return undefined
     let active = true
-
     async function loadCatalog() {
-      setHomeLoaded(false)
       setCatalogError('')
-      const catalogPath = '/api/store?ts=' + Date.now()
+      const catalogPath = '/api/store'
       const endpoints = [...new Set([STORE_API_BASE + catalogPath, catalogPath])]
-      let catalogLoaded = false
-
       for (const endpoint of endpoints) {
         try {
-          const response = await fetch(endpoint, { cache:'no-store', headers:{ Accept:'application/json' } })
-          if (!response.ok) continue
-          const data = await response.json()
+          const data = await loadStorefrontJson(endpoint)
           if (!active) return
           setCatalog(Array.isArray(data?.products) ? data.products : [])
           setCategories(Array.isArray(data?.categories) ? data.categories : [])
-          catalogLoaded = true
-          break
+          return
         } catch {}
       }
-
-      if (!catalogLoaded && active) {
+      if (active) {
         setCatalog([])
         setCategories([])
         setCatalogError('Não foi possível carregar o catálogo agora.')
       }
-
-      try {
-        const homeEndpoint = previewMode ? '/api/admin/home' : '/api/store/home'
-        const settingsEndpoint = previewMode ? '/api/admin/home/settings' : '/api/store/home/settings'
-        const [homeResponse, settingsResponse] = await Promise.all([
-          fetch(homeEndpoint + '?ts=' + Date.now(), { cache:'no-store', credentials:'include', headers:{ Accept:'application/json' } }),
-          fetch(settingsEndpoint + '?ts=' + Date.now(), { cache:'no-store', credentials:'include', headers:{ Accept:'application/json' } })
-        ])
-
-        if (previewMode && (!homeResponse.ok || !settingsResponse.ok)) {
-          if (active) setPreviewDenied(true)
-          return
-        }
-
-        if (homeResponse.ok) {
-          const homeData = await homeResponse.json()
-          const sections = previewMode
-            ? (Array.isArray(homeData?.sections) ? homeData.sections.map((section) => ({ ...section, content: section.draft })) : [])
-            : (Array.isArray(homeData?.sections) ? homeData.sections : [])
-          if (active) setHomeSections(sections)
-        }
-
-        if (settingsResponse.ok) {
-          const settingsData = await settingsResponse.json()
-          if (active) setSiteSettings(Object.fromEntries((settingsData?.settings || []).map((item) => [item.key, item.value])))
-        }
-        if (active && homeResponse.ok) { setHomeSource(previewMode ? 'draft' : 'published'); setHomeLoaded(true) }
-      } catch {
-        if (previewMode && active) setPreviewDenied(true)
-      }
     }
-
     loadCatalog()
     return () => { active = false }
-  }, [previewMode])
+  }, [needsCatalog])
+
+  useEffect(() => {
+    // When leaving the owner preview, replace its in-memory data with the public
+    // document too. Ordinary catalog/product visits do not fetch the Home.
+    if (!needsHome && (previewMode || homeSource !== 'draft' || adminRoute)) return undefined
+    let active = true
+    const source = previewMode ? 'draft' : 'published'
+    setHomeError('')
+    setHomeLoaded(false)
+    if (previewMode) setPreviewDenied(false)
+    async function loadHome() {
+      try {
+        const data = await loadStorefrontJson(previewMode ? '/api/admin/home' : '/api/store/home', { credentials:'include' })
+        if (!active) return
+        const sections = Array.isArray(data?.sections) ? data.sections : []
+        setHomeSections(previewMode ? sections.map(section => ({ ...section, content:section.draft })) : sections)
+        setHomeSource(source)
+        setHomeVisit(homeVisitKey)
+        setHomeLoaded(true)
+      } catch {
+        if (!active) return
+        if (previewMode) setPreviewDenied(true)
+        else setHomeError('Não foi possível carregar a página inicial. Tente novamente.')
+      }
+    }
+    loadHome()
+    return () => { active = false }
+  }, [homeVisitKey, previewMode, homeAttempt])
+
+  useEffect(() => {
+    if (adminRoute) return undefined
+    let active = true
+    setSettingsLoaded(false)
+    loadStorefrontJson(previewMode ? '/api/admin/home/settings' : '/api/store/home/settings', { credentials:'include' })
+      .then(data => {
+        if (active) {
+          setSiteSettings(Object.fromEntries((Array.isArray(data?.settings) ? data.settings : []).map(item => [item.key, item.value])))
+          setSettingsSource(previewMode ? 'draft' : 'published')
+          setSettingsLoaded(true)
+        }
+      })
+      .catch(() => { if (active && previewMode) setPreviewDenied(true) })
+    return () => { active = false }
+  }, [adminRoute, previewMode])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -732,8 +810,9 @@ export default function App() {
 
   const storefront = (
     <div className="app">
+      <RouteScroll />
       {!adminRoute && <div className="scroll-progress" aria-hidden="true"><span /></div>}
-      {catalogError && <div className="catalog-global-error" role="status">{catalogError}</div>}
+      {!adminRoute && catalogError && <div className="catalog-global-error" role="status">{catalogError}</div>}
       {previewDenied && previewMode && (
         <div className="draft-preview-denied" role="alert">
           <strong>Pré-visualização indisponível</strong>
@@ -749,7 +828,7 @@ export default function App() {
       )}
 
       <KeepAliveSocket />
-      {!adminRoute && <StorefrontMotionGate homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
+      {!adminRoute && (!needsHome || homeReady) && <StorefrontMotionGate homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
       {!adminRoute && <Header
         theme={theme}
         categories={categories}
@@ -757,20 +836,20 @@ export default function App() {
         cartItemsCount={cartItemsCount}
         onToggle={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}
       />}
-      <Routes>
+      <Suspense fallback={<PageLoading />}><Routes>
         <Route path="/admin/*" element={<AdminGate />} />
-        <Route path="/" element={<Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} visualDefaults={siteSettings.storefront_visual_defaults} />} />
+        <Route path="/" element={homeReady ? <Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} visualDefaults={siteSettings.storefront_visual_defaults} /> : homeError ? <main className="section-shell page-space" style={{ minHeight:'70svh' }}><p className="page-note" role="alert">{homeError}</p><button type="button" className="button button-primary" onClick={() => setHomeAttempt(attempt => attempt + 1)}>Tentar novamente</button></main> : <PageLoading message="Carregando loja…" />} />
         <Route path="/shop" element={<Shop products={catalog} categories={categories} visualDefaults={siteSettings.storefront_visual_defaults} />} />
         <Route path="/produto/:id" element={<ProductPage />} />
         <Route path="/conta" element={<AccountPage />} />
         <Route path="/newsletter" element={<NewsletterConfirmation />} />
         <Route path="/carrinho" element={<CartPage />} />
-      </Routes>
+      </Routes></Suspense>
       {!adminRoute && <StoreFooter footer={siteSettings.footer} />}
     </div>
   )
   if (!visualMode) return storefront
   if (previewDenied) return <main className="section-shell page-space"><h1>Editor indisponível</h1><p role="alert">Entre no painel com a conta de proprietário para editar o rascunho.</p><a className="button button-primary" href="/admin">Entrar no painel</a></main>
-  if (!homeLoaded || homeSource !== 'draft') return <main className="section-shell page-space"><p role="status">Carregando o rascunho da loja…</p></main>
+  if (!homeReady || !settingsLoaded || settingsSource !== 'draft') return <main className="section-shell page-space"><p role="status">Carregando o rascunho da loja…</p></main>
   return <VisualHomeEditor sections={homeSections} settings={siteSettings} products={catalog} onSectionsChange={setHomeSections} onSettingsChange={next => { setThemePreference(null); setSiteSettings(next) }}>{storefront}</VisualHomeEditor>
 }

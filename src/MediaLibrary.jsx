@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import MediaComparison from './MediaComparison'
 import MediaManagement, { MediaLibraryPreferences } from './MediaManagement'
+import MediaLibraryDialog from './MediaLibraryDialog'
 import { directUploadsEnabled, uploadDirectMedia } from './directUpload'
 
 const estado = (item) => (
@@ -28,7 +29,6 @@ function MediaUsagePanel({ item, usage, onRefresh, onClose, disabled, panelId })
   const heading = useRef(null)
   useEffect(() => {
     heading.current?.focus({ preventScroll: true })
-    panel.current?.scrollIntoView({ block: 'nearest' })
   }, [item.id])
 
   return (
@@ -145,6 +145,8 @@ export default function MediaLibrary({ api, csrf, role }) {
 
   function showUsage(item, trigger) {
     if (trigger) usageTrigger.current = trigger
+    setSelectedId(null)
+    setEditingId(null)
     setUsageId(item.id)
     requestUsage(item).catch(() => {})
   }
@@ -154,7 +156,7 @@ export default function MediaLibrary({ api, csrf, role }) {
     setUsageId(null)
     window.requestAnimationFrame(() => {
       const targets = [usageTrigger.current, usageButtons.current.get(currentUsageId), refreshTrigger.current]
-      targets.find((target) => target?.isConnected && !target.disabled)?.focus()
+      targets.find((target) => target?.isConnected && !target.disabled)?.focus({ preventScroll:true })
     })
   }
 
@@ -193,6 +195,8 @@ export default function MediaLibrary({ api, csrf, role }) {
   const remove = (item, trigger) => {
     if (operationInFlight.current || usageById[item.id]?.in_use) return
     if (trigger) usageTrigger.current = trigger
+    const index = items.findIndex(row => row.id === item.id)
+    const neighborId = items[index + 1]?.id || items[index - 1]?.id
     run('d' + item.id, async () => {
       setUsageId(item.id)
       const usage = await requestUsage(item)
@@ -214,7 +218,7 @@ export default function MediaLibrary({ api, csrf, role }) {
       setUsageId(null)
       setUsageById((current) => { const next = { ...current }; delete next[item.id]; return next })
       await load()
-      window.requestAnimationFrame(() => refreshTrigger.current?.focus())
+      window.requestAnimationFrame(() => usageButtons.current.get(neighborId)?.focus({ preventScroll:true }))
     })
   }
 
@@ -229,13 +233,13 @@ export default function MediaLibrary({ api, csrf, role }) {
   const editing = items.find(item => item.id === editingId)
   function closeEditing() {
     setEditingId(null)
-    window.requestAnimationFrame(() => editTrigger.current?.focus())
+    window.requestAnimationFrame(() => editTrigger.current?.focus({ preventScroll:true }))
   }
   const selected = items.find((item) => item.id === selectedId)
   const usageItem = items.find((item) => item.id === usageId)
   function closeComparison() {
     setSelectedId(null)
-    window.requestAnimationFrame(() => compareTrigger.current?.focus())
+    window.requestAnimationFrame(() => compareTrigger.current?.focus({ preventScroll:true }))
   }
 
   return (
@@ -252,24 +256,26 @@ export default function MediaLibrary({ api, csrf, role }) {
         />
       </p>
       {busy === 'up' && <p className="page-note" role="status">Enviando…</p>}
-      {error && <p className="admin-error" role="alert">{error}</p>}
-      {msg && <p className="media-library-status" role="status">{msg}</p>}
+      {error && !(editing || usageItem || selected) && <p className="admin-error" role="alert">{error}</p>}
+      <p className="media-library-status" role="status" aria-live="polite">{msg || '\u00a0'}</p>
       {owner && <MediaLibraryPreferences api={api} disabled={Boolean(busy) || loading} onMessage={setMsg} onError={setError} />}
-      {editing && <MediaManagement
+      {(editing || usageItem || selected) && <MediaLibraryDialog
+        title={editing ? 'Editar mídia' : usageItem ? 'Onde esta mídia é usada' : 'Comparar versões'}
+        busy={Boolean(busy) || loading}
+        onClose={editing ? closeEditing : usageItem ? closeUsage : closeComparison}>
+      {editing ? <MediaManagement
         item={editing} api={api} csrf={csrf} run={run} disabled={Boolean(busy) || loading}
         onClose={closeEditing}
         onUpdate={(item) => { updateItem(item); setMsg('Nome da mídia salvo.') }}
-        onReplacement={async (item, message) => { await load(); setEditingId(null); setSelectedId(item.media_type === 'image' ? item.id : null); setMsg(message); window.requestAnimationFrame(() => refreshTrigger.current?.focus()) }}
-      />}
-      {usageItem && <MediaUsagePanel
+        onReplacement={async (item, message) => { await load(); setEditingId(null); setSelectedId(item.media_type === 'image' ? item.id : null); setMsg(message) }}
+      /> : usageItem ? <MediaUsagePanel
         panelId={usagePanelId}
         item={usageItem}
         usage={usageById[usageItem.id]}
         onRefresh={() => showUsage(usageItem)}
         onClose={closeUsage}
         disabled={Boolean(busy) || loading}
-      />}
-      {selected && <MediaComparison
+      /> : selected ? <MediaComparison
         item={selected}
         activeVariant={selected.use_ai && selected.ai_status === 'done' && selected.ai_url ? (selected.presentation === 'galeo' ? 'galeo' : 'ai') : 'original'}
         disabled={Boolean(busy) || loading}
@@ -277,7 +283,9 @@ export default function MediaLibrary({ api, csrf, role }) {
         readOnly={!owner}
         onClose={closeComparison}
         onSelect={(variant) => choose(selected, variant)}
-      />}
+      /> : null}
+      {error && (!usageItem || usageById[usageItem.id]?.error !== error) && <p className="admin-error" role="alert">{error}</p>}
+      </MediaLibraryDialog>}
       {owner && items.length > 1 && <p className="media-order-note">Arraste as mídias para organizar a biblioteca ou use Mover antes / Mover depois. A ordem dos produtos e das seções da Home é definida nos seus próprios editores.</p>}
       <div className="media-gallery">
         {items.map((item, index) => (
@@ -297,12 +305,12 @@ export default function MediaLibrary({ api, csrf, role }) {
                 aria-expanded={selectedId === item.id}
                 disabled={Boolean(busy) || loading}
                 data-testid={'media-compare-' + item.id}
-                onClick={(event) => { compareTrigger.current = event.currentTarget; setSelectedId(item.id) }}
+                onClick={(event) => { compareTrigger.current = event.currentTarget; setEditingId(null); setUsageId(null); setSelectedId(item.id) }}
               ><img src={item.url} alt={item.title || 'Foto ' + item.id} loading="lazy" /></button>}
             <div><span>{item.title || 'Sem título'}</span><span>{estado(item)}</span></div>
             {item.replaces_id && <p className="media-replacement-label">Nova versão · original preservado</p>}
             {owner && <div className="media-order-actions">
-              <button type="button" disabled={Boolean(busy) || loading} aria-label={'Editar mídia: ' + (item.title || 'Sem título')} onClick={(event) => { editTrigger.current=event.currentTarget; setEditingId(item.id) }}>Editar mídia</button>
+              <button type="button" disabled={Boolean(busy) || loading} aria-label={'Editar mídia: ' + (item.title || 'Sem título')} onClick={(event) => { editTrigger.current=event.currentTarget; setSelectedId(null); setUsageId(null); setEditingId(item.id) }}>Editar mídia</button>
               <button type="button" disabled={Boolean(busy) || loading || index === 0} aria-label={'Mover antes: ' + (item.title || 'Sem título')} onClick={() => move(item,items[index-1],'before')}>Mover antes</button>
               <button type="button" disabled={Boolean(busy) || loading || index === items.length-1} aria-label={'Mover depois: ' + (item.title || 'Sem título')} onClick={() => move(item,items[index+1],'after')}>Mover depois</button>
             </div>}

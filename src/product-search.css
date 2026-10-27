@@ -1,0 +1,9 @@
+.product-search { position: relative; min-width: 0; max-width: 520px; }
+.product-search > label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
+.product-search > input { width: 100%; min-height: 44px; margin: 0; padding: 11px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
+.product-search-options { position: fixed; z-index: 1000; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 24px rgba(0,0,0,.2); }
+.product-search-options [role="option"] { padding: 12px; color: var(--text); cursor: pointer; line-height: 1.45; }
+.product-search-options [role="option"] small { display: block; color: var(--muted); font-size: 11px; }
+.product-search-options [role="option"].is-active { background: var(--surface-alt); outline: 1px solid var(--accent); outline-offset: -1px; }
+.product-search-empty { margin: 0; padding: 12px; color: var(--muted); }
+.stock-history-filters { margin-bottom: 20px; }

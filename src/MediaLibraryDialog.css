@@ -1,0 +1,6 @@
+.media-library-dialog{width:min(1120px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line);background:var(--surface);color:var(--text);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;box-sizing:border-box}
+.media-library-dialog::backdrop{background:rgb(0 0 0/.7)}
+.media-library-panel{overflow-anchor:none}
+.media-library-dialog>.media-management,.media-library-dialog>.media-comparison,.media-library-dialog>.media-usage-panel{margin:0;border:0;border-radius:0;background:transparent;min-width:0}
+.media-library-status{min-height:1.5em}
+@media(max-width:650px){.media-library-dialog{width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}}

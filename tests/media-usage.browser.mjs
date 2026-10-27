@@ -251,6 +251,7 @@ test('falha ao consultar uso bloqueia exclusão mesmo depois de um resultado liv
   const { page, calls, dialogs, items } = state
   await page.getByTestId('media-usage-' + freeId).click()
   await page.getByTestId('media-usage-panel').getByText('Nenhum uso encontrado.', { exact:true }).waitFor()
+  await page.getByRole('button', { name:'Fechar lista de uso', exact:true }).click()
   await page.getByTestId('media-delete-' + freeId).click()
   await page.getByRole('alert').filter({ hasText:'Não foi possível verificar onde a mídia é usada' }).first().waitFor()
   assert.equal(gets(calls, freeId).length, 2, 'exclusão precisa consultar novamente em vez de confiar no resultado anterior')

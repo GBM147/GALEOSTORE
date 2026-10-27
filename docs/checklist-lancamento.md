@@ -1,6 +1,6 @@
 # Preparação da GALEO para atender clientes
 
-Situação atualizada em 24/10/2026. O site já está publicado em
+Situação atualizada em 27/10/2026. O site já está publicado em
 https://galeo-store.netlify.app. O catálogo funciona como vitrine; cadastro de
 clientes e operação comercial ainda dependem das providências abaixo.
 
@@ -18,9 +18,14 @@ clientes e operação comercial ainda dependem das providências abaixo.
   [19 cadastros de peças e mídias do Instagram](catalogo-instagram.md), para
   revisão dos donos. As peças ainda sem valor mostram **Preço a definir**; a
   compra exige preço positivo e estoque suficiente conferidos pelos donos.
-- [ ] **Definir tamanhos e cores.** A grade de variações ainda não existe no
-  sistema. Decidir entre um cadastro separado para cada combinação de
-  tamanho/cor ou a implementação de um módulo de variações antes de vender.
+  A última conferência encontrou 18 produtos; cadastros removidos pelos donos
+  não serão recriados.
+- [ ] **Cadastrar os tamanhos e conferir as cores.** A atualização da reunião
+  inclui grade por tamanho, seleção no produto/carrinho e controle na Frente
+  de caixa. Em **Produtos e estoque → Editar**, ativar **Controlar estoque por
+  tamanho** e informar as quantidades reais de cada numeração. Nenhum tamanho
+  ou saldo é inventado pela atualização. Para cores diferentes, manter
+  cadastros separados; não há uma segunda grade de variação por cor.
 - [ ] **Aprovar a apresentação da loja.** Conferir Home, categorias,
   campanhas, imagens e produtos em destaque; substituir ou aprovar o conteúdo
   inicial que ainda estiver publicado.
@@ -38,8 +43,11 @@ clientes e operação comercial ainda dependem das providências abaixo.
 - [ ] **Organizar a operação.** Definir responsáveis por atendimento,
   separação/entrega, atualização dos pedidos e emissão de nota fiscal pelo
   processo da loja. Conferir o estoque inicial e registrar vendas físicas no
-  PDV para manter o saldo correto enquanto a maquininha não for integrada.
-  Informar saldos, custos e despesas recorrentes reais se usarem o financeiro.
+  módulo **Frente de caixa** para manter o saldo correto enquanto a maquininha
+  não for integrada. Em **Gastos da loja**, lançar descrição, valor e data
+  depois de gastar. Em **Gastos recorrentes**, cadastrar modelos e usar
+  **Registrar gasto** quando o pagamento ocorrer; os modelos não geram
+  despesas pendentes automaticamente.
 - [ ] **Organizar os acessos e o acompanhamento dos serviços.** Substituir a
   senha provisória do Admin por uma senha forte, definir os donos autorizados,
   guardar acessos e recuperação das contas e acompanhar os limites dos planos

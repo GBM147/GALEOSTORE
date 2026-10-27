@@ -74,8 +74,8 @@ export function EditableText({ sectionKey, path, label = 'texto', value, childre
         onChange={(event) => editor.updateSection(sectionKey, (content) => writePath(content, path, event.target.value))}
         onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); finish(true) } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); finish() } }} />
       <span className="visual-inline-actions"><button type="button" disabled={editor.busy} onClick={() => finish()}>Concluir edição</button><button type="button" disabled={editor.busy} onClick={() => finish(true)}>Cancelar edição</button></span>
-    </span> : <span ref={trigger} role="button" tabIndex={editor.busy ? -1 : 0} className="visual-text-trigger" aria-label={'Editar ' + label} onClick={begin}
-      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') begin(event) }}>{children ?? value ?? 'Clique para escrever'}</span>}
+    </span> : <span ref={trigger} role="button" tabIndex={editor.busy ? -1 : 0} className={'visual-text-trigger' + (!text.trim() ? ' is-empty' : '')} aria-label={'Editar ' + label} onClick={begin}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') begin(event) }}>{text.trim() ? (children ?? value ?? text) : <span className="visual-text-placeholder">Clique para escrever</span>}</span>}
   </span>
 }
 
@@ -211,6 +211,13 @@ function SelectionPanel({ selection, editor, onClose }) {
   const item = items[itemIndex]
   const kind = selection.kind === 'section' ? ({ hero:'media', categories:'categories', campaigns:'campaigns', featured_products:'products', utility:'utility' }[section?.key] || 'section') : selection.kind
   const titles = { media:'Fotos e vídeo da capa', category:'Editar categoria', categories:'Organizar categorias', campaign:'Editar campanha', campaigns:'Organizar campanhas', products:'Escolher produtos em destaque', link:'Editar botão ou link', settings:'Configurações da loja', utility:'Mensagens da faixa', section:'Opções de ' + (names[section?.key] || 'seção') }
+  const textFields = ['media','products','categories','section'].includes(kind) ? ({
+    hero:[['title','Título da capa'],['description','Descrição da capa',true]],
+    categories:[['title','Título das categorias']],
+    featured_products:[['title','Título dos destaques']],
+    manifesto:[['text','Texto do manifesto',true]],
+    newsletter:[['title','Título da newsletter']]
+  }[section?.key] || []) : []
   function update(path, value) { editor.updateSection(section.key, (old) => writePath(old, path, value)) }
   function updateItem(next) { update(['items',itemIndex], next) }
   function moveItem(index, direction) {
@@ -243,6 +250,7 @@ function SelectionPanel({ selection, editor, onClose }) {
   const dialogTitle = picker ? 'Escolher mídia' : titles[kind] || 'Editar rascunho'
   return <EditorDialog title={dialogTitle} onClose={onClose} busy={editor.busy}>
     {picker ? <MediaPicker target={picker} onPick={applyAsset} onBack={closePicker} busy={editor.busy} /> : <fieldset disabled={editor.busy} className="visual-panel-fields">
+      {textFields.map(([path,label,multiline]) => <Field key={path} label={label} multiline={multiline} value={readPath(content,path)} onChange={(value) => update(path,value)} />)}
       {kind === 'media' && <><p>Troque a imagem principal, a versão para celular ou o vídeo da capa. O vídeo tem prioridade sobre a foto.</p>{[['desktop','Imagem para computador','image'],['mobile','Imagem para celular','image'],['video','Vídeo da capa','video']].map(([prefix,label,type]) => <MediaSlot key={prefix} label={label} type={type} url={content[prefix + '_media_url']} onChoose={() => chooseTarget({prefix,label,type})} onClear={() => editor.updateSection(section.key,(old) => ({ ...old,[prefix + '_media_id']:null,[prefix + '_media_url']:'' }))} />)}</>}
       {kind === 'link' && <><Field label="Texto do botão" value={readPath(content,selection.labelPath)} onChange={(value) => update(selection.labelPath,value)} /><Field label="Destino do botão" value={readPath(content,selection.urlPath)} placeholder="Ex.: /shop" onChange={(value) => update(selection.urlPath,value)} /><p>Use /shop para o catálogo ou cole o endereço de uma página.</p></>}
       {kind === 'category' && item && <><Field label="Nome da categoria" value={item.title} onChange={(value) => updateItem({ ...item,title:value })} /><Field label="Destino da categoria" value={item.url} onChange={(value) => updateItem({ ...item,url:value })} /><MediaSlot label="Foto da categoria" url={item.media_url} onChoose={() => chooseTarget({itemPath:['items',itemIndex],label:'Foto da categoria',type:'image'})} onClear={() => updateItem({ ...item,media_id:null,media_url:'' })} /></>}
@@ -290,7 +298,7 @@ function SettingsOptions({ tab,settings,update }) {
   if (tab === 'footer') return <>{[['brand','Nome da loja'],['year','Ano']].map(([key,label]) => <Field key={key} label={label} value={settings.footer?.[key]} onChange={(value) => update('footer',(old) => ({ ...old,[key]:value }))} />)}</>
   if (tab === 'campaign') return <><p>Este padrão é aplicado às campanhas automaticamente.</p><AnimationFields value={settings.campaign_defaults} onChange={(value) => update('campaign_defaults',() => value)} /></>
   const current = settings.storefront_visual_defaults || {}
-  return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>As fontes e a identidade editorial da GALEO são preservadas.</p><div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([key,label]) => <Field key={key} type="color" label={label} value={/^#[\da-f]{6}$/i.test(current.palette?.[key] || '') ? current.palette[key] : '#000000'} onChange={(value) => update('storefront_visual_defaults',(old) => ({ ...old,palette:{ ...old.palette,[key]:value } }))} />)}</div></>
+  return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>A loja e o painel usam Roboto, com pesos leves para facilitar a leitura.</p><div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([key,label]) => <Field key={key} type="color" label={label} value={/^#[\da-f]{6}$/i.test(current.palette?.[key] || '') ? current.palette[key] : '#000000'} onChange={(value) => update('storefront_visual_defaults',(old) => ({ ...old,palette:{ ...old.palette,[key]:value } }))} />)}</div></>
 }
 
 export default function VisualHomeEditor({ sections = [], settings = {}, products = [], onSectionsChange, onSettingsChange, children }) {

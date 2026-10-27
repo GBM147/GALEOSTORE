@@ -83,8 +83,8 @@ export async function createMercadoPagoOnlineOrder({ order, items, idempotencyKe
       }
     },
     items: items.map((item) => ({
-      external_code: 'P' + String(item.product_id),
-      title: String(item.product_name),
+      external_code: 'P' + String(item.product_id) + (item.variant_id ? '-V' + String(item.variant_id) : ''),
+      title: String(item.product_name) + (item.size_label ? ' — ' + item.size_label : ''),
       quantity: Number(item.quantity),
       unit_price: Number(item.unit_price).toFixed(2),
       unit_measure: 'unit',

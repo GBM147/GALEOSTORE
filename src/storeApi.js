@@ -1,4 +1,5 @@
 import { productCanBePurchased } from './productAvailability'
+import { cartLineKey, findProductVariant, productForVariant, productHasVariants } from './productVariants'
 
 export const STORE_API_BASE = String(import.meta.env?.VITE_STORE_API_URL || '').trim().replace(/\/+$/, '')
 export const CART_STORAGE_KEY = 'galeo-cart-v2'
@@ -25,13 +26,17 @@ export function writeCart(items) {
   return safe
 }
 
-export function addToCart(product, quantity = 1) {
-  if (!productCanBePurchased(product)) return readCart()
+export function addToCart(product, quantity = 1, variantId = null) {
+  const selectedId = variantId ?? product?.variant_id
+  if (productHasVariants(product) && !findProductVariant(product, selectedId)) return readCart()
+  const selected = productForVariant(product, selectedId)
+  if (!productCanBePurchased(selected)) return readCart()
   const amount = Math.max(1, Number(quantity || 1))
   const current = readCart()
-  const existing = current.find((item) => Number(item.id) === Number(product.id))
+  const identity = cartLineKey({ id: product.id, variant_id: selected.variant_id })
+  const existing = current.find((item) => cartLineKey(item) === identity)
   const next = existing
-    ? current.map((item) => Number(item.id) === Number(product.id) ? { ...item, quantity: Number(item.quantity || 0) + amount } : item)
+    ? current.map((item) => cartLineKey(item) === identity ? { ...item, quantity: Math.min(Number(selected.stock), Number(item.quantity || 0) + amount) } : item)
     : [...current, {
         id: Number(product.id),
         name: String(product.name || 'Produto'),
@@ -39,7 +44,8 @@ export function addToCart(product, quantity = 1) {
         category: String(product.category || ''),
         price: Number(product.price || 0),
         image: String(product.image || ''),
-        quantity: amount
+        ...(selected.variant_id ? { variant_id: selected.variant_id, size_label: selected.size_label } : {}),
+        quantity: Math.min(Number(selected.stock), amount)
       }]
   return writeCart(next)
 }

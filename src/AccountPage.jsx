@@ -249,7 +249,7 @@ export default function AccountPage() {
         </section>
         <section className="account-orders-card">
           <div className="account-card-heading"><h2>Meus pedidos</h2></div>
-          {!orders.length ? <div className="empty-catalog"><h2>Nenhum pedido ainda</h2><p>Quando você fizer um pedido, ele aparecerá aqui</p><Link className="text-link" to="/shop">Explorar catálogo ↗</Link></div> : <div className="account-orders-list">{orders.map((order) => <article className="account-order" key={order.id}><div><span>{order.code}</span><strong>{dateTime(order.created_at)}</strong></div><div><span>{order.status_label || order.status}</span><strong>{money(order.total)}</strong></div><small>{(order.items || []).map((item) => item.name + ' × ' + item.quantity).join(' · ')}</small></article>)}</div>}
+          {!orders.length ? <div className="empty-catalog"><h2>Nenhum pedido ainda</h2><p>Quando você fizer um pedido, ele aparecerá aqui</p><Link className="text-link" to="/shop">Explorar catálogo ↗</Link></div> : <div className="account-orders-list">{orders.map((order) => <article className="account-order" key={order.id}><div><span>{order.code}</span><strong>{dateTime(order.created_at)}</strong></div><div><span>{order.status_label || order.status}</span><strong>{money(order.total)}</strong></div><small>{(order.items || []).map((item) => item.name + (item.size_label ? ' — tamanho ' + item.size_label : '') + ' × ' + item.quantity).join(' · ')}</small></article>)}</div>}
         </section>
       </div>
     </main>

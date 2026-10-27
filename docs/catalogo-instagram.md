@@ -3,7 +3,7 @@
 Importação pontual concluída em 23/10/2026, a pedido dos donos. Origem:
 https://www.instagram.com/galeostoreofc/.
 
-## Resultado atual
+## Importação e situação do catálogo
 
 - 19 cadastros de peças, publicados em 24/10/2026 por solicitação dos donos.
   As peças ainda sem preço mostram **Preço a definir**, com compra indisponível;
@@ -14,6 +14,11 @@ https://www.instagram.com/galeostoreofc/.
 - Na importação inicial, os 19 cadastros ficaram privados. A publicação
   posterior confirmou os 19 endereços públicos e preservou fotos, vídeos,
   descrições, preços, saldos e histórico de estoque.
+
+Na conferência de 26/10/2026, o catálogo tinha 18 produtos: o cadastro
+1000000019 havia sido removido pelos responsáveis. A tabela abaixo e a
+planilha mantêm o registro histórico dos 19 itens importados; uma atualização
+do site não recria produtos excluídos.
 
 Vitrine: https://galeo-store.netlify.app/shop.
 
@@ -38,10 +43,24 @@ porque a inscrição não estava suficientemente legível. As demais marcas fora
 transcritas das estampas ou etiquetas visíveis; os modelos exatos e demais
 características ainda precisam de confirmação.
 
-O sistema **ainda não oferece seleção de tamanho nem estoque por tamanho**.
-Uma grade precisa ser implementada em conjunto no produto, carrinho, reservas,
-PDV e histórico antes de vender várias numerações no mesmo cadastro. Preencher
-uma descrição com tamanhos não implementa esse controle.
+A atualização dos [ajustes da reunião](ajustes-reuniao-2026-10-26.md) inclui
+**seleção de tamanho e estoque por tamanho** no produto, carrinho, reservas,
+Frente de caixa e movimentações. Os tamanhos precisam ser cadastrados com as
+quantidades reais; a atualização não deduz tamanhos das fotos nem distribui o
+saldo existente automaticamente.
+
+No Admin, abrir **Produtos e estoque → Editar → Controlar estoque por tamanho**,
+adicionar cada tamanho ou numeração e informar sua quantidade. O total do
+produto passa a ser a soma da grade. Na loja, o cliente escolhe um tamanho com
+saldo antes de adicionar ao carrinho. O filtro **Tamanho disponível** usa essa
+grade e só oferece tamanhos com estoque.
+
+Cadastros antigos continuam funcionando com saldo único até a configuração
+da grade. Se houver uma venda ou pedido anterior sem tamanho que ainda possa
+ser cancelado, o sistema bloqueia essa conversão para evitar devolver estoque
+ao tamanho errado; confira as operações existentes ou use outro cadastro.
+Variações independentes por cor ainda não fazem parte da grade: use cadastros
+separados para peças de cores diferentes.
 
 ## Origem e limites da coleta
 
