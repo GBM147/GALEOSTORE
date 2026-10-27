@@ -128,8 +128,8 @@ test('cadastro legado continua sem grade até o dono informar tamanho e quantida
 
 test('movimentação de estoque envia exatamente o tamanho escolhido', async t => {
   const { page, calls } = await fixture(t)
-  await page.goto(baseUrl + '/admin?tab=movements')
-  await page.getByRole('button', { name: '+ Movimentar estoque', exact: true }).click()
+  await page.goto(baseUrl + '/admin?tab=products')
+  await page.getByRole('row').filter({ hasText: shirt.name }).getByRole('button', { name: 'Estoque', exact: true }).click()
   await page.getByRole('combobox', { name: 'Produto', exact: true }).fill('grade local')
   await page.getByRole('option').filter({ hasText: shirt.name }).click()
   await page.getByLabel('Tamanho', { exact: true }).selectOption('103')

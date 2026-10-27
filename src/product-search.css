@@ -6,4 +6,3 @@
 .product-search-options [role="option"] small { display: block; color: var(--muted); font-size: 11px; }
 .product-search-options [role="option"].is-active { background: var(--surface-alt); outline: 1px solid var(--accent); outline-offset: -1px; }
 .product-search-empty { margin: 0; padding: 12px; color: var(--muted); }
-.stock-history-filters { margin-bottom: 20px; }

@@ -5,6 +5,11 @@ https://galeo-store.netlify.app. Código: `ad4197d`; deploy Netlify:
 `6ae0ab8e5e7651d531f9d753`. A hospedagem permanece no plano Free, sem
 recarga automática nem período de teste pago.
 
+Revisão solicitada pelos donos em 27/10/2026: o estoque fica concentrado em
+**Produtos e estoque**. A aba separada **Movimentações de estoque** foi retirada;
+os registros históricos no banco são preservados. Links antigos dessa aba
+passam a abrir Produtos e estoque.
+
 ## Mudanças para os donos
 
 | Solicitação | Comportamento da atualização |
@@ -13,7 +18,7 @@ recarga automática nem período de teste pago.
 | Simplificar o financeiro | **Gastos da loja** pede apenas descrição, valor e data. Cada registro representa um gasto realizado; categoria, conta, tipo receita/despesa e estado pendente/pago saem desse formulário. |
 | Evitar saltos de rolagem | Atualizações na mesma aba mantêm o conteúdo e a posição. Comparação, edição e vínculos de mídia abrem em janelas com rolagem própria. Navegar para outra página ou aba continua levando ao início. |
 | Remover gasto recorrente | **Gastos recorrentes → Remover** exclui o modelo após confirmação e preserva os gastos já registrados. |
-| Pesquisar no histórico de estoque | **Movimentações de estoque** permite buscar o produto pelo nome, marca ou código. |
+| Concentrar o estoque | Em **Produtos e estoque → Estoque**, a seleção de produto permite pesquisar pelo nome, marca ou código, sem uma aba separada de movimentações. |
 | Evitar a frase antiga ao abrir | A Home aguarda o conteúdo publicado do CMS, sem mostrar antes o título antigo do código. Textos deixados vazios no CMS permanecem vazios. |
 | Melhorar o carregamento | Home, catálogo e configurações começam a carregar independentemente. Páginas e dados administrativos são carregados conforme a área aberta. |
 | Ampliar filtros e ordenação | Catálogo oferece marca, tamanho disponível e disponibilidade, além de ordenação por nome, marca, preço, estoque e tamanho. A grade controla estoque por tamanho também no carrinho, pedidos e caixa. |

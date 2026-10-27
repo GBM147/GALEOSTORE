@@ -1112,14 +1112,13 @@ function Admin({ user, onLogout }) {
   const location = useLocation()
   const navigate = useNavigate()
   const requestedTab = new URLSearchParams(location.search).get('tab')
-  const tab = ['dashboard','editor','products','pdv','sales','online-orders','finance','recurring','movements','library'].includes(requestedTab) ? requestedTab : 'dashboard'
+  const tab = requestedTab === 'movements' ? 'products' : ['dashboard','editor','products','pdv','sales','online-orders','finance','recurring','library'].includes(requestedTab) ? requestedTab : 'dashboard'
   const advancedEditor = new URLSearchParams(location.search).get('mode') === 'advanced'
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
   const [entries, setEntries] = useState([])
   const [productCategories, setProductCategories] = useState([])
   const [recurring, setRecurring] = useState([])
-  const [movements, setMovements] = useState([])
   const [sales, setSales] = useState([])
   const [onlineOrders, setOnlineOrders] = useState([])
   const [selectedOnlineOrder, setSelectedOnlineOrder] = useState(null)
@@ -1128,7 +1127,6 @@ function Admin({ user, onLogout }) {
   const [editingProduct, setEditingProduct] = useState(null)
   const [securityModal, setSecurityModal] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [movementProductId, setMovementProductId] = useState('')
   const [recurringAction, setRecurringAction] = useState(null)
   const loadedTabs = useRef(new Set())
   const loadVersion = useRef(0)
@@ -1152,7 +1150,6 @@ function Admin({ user, onLogout }) {
         products: () => Promise.all([read('/api/admin/products'), read('/api/store/categories')]),
         finance: () => read('/api/admin/expenses'),
         recurring: () => read('/api/admin/finance/recurring'),
-        movements: () => Promise.all([read('/api/admin/stock/movements'), read('/api/admin/products')]),
         sales: () => read('/api/admin/sales'),
         'online-orders': () => read('/api/admin/store-orders')
       }
@@ -1162,7 +1159,6 @@ function Admin({ user, onLogout }) {
       if (tab === 'products') { setProducts(data[0]); setProductCategories(Array.isArray(data[1]) ? data[1] : []) }
       if (tab === 'finance') setEntries(Array.isArray(data) ? data : [])
       if (tab === 'recurring') setRecurring(Array.isArray(data) ? data : [])
-      if (tab === 'movements') { setMovements(data[0]); setProducts(data[1]) }
       if (tab === 'sales') setSales(Array.isArray(data) ? data : [])
       if (tab === 'online-orders') setOnlineOrders(Array.isArray(data) ? data : [])
       loadedTabs.current.add(tab)
@@ -1179,6 +1175,13 @@ function Admin({ user, onLogout }) {
     load(false)
     return () => { loadVersion.current++ }
   }, [tab])
+
+  useEffect(() => {
+    if (requestedTab !== 'movements') return
+    const params = new URLSearchParams(location.search)
+    params.set('tab', 'products')
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
+  }, [location.pathname, location.search, navigate, requestedTab])
 
   function selectTab(key) {
     if (key === 'editor') { navigate('/?preview=draft&edit=1'); return }
@@ -1275,15 +1278,13 @@ function Admin({ user, onLogout }) {
     'online-orders': 'Pedidos da loja online',
     finance: 'Gastos da loja',
     recurring: 'Gastos recorrentes',
-    movements: 'Movimentações de estoque',
     library: 'Biblioteca de mídia'
   }[tab]
 
   const cta = {
     products: ['+ Cadastrar produto', () => { setEditingProduct(null); setModal('product') }],
     finance: ['+ Registrar gasto', () => setModal('finance')],
-    recurring: ['+ Novo gasto recorrente', () => setModal('recurring')],
-    movements: ['+ Movimentar estoque', () => setModal('stock')]
+    recurring: ['+ Novo gasto recorrente', () => setModal('recurring')]
   }[tab]
 
   return (
@@ -1299,7 +1300,6 @@ function Admin({ user, onLogout }) {
           ['online-orders', 'Pedidos da loja online'],
           ['finance', 'Gastos da loja'],
           ['recurring', 'Gastos recorrentes'],
-          ['movements', 'Movimentações de estoque'],
           ['library', 'Biblioteca de mídia']
         ].map(([key, label]) => (
           <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => selectTab(key)} key={key}>{label}</button>
@@ -1437,20 +1437,6 @@ function Admin({ user, onLogout }) {
           </div>
         )}
 
-        {!loading && tab === 'movements' && (
-          <div className="admin-panel">
-            <div className="stock-history-filters"><ProductSearch products={products} value={movementProductId} onChange={setMovementProductId} label="Pesquisar produto no histórico" allowAll /></div>
-            <table>
-              <thead><tr><th>Data</th><th>Produto</th><th>Tipo</th><th>Quantidade</th><th>Antes</th><th>Depois</th><th>Motivo</th></tr></thead>
-              <tbody>
-                {movements.filter(m => !movementProductId || String(m.product_id) === movementProductId).map((m) => (
-                  <tr key={m.id}><td>{dateBR(m.created_at)}</td><td>{m.product}{m.size_label && <small>Tamanho {m.size_label}</small>}</td><td>{m.type}</td><td>{m.quantity}</td><td>{m.stock_before}</td><td>{m.stock_after}</td><td>{m.reason || '—'}</td></tr>
-                ))}
-                {!movements.some(m => !movementProductId || String(m.product_id) === movementProductId) && <tr><td colSpan="7" className="empty-state">Nenhuma movimentação encontrada.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
       </main>
 
       {modal === 'product' && <ProductForm product={editingProduct} categories={productCategories} onClose={() => setModal(null)} onDone={() => { setModal(null); setEditingProduct(null); load() }} />}

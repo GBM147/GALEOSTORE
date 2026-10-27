@@ -17,7 +17,6 @@ const products = [
   { id:201, name:'Camiséta pesquisável', brand:'Nike', category:'Camisetas', category_id:1, active:1, stock:4, min_stock:0, price:50, cost:20, variants:[] },
   { id:202, name:'Calça da coleção', brand:'Outra marca', category:'Calças', category_id:2, active:1, stock:3, min_stock:0, price:100, cost:40, variants:[] }
 ]
-const movements = products.map((product, index) => ({ id:index + 1, product_id:product.id, product:product.name, type:'ENTRADA', quantity:product.stock, stock_before:0, stock_after:product.stock, reason:'Estoque inicial', created_at:'2026-10-26' }))
 
 async function fixture(t, { expenses = [], recurring = [], failExpenses = false } = {}) {
   const context = await browser.newContext({ viewport:{ width:1440, height:900 }, reducedMotion:'reduce' })
@@ -38,7 +37,6 @@ async function fixture(t, { expenses = [], recurring = [], failExpenses = false 
     if (path === '/api/store/home' || path === '/api/admin/home') return json({ sections:[] })
     if (path === '/api/store/home/settings') return json({ settings:[] })
     if (path === '/api/admin/products') return json(products)
-    if (path === '/api/admin/stock/movements') return json(movements)
     if (path === '/api/admin/dashboard') return json({ products:{ count:2, active_count:1, stock:7, low_stock:0 }, sales:{ count:0, total:0 }, income:0, expense:0 })
     if (path === '/api/admin/sales' || path === '/api/admin/store-orders') return json([])
     if (path === '/api/admin/expenses' && method === 'GET') {
@@ -166,25 +164,30 @@ test('recurring expense registration omits duplicate account and category fields
   assert.deepEqual(Object.keys(created.body).sort(), ['amount','description','due_day'])
 })
 
-test('stock history can search products by name, brand or code and filter the movements', async t => {
+test('stock stays in products, old history links resolve there and the stock dialog searches products', async t => {
   const { page, calls } = await fixture(t)
-  await page.goto(origin + '/admin?tab=movements')
-  await page.getByRole('cell', { name:'Calça da coleção', exact:true }).waitFor()
-  const search = page.getByRole('combobox', { name:'Pesquisar produto no histórico', exact:true })
+  await page.goto(origin + '/admin?tab=movements&source=old-link')
+  await page.getByRole('heading', { name:'Produtos e estoque', exact:true }).waitFor()
+  await page.waitForURL(url => url.searchParams.get('tab') === 'products')
+  assert.equal(new URL(page.url()).searchParams.get('source'), 'old-link')
+  assert.equal(await page.getByRole('button', { name:'Movimentações de estoque', exact:true }).count(), 0)
+  const row = page.getByRole('row').filter({ hasText:'Camiséta pesquisável' })
+  await row.getByRole('button', { name:'Estoque', exact:true }).click()
+  const search = page.getByRole('combobox', { name:'Produto', exact:true })
   await search.fill('nike')
   await page.getByRole('option', { name:/Camiséta pesquisável/ }).click()
-  assert.equal(await page.getByRole('cell', { name:'Calça da coleção', exact:true }).count(), 0)
+  assert.match(await search.inputValue(), /Camiséta pesquisável/)
   await search.fill('202')
   await page.getByRole('option', { name:/Calça da coleção/ }).click()
-  await page.getByRole('cell', { name:'Calça da coleção', exact:true }).waitFor()
-  assert.equal(await page.getByRole('cell', { name:'Camiséta pesquisável', exact:true }).count(), 0)
+  assert.match(await search.inputValue(), /Calça da coleção/)
   await page.setViewportSize({ width:390, height:844 })
   await search.fill('camiseta')
   const option = page.getByRole('option', { name:/Camiséta pesquisável/ })
   await option.waitFor()
   const bounds = await option.boundingBox()
   assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 391, 'product search must remain usable on mobile')
-  assert.deepEqual(dataCalls(calls).sort(), ['/api/admin/products','/api/admin/stock/movements'].sort())
+  assert.deepEqual(dataCalls(calls), ['/api/admin/products'])
+  assert.equal(calls.some(call => call.path === '/api/admin/stock/movements'), false)
 })
 
 test('a failed expenses request is retryable without ending the owner session', async t => {
