@@ -2,8 +2,9 @@
 
 A GALEO usa o Netlify Free para a interface e a API, Aiven para MySQL,
 Cloudinary para fotos/vídeos e Resend para e-mails. O banco e as imagens
-existentes continuam nos mesmos serviços. Pagamentos e frete permanecem
-pendentes de contratação.
+existentes continuam nos mesmos serviços. Pagamentos permanecem pendentes;
+a integração de cotações do Melhor Envio está publicada e aguarda autorização
+da conta e medidas reais das peças, conforme [o guia de frete](melhor-envio.md).
 
 O Vercel Hobby restringe uso comercial; por isso não é o plano gratuito
 adequado para esta loja. O Netlify permite projetos comerciais no Free.
@@ -13,6 +14,21 @@ ser pausado até a renovação. Cada publicação de código em produção conso
 15 créditos; editar/publicar a Home pelo CMS não exige um novo deploy.
 
 ## Configuração do projeto
+
+Desde 29/10/2026, o projeto existente pertence à equipe **Galeo Store**,
+ID `6ae34373a583add92af1010d`, no plano Free. O ID do projeto permanece
+`1987b91f-dacd-4665-bda8-89d899b7b51b` e a URL é
+`https://galeo-store.netlify.app`. As 25 variáveis do projeto foram preservadas
+na transferência. Para administrar ou publicar, usar um token autorizado pela
+nova equipe; o token da equipe anterior deixou de acessar o projeto. No ambiente
+de desenvolvimento, reservar `NETLIFY_GALEO_AUTH_TOKEN` para esse acesso, sem
+registrar seu valor no repositório.
+
+A produção é pública e as prévias de deploy ficam privadas. A nova equipe
+aplicou login da Netlify por padrão à loja transferida, causando HTTP 401 antes
+da aplicação. A configuração do próprio projeto foi ajustada com
+`sso_login: true` e `sso_login_context: non_production`, sem alterar o padrão da
+equipe. O login administrativo da loja continua sendo exigido pela aplicação.
 
 1. Criar/importar `GBM147/GALEOSTORE` em uma equipe no **Free**, sem habilitar
    plano pago ou recarga automática.

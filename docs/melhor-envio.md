@@ -7,7 +7,7 @@
 - **Carrinho:** consulta por CEP mesmo antes do login, escolha de transportadora, preço e prazo e inclusão do frete no total.
 - **Pedidos do site:** registro do serviço escolhido junto ao pedido.
 
-Esta etapa não compra etiquetas, não debita a carteira do Melhor Envio e não altera a integração de pagamento. Emissão de etiquetas e rastreamento ainda precisam ser implementados.
+Esta etapa não compra etiquetas, não debita a carteira do Melhor Envio e não ativa pagamentos. O payload de pagamento existente inclui o frete quando ele estiver presente no pedido. Emissão de etiquetas e rastreamento ainda precisam ser implementados.
 
 ## Configuração na Netlify
 
@@ -24,7 +24,7 @@ Variáveis de produção, disponíveis para Functions, sem prefixo `VITE_`:
 
 O aplicativo e suas credenciais devem corresponder ao ambiente escolhido. Sandbox usa conta e aplicativo próprios; não reutilizar credenciais de produção em sandbox. O callback deve ser exatamente igual no aplicativo e na hospedagem.
 
-As três credenciais foram encontradas na Netlify em 27/10/2026; os valores marcados como secretos não foram lidos nem validados. O CEP de origem foi adicionado e conferido nessa data. A autorização real pelo dono só poderá ser concluída depois da publicação do callback.
+As três credenciais foram encontradas na Netlify em 27/10/2026; os valores marcados como secretos não foram lidos nem validados. O CEP de origem foi adicionado e conferido nessa data. O callback foi publicado em 29/10/2026; a autorização real pelo dono permanece pendente.
 
 ## Publicação e ativação
 
@@ -35,6 +35,8 @@ As três credenciais foram encontradas na Netlify em 27/10/2026; os valores marc
 5. Conferir uma cotação real com um CEP de destino. Essa consulta não compra etiqueta. Nenhuma cotação real, autorização OAuth real ou compra de frete foi realizada nos testes locais.
 
 Em 27/10/2026 a conta Netlify estava em `in_operational_mode`, impedindo novas publicações. A API indicou a próxima renovação para **30/10/2026 às 04h, horário de São Paulo**. O deploy e a migração de produção ficaram pendentes desse bloqueio; não houve alteração de plano ou contratação de créditos.
+
+Em **29/10/2026**, o projeto existente foi transferido para a equipe **Galeo Store**, no Free, mantendo o mesmo ID e endereço. A migração foi executada e seu marcador de sucesso confirmado nos logs do build; depois foram publicadas a interface e as Functions da revisão `330eaea752065d684e9118634c0dd8a8843d241e`, no deploy `6ae34da0fab2e4e71b41f0af`. As verificações no navegador passaram em desktop e celular, com os 11 hashes dos dados consultados iguais aos capturados antes do deploy. O banco continua no Aiven e as mídias no Cloudinary. Falta o proprietário autorizar a conta em **Admin → Entregas** e cadastrar peso e medidas reais para consultar fretes.
 
 O envio de pedidos exige uma cotação válida quando há credenciais do Melhor Envio configuradas. Uma configuração incompleta, erro de conexão ou peça sem medidas não transforma o frete em gratuito. Instalações sem credenciais mantêm o fluxo manual, identificado no carrinho como frete a combinar e subtotal sem frete.
 
