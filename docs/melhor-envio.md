@@ -40,6 +40,19 @@ Em **29/10/2026**, o projeto existente foi transferido para a equipe **Galeo Sto
 
 O envio de pedidos exige uma cotação válida quando há credenciais do Melhor Envio configuradas. Uma configuração incompleta, erro de conexão ou peça sem medidas não transforma o frete em gratuito. Instalações sem credenciais mantêm o fluxo manual, identificado no carrinho como frete a combinar e subtotal sem frete.
 
+## Identificação das entregas
+
+O carrinho e os detalhes do pedido mostram nomes legíveis: **Jadlog — Entrega econômica** para `.Package` e **Jadlog — Entrega expressa** para `.Com`. A apresentação não muda a modalidade selecionada, os identificadores, os tokens assinados, os preços ou os prazos retornados. Não presume que a opção expressa sempre terá o menor prazo ou o maior preço em uma cotação específica. Serviços desconhecidos conservam o nome retornado pela transportadora.
+
+As marcas são arquivos locais originais, sem depender de imagens externas durante o checkout. Se uma imagem não carregar, o nome e a seleção da entrega continuam disponíveis. A legenda identifica a cotação pelo Melhor Envio; os logos não representam um selo de certificação da loja.
+
+Fontes dos arquivos oficiais, obtidos em 30/10/2026:
+
+- [Jadlog, servido pelo Melhor Envio](https://melhorenvio.com.br/images/shipping-companies/jadlog.png)
+- [Correios](https://www.correios.com.br/++theme++tema-do-portal-correios/static/imagens/correios.svg)
+- [Melhor Envio](https://melhorenvio.com.br/nuxt-assets/images/logo/melhor-envio.svg)
+- [Descrição das modalidades Jadlog](https://centraldeajuda.melhorenvio.com.br/hc/pt-br/articles/31220727372564)
+
 ## Proteções e verificação
 
 O OAuth usa estado aleatório de uso único, vinculado à sessão do proprietário e consumido atomicamente no banco. Os tokens ficam criptografados com AES-GCM; o navegador nunca recebe o token de acesso ou de renovação. Quando a proteção geral de dados está ativa, usa a mesma infraestrutura de chave; caso contrário, usa uma chave derivada de `SESSION_SECRET`, específica da integração. Trocar essas chaves exige reconectar a conta.

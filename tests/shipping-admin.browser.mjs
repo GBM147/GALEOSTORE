@@ -131,9 +131,23 @@ test('site orders display the saved freight service and price', async t => {
   await page.getByRole('button', { name: 'Abrir', exact: true }).click()
   await page.getByRole('heading', { name: 'Frete escolhido', exact: true }).waitFor()
   const summary = page.locator('.online-order-address').filter({ hasText: 'Frete escolhido' })
-  assert.match(await summary.innerText(), /Correios · PAC/)
+  assert.match(await summary.innerText(), /Correios — PAC/)
   assert.match(await summary.innerText(), /14,80/)
   assert.match(await summary.innerText(), /5 dias úteis/)
+})
+
+test('site order details use the same Jadlog identity without changing saved totals or technical service data', async t => {
+  const { page, calls } = await fixture(t, { details:JSON.stringify({ company:'Jadlog', service_id:'3', service_name:'.Package', name:'.Package', delivery_days:5 }) })
+  await page.goto(origin + '/admin?tab=online-orders')
+  await page.getByRole('button', { name:'Abrir', exact:true }).click()
+  const summary = page.locator('.online-order-address').filter({ hasText:'Frete escolhido' })
+  await summary.getByText('Jadlog — Entrega econômica', { exact:true }).waitFor()
+  const logo = summary.locator('img')
+  await logo.evaluate(img => img.decode())
+  assert.equal(await logo.getAttribute('src'), '/images/carriers/jadlog.png')
+  assert.match(await summary.innerText(), /14,80/)
+  assert.match(await summary.innerText(), /5 dias úteis/)
+  assert.equal(calls.some(call => !['GET','HEAD','OPTIONS'].includes(call.method)), false)
 })
 
 test('a non-owner cannot open delivery settings from its direct URL', async t => {

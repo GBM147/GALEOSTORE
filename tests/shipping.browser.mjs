@@ -147,3 +147,58 @@ test('integração configurada sem autorização não permite pedido sem frete',
   assert.equal(await page.getByRole('button',{ name:'Solicitar pedido ↗',exact:true }).isDisabled(),true)
   assert.equal(calls.some(call=>call.path==='/api/store/orders'),false)
 })
+
+const jadlogQuotes = [
+  { id:'3', name:'.Package', company:'Jadlog', price:15.23, delivery_days:5, token:'provider-package-token' },
+  { id:'4', name:'.Com', company:'Jadlog', price:15.35, delivery_days:4, token:'provider-com-token' }
+]
+
+test('Jadlog uses readable names and local official logos while keeping the provider quote and checkout token', async t => {
+  const { page, calls } = await fixture(t, { quoteResponse:({json}) => json({ quotes:jadlogQuotes, expires_at:new Date(Date.now()+600000).toISOString() }) })
+  await calculate(page)
+  const economical = page.getByRole('radio', { name:/Jadlog — Entrega econômica/ })
+  const express = page.getByRole('radio', { name:/Jadlog — Entrega expressa/ })
+  await economical.focus()
+  await economical.press('Space')
+  assert.equal(await economical.isChecked(), true)
+  const labels = page.locator('.shipping-options label')
+  assert.equal(await labels.count(), 2)
+  assert.match(await labels.nth(0).innerText(), /15,23/)
+  assert.match(await labels.nth(0).innerText(), /5 dias úteis/)
+  assert.match(await labels.nth(1).innerText(), /15,35/)
+  assert.match(await labels.nth(1).innerText(), /4 dias úteis/)
+  for (const logo of await labels.locator('img').all()) {
+    assert.equal(await logo.getAttribute('src'), '/images/carriers/jadlog.png')
+    await logo.evaluate(img => img.decode())
+    assert.ok(await logo.evaluate(img => img.naturalWidth > 0 && img.clientWidth > 0))
+  }
+  await page.getByText('Cotação pelo Melhor Envio', { exact:true }).waitFor()
+  assert.doesNotMatch(await page.locator('.shipping-options').innerText(), /\.Package|\.Com/)
+  assert.match(await page.locator('.cart-summary-total').innerText(), /95,23/)
+  await express.check()
+  assert.match(await page.locator('.cart-summary-total').innerText(), /95,35/)
+  await address(page)
+  await page.getByRole('button', { name:'Solicitar pedido ↗', exact:true }).click()
+  await page.getByRole('heading', { name:'Pedido recebido', exact:true }).waitFor()
+  assert.equal(calls.find(call => call.path === '/api/store/orders').body.shipping_quote, 'provider-com-token')
+})
+
+test('carrier branding stays inside a 320px cart and a failed logo preserves the readable selectable service', async t => {
+  const { page } = await fixture(t, { viewport:{ width:320, height:800 }, quoteResponse:({json}) => json({ quotes:jadlogQuotes, expires_at:new Date(Date.now()+600000).toISOString() }) })
+  await page.route('**/images/carriers/jadlog.png', route => route.fulfill({ status:404, body:'' }))
+  await calculate(page)
+  await page.getByRole('radio', { name:/Entrega econômica/ }).check()
+  await page.waitForFunction(() => document.querySelectorAll('.shipping-options img').length === 0)
+  assert.equal(await page.getByRole('radio', { name:/Jadlog — Entrega econômica/ }).isChecked(), true)
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+  assert.match(await page.locator('.cart-summary-total').innerText(), /95,23/)
+})
+
+test('an unknown carrier or modality keeps its provider identity and does not borrow a different carrier logo', async t => {
+  const unknown = { id:'3', company:'Outra transportadora', name:'Serviço regional', price:11.5, delivery_days:2, token:'unknown-provider-token' }
+  const { page } = await fixture(t, { quoteResponse:({json}) => json({ quotes:[unknown], expires_at:new Date(Date.now()+600000).toISOString() }) })
+  await calculate(page)
+  await page.getByRole('radio', { name:/Outra transportadora — Serviço regional/ }).check()
+  assert.equal(await page.locator('.shipping-options img').count(), 0)
+  assert.match(await page.locator('.cart-summary-total').innerText(), /91,50/)
+})
