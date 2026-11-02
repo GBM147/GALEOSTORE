@@ -41,6 +41,10 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
   const apiKey = rawApiKey.trim()
   const rawSender = String(env.EMAIL_FROM || '')
   const sender = rawSender.trim()
+  const rawReplyTo = env.EMAIL_REPLY_TO
+  const replyTo = typeof rawReplyTo === 'string' ? rawReplyTo.trim() : ''
+  const replyToValid = rawReplyTo === undefined || (typeof rawReplyTo === 'string' && !controls.test(rawReplyTo) && (!replyTo || addressValid(replyTo)))
+  const replyToConfigured = replyToValid && Boolean(replyTo)
   const rawAppUrl = String(env.APP_URL || '')
   const appUrl = rawAppUrl.trim()
   const rawStoreNotification = String(env.STORE_NOTIFICATION_EMAIL || '')
@@ -50,7 +54,7 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
   const senderConfigured = !controls.test(rawSender) && addressValid(sender)
   const urlConfigured = !controls.test(rawAppUrl) && appUrlValid(appUrl, (env.NODE_ENV || 'production') === 'production')
   const storeConfigured = !controls.test(rawStoreAddress) && addressValid(storeAddress)
-  const sendingConfigured = keyConfigured && senderConfigured
+  const sendingConfigured = keyConfigured && senderConfigured && replyToValid
   const confirmationReady = sendingConfigured && urlConfigured
   const duration = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15000
 
@@ -59,6 +63,7 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
       provider: 'RESEND',
       api_key_configured: keyConfigured,
       sender_configured: senderConfigured,
+      reply_to_configured: replyToConfigured,
       app_url_configured: urlConfigured,
       store_notification_configured: storeConfigured,
       sending_configured: sendingConfigured,
@@ -66,6 +71,7 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
       pending_configuration: [
         ...(!keyConfigured ? ['RESEND_API_KEY'] : []),
         ...(!senderConfigured ? ['EMAIL_FROM'] : []),
+        ...(!replyToValid ? ['EMAIL_REPLY_TO'] : []),
         ...(!urlConfigured ? ['APP_URL'] : [])
       ]
     }
@@ -106,6 +112,7 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
         },
         body: JSON.stringify({
           from: sender,
+          ...(replyToConfigured ? { reply_to: replyTo } : {}),
           to: rawRecipients.map((value) => value.trim()),
           subject,
           html,

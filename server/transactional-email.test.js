@@ -16,7 +16,7 @@ const payload = {
   text: 'Confirme o e-mail\nhttps://galeo.test/conta#verify=private-token',
   idempotencyKey: 'verify-customer-1-token-digest'
 }
-const sensitive = ['re_test-only-secret', 'loja@galeo.test', 'cliente@galeo.test', 'owner@galeo.test', 'private-token', 'https://galeo.test']
+const sensitive = ['re_test-only-secret', 'loja@galeo.test', 'cliente@galeo.test', 'owner@galeo.test', 'respostas@galeo.test', 'private-token', 'https://galeo.test']
 
 function response(status, body) {
   return { status, ok: status >= 200 && status < 300, text: async () => typeof body === 'string' ? body : JSON.stringify(body) }
@@ -41,7 +41,7 @@ test('status reports only readiness and pending variable names from a configurat
   const env = { ...configuration }
   const email = createTransactionalEmail({ env })
   assert.deepEqual(email.status(), {
-    provider: 'RESEND', api_key_configured: true, sender_configured: true,
+    provider: 'RESEND', api_key_configured: true, sender_configured: true, reply_to_configured: false,
     app_url_configured: true, store_notification_configured: true,
     sending_configured: true, confirmation_configured: true, pending_configuration: []
   })
@@ -67,6 +67,58 @@ test('store notifications use an optional owner fallback and do not block custom
   assert.equal(noStoreAddress.confirmationConfigured(), true)
   assert.deepEqual(noStoreAddress.status().pending_configuration, [])
   assert.equal(createTransactionalEmail({ env: { ...configuration, STORE_NOTIFICATION_EMAIL: 'invalid' } }).status().store_notification_configured, false)
+})
+
+test('a configured reply address receives customer replies without changing the verified sender', async () => {
+  for (const replyTo of ['respostas@galeo.test', 'Atendimento <respostas@galeo.test>']) {
+    let request
+    const env = { ...configuration, EMAIL_REPLY_TO: ' ' + replyTo + ' ' }
+    const email = createTransactionalEmail({ env, fetchImpl: async (_, options) => { request = options; return response(200, { id: 'delivery-id' }) } })
+    env.EMAIL_REPLY_TO = 'changed@galeo.test'
+    assert.equal(email.status().reply_to_configured, true)
+    assert.equal(email.confirmationConfigured(), true)
+    assert.deepEqual(email.status().pending_configuration, [])
+    redacted(email.status())
+    assert.deepEqual(await email.send({ ...payload, reply_to: 'untrusted@galeo.test' }), { id: 'delivery-id' })
+    const body = JSON.parse(request.body)
+    assert.equal(body.from, 'GALEO Store <loja@galeo.test>')
+    assert.equal(body.reply_to, replyTo)
+    assert.deepEqual(body.to, ['cliente@galeo.test'])
+  }
+})
+
+test('an omitted or blank reply address preserves sending without adding a reply header', async () => {
+  for (const EMAIL_REPLY_TO of [undefined, '', '   ']) {
+    let request
+    const email = createTransactionalEmail({ env: { ...configuration, EMAIL_REPLY_TO }, fetchImpl: async (_, options) => { request = options; return response(200, { id: 'delivery-id' }) } })
+    assert.equal(email.status().reply_to_configured, false)
+    assert.equal(email.confirmationConfigured(), true)
+    assert.deepEqual(email.status().pending_configuration, [])
+    await email.send(payload)
+    assert.equal('reply_to' in JSON.parse(request.body), false)
+  }
+})
+
+test('an invalid reply configuration blocks sending without fetch or exposing addresses in diagnostics', async () => {
+  let calls = 0
+  const logs = []
+  for (const EMAIL_REPLY_TO of [
+    'invalid', 'respostas@@galeo.test', 'Atendimento <respostas@galeo.test',
+    'respostas@galeo.test\r\nBcc: untrusted@galeo.test', 'Atendimento <respostas@galeo.test>\n',
+    '\n', '\t', null, false, 42, ['respostas@galeo.test'],
+    { toString() { throw new Error('configuration must not be coerced') } }
+  ]) {
+    const email = createTransactionalEmail({ env: { ...configuration, EMAIL_REPLY_TO }, fetchImpl: async () => { calls++; return response(200, { id: 'delivery-id' }) }, logger: { error: (...args) => logs.push(args) } })
+    assert.equal(email.status().reply_to_configured, false)
+    assert.equal(email.status().sending_configured, false)
+    assert.equal(email.confirmationConfigured(), false)
+    assert.deepEqual(email.status().pending_configuration, ['EMAIL_REPLY_TO'])
+    redacted(email.status())
+    await assert.rejects(email.send(payload), hasCode('EMAIL_NOT_CONFIGURED', 503))
+    assert.deepEqual(await email.sendSafely(payload), { skipped: true, reason: 'EMAIL_NOT_CONFIGURED' })
+  }
+  assert.equal(calls, 0)
+  assert.deepEqual(logs, [])
 })
 
 test('confirmation requires HTTPS in production and accepts only HTTP loopback in development', () => {

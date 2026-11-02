@@ -24,6 +24,8 @@ O remetente permanece pendente até os donos definirem o endereço e verificarem
 seu domínio no Resend. Confirmação, boas-vindas, pedido e atualizações do Admin
 estão integrados; `GET /api/admin/email-status` mostra as pendências ao OWNER
 sem expor chaves ou endereços. A configuração do banco Aiven é independente.
+`EMAIL_REPLY_TO` pode direcionar as respostas dos clientes para outro endereço,
+como o Gmail da loja, mantendo `EMAIL_FROM` no domínio verificado do remetente.
 
 A proteção adicional dos dados pessoais e sua ativação segura estão em
 [proteção dos dados](docs/protecao-dados.md). Não habilite a migração sem chave
