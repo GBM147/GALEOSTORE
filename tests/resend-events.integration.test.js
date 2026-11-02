@@ -147,6 +147,7 @@ test('boas-vindas são enviadas uma vez após confirmar, sem conceder sessão ou
   const [welcome] = welcomeCalls(calls, fixture.id)
   assert.deepEqual(welcome.payload.to, [fixture.email])
   assert.equal(welcome.payload.from, 'fixture@example.invalid')
+  assert.equal(welcome.payload.reply_to, runtime.replyTo)
   assert.match(welcome.payload.subject, /Boas-vindas/)
   assert.ok(welcome.payload.text.includes('Seu e-mail foi confirmado'))
   assert.equal(welcome.payload.html.includes(fixture.token), false)
@@ -267,12 +268,13 @@ test('diagnóstico de e-mail é exclusivo do OWNER e exibe configuração segura
   assert.equal(response.headers.get('Cache-Control'), 'no-store')
   assert.deepEqual(response.data, {
     provider: 'RESEND', api_key_configured: true, sender_configured: true,
+    reply_to_configured: true,
     app_url_configured: true, store_notification_configured: true,
     sending_configured: true, confirmation_configured: true,
     pending_configuration: [], provider_validation: 'PENDING', delivery_validation: 'PENDING'
   })
   const serialized = JSON.stringify(response.data)
-  for (const value of ['local-email-verification-fixture', 'fixture@example.invalid', 'notification@example.invalid', customer.email, customer.token]) {
+  for (const value of ['local-email-verification-fixture', 'fixture@example.invalid', runtime.replyTo, 'notification@example.invalid', customer.email, customer.token]) {
     assert.equal(serialized.includes(value), false)
   }
 })

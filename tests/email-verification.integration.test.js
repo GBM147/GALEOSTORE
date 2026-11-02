@@ -50,6 +50,7 @@ test('cadastro aguarda e-mail, não cria sessão e guarda somente digest com pra
   assert.equal(Number(rows[0].lifetime), 24 * 60 * 60)
   assert.equal(JSON.stringify(rows[0]).includes(token), false)
   const { call } = await runtime.verificationMail(email)
+  assert.equal(call.payload.reply_to, runtime.replyTo)
   assert.ok(call.payload.text.includes('#verify='))
   assert.ok(call.idempotencyKey.endsWith(tokenDigest(token)))
   assert.equal((await client.request('/api/customer/me')).status, 401)

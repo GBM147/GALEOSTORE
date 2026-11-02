@@ -51,6 +51,7 @@ export class VerificationRuntime {
   sessions = new Set()
   suffix = randomBytes(8).toString('hex')
   password = 'Local-email-' + randomBytes(12).toString('hex')
+  replyTo = 'fixture-replies@example.invalid'
 
   async initialize() {
     if (!loopback.has(process.env.DB_HOST) || process.env.DB_NAME !== 'galeo_store_test') {
@@ -144,6 +145,7 @@ export class VerificationRuntime {
         APP_URL: baseUrl, ALLOWED_ORIGINS: baseUrl,
         RESEND_API_KEY: provider ? 'local-email-verification-fixture' : '',
         EMAIL_FROM: provider && sender ? 'fixture@example.invalid' : '',
+        EMAIL_REPLY_TO: this.replyTo,
         STORE_NOTIFICATION_EMAIL: 'notification@example.invalid',
         GALEO_TEST_RESEND_FIXTURES: this.fixturePath,
         MERCADO_PAGO_ACCESS_TOKEN: '', MERCADO_PAGO_POINT_TERMINAL_ID: '',
