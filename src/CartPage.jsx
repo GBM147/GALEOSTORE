@@ -4,6 +4,7 @@ import { customerApi, readCart, STORE_API_BASE, writeCart } from './storeApi'
 import { formatProductPrice, productHasPrice } from './productAvailability'
 import { cartLineKey, findProductVariant, productForVariant, productHasVariants } from './productVariants'
 import ShippingServiceIdentity, { ShippingProviderAttribution } from './ShippingServiceIdentity'
+import usePostalCodeAddress from './usePostalCodeAddress'
 import './product-variants.css'
 import './shipping.css'
 
@@ -24,6 +25,7 @@ export default function CartPage() {
   const [catalog, setCatalog] = useState([])
   const [customer, setCustomer] = useState(null)
   const [form, setForm] = useState({ name:'', phone:'', postal_code:'', street:'', number:'', complement:'', neighborhood:'', city:'', state:'' })
+  const postalAddress = usePostalCodeAddress(form, setForm)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -230,7 +232,8 @@ export default function CartPage() {
             <section className="cart-shipping" aria-labelledby="cart-shipping-title">
               <h2 id="cart-shipping-title">Entrega</h2>
               <label className="shipping-postal-label" htmlFor="shipping-postal-code">CEP</label>
-              <div className="shipping-postal-row"><input id="shipping-postal-code" form="cart-checkout-form" required autoComplete="shipping postal-code" inputMode="numeric" maxLength={9} value={form.postal_code} onChange={(e) => setForm((current) => ({ ...current, postal_code:e.target.value.replace(/[^\d-]/g, '').slice(0, 9) }))} placeholder="00000-000" />{shippingConfig?.available && <button className="button button-ghost" type="button" disabled={quotesLoading || Boolean(availabilityError)} onClick={calculateShipping}>{quotesLoading ? 'Calculando…' : 'Calcular frete'}</button>}</div>
+              <div className="shipping-postal-row"><input id="shipping-postal-code" form="cart-checkout-form" required autoComplete="shipping postal-code" inputMode="numeric" maxLength={9} pattern="[0-9]{5}-?[0-9]{3}" value={form.postal_code} onChange={(e) => postalAddress.changePostalCode(e.target.value)} placeholder="00000-000" aria-busy={postalAddress.loading} aria-describedby="postal-code-address-status" />{shippingConfig?.available && <button className="button button-ghost" type="button" disabled={quotesLoading || Boolean(availabilityError)} onClick={calculateShipping}>{quotesLoading ? 'Calculando…' : 'Calcular frete'}</button>}</div>
+              <p id="postal-code-address-status" className="shipping-address-status" role="status" aria-live="polite">{postalAddress.message}</p>
               {shippingConfigError ? <p className="form-error" role="alert">{shippingConfigError}</p> : !shippingConfig ? <p role="status">Conferindo as opções de entrega…</p> : !shippingConfig.configured ? <p>O frete será combinado com a loja e não está incluído no subtotal.</p> : !shippingConfig.available ? <p role="status">A entrega ainda está sendo preparada pela loja. Tente novamente mais tarde.</p> : <p>Informe seu CEP para consultar valores e prazos de entrega.</p>}
               {shippingError && <p className="form-error" role="alert">{shippingError}</p>}
               {currentQuoteResult && <>
@@ -239,7 +242,7 @@ export default function CartPage() {
               </>}
             </section>
             {availabilityError ? <p className="form-error" role="alert">{availabilityError}</p> : !customer ? <div className="cart-login-box"><span>Para finalizar o pedido</span><strong>Entre ou crie sua conta</strong><Link className="button button-primary" to="/conta?return=/carrinho">Entrar / criar conta ↗</Link></div> : (
-              <form id="cart-checkout-form" className="checkout-form" onSubmit={submitOrder}><h2 className="checkout-title">Endereço de entrega</h2><label>Nome<input value={form.name} onChange={(e) => setForm((c)=>({...c,name:e.target.value}))} required /></label><label>Telefone<input value={form.phone} onChange={(e) => setForm((c)=>({...c,phone:e.target.value}))} required /></label><label>Estado<input value={form.state} onChange={(e) => setForm((c)=>({...c,state:e.target.value.toUpperCase()}))} maxLength="2" required /></label><label>Rua<input value={form.street} onChange={(e) => setForm((c)=>({...c,street:e.target.value}))} required /></label><div className="checkout-grid"><label>Número<input value={form.number} onChange={(e) => setForm((c)=>({...c,number:e.target.value}))} required /></label><label>Complemento<input value={form.complement} onChange={(e) => setForm((c)=>({...c,complement:e.target.value}))} /></label></div><label>Bairro<input value={form.neighborhood} onChange={(e) => setForm((c)=>({...c,neighborhood:e.target.value}))} required /></label><label>Cidade<input value={form.city} onChange={(e) => setForm((c)=>({...c,city:e.target.value}))} required /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary" type="submit" disabled={submitting || Boolean(shippingBlocked)}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></form>
+              <form id="cart-checkout-form" className="checkout-form" onSubmit={submitOrder}><h2 className="checkout-title">Endereço de entrega</h2><label>Nome<input value={form.name} onChange={(e) => setForm((c)=>({...c,name:e.target.value}))} autoComplete="shipping name" required /></label><label>Telefone<input value={form.phone} onChange={(e) => setForm((c)=>({...c,phone:e.target.value}))} autoComplete="shipping tel" required /></label><label>Estado<input value={form.state} onChange={(e) => postalAddress.changeAddressField('state', e.target.value.toUpperCase())} autoComplete="shipping address-level1" maxLength="2" required /></label><label>Rua<input value={form.street} onChange={(e) => postalAddress.changeAddressField('street', e.target.value)} autoComplete="shipping address-line1" required /></label><div className="checkout-grid"><label>Número<input value={form.number} onChange={(e) => setForm((c)=>({...c,number:e.target.value}))} required /></label><label>Complemento<input value={form.complement} onChange={(e) => setForm((c)=>({...c,complement:e.target.value}))} autoComplete="shipping address-line2" /></label></div><label>Bairro<input value={form.neighborhood} onChange={(e) => postalAddress.changeAddressField('neighborhood', e.target.value)} autoComplete="shipping address-level3" required /></label><label>Cidade<input value={form.city} onChange={(e) => postalAddress.changeAddressField('city', e.target.value)} autoComplete="shipping address-level2" required /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary" type="submit" disabled={submitting || Boolean(shippingBlocked)}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></form>
             )}
           </aside>
         </div>

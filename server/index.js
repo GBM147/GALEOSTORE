@@ -32,6 +32,7 @@ import { MySqlRateLimitStore, RATE_LIMIT_DDL, pruneRateLimits } from './mysql-ra
 import { validateRuntimeSchema } from './runtime-schema.js'
 import { createMelhorEnvio, ensureMelhorEnvioSchema, MelhorEnvioError } from './melhor-envio.js'
 import { createDirectUploads, getVerifiedDirectAsset } from './direct-uploads.js'
+import { registerPostalCodeLookup } from './postal-codes.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -258,6 +259,7 @@ const limitarAlteracaoSenha = criarLimitador({
 const limitarConfirmacaoEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-confirmation' })
 const limitarReenvioEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-resend' })
 const limitarCotacaoFrete = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 30, prefixo: 'shipping-quotes' })
+const limitarConsultaCep = criarLimitador({ janelaMs: 60 * 1000, maximo: 30, prefixo: 'postal-code-lookup' })
 
 const Store = MySQLStoreFactory(session)
 // Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
@@ -874,6 +876,8 @@ app.get('/api/integrations/melhor-envio/callback', exigirLogin, exigirOwner, asy
   await audit(req.admin.id, 'CONECTAR', 'integracao', 'melhor-envio').catch(() => {})
   res.redirect(303, '/admin?tab=shipping&shipping=connected')
 })
+
+registerPostalCodeLookup(app, { limiter: limitarConsultaCep })
 
 app.get('/api/store/shipping/config', async (req, res) => {
   res.set('Cache-Control', 'no-store')
