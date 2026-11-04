@@ -31,11 +31,14 @@ function onlineConfiguration() {
   const publicKey = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY : process.env.MERCADO_PAGO_PUBLIC_KEY)
   const webhookSecret = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET : process.env.MERCADO_PAGO_WEBHOOK_SECRET)
   const sellerId = text(testing ? process.env.MERCADO_PAGO_TEST_SELLER_ID : process.env.MERCADO_PAGO_SELLER_ID)
+  const testCredentialKind = accessToken.startsWith('TEST-') && publicKey.startsWith('TEST-')
+    ? 'static'
+    : accessToken.startsWith('APP_USR-') && publicKey.startsWith('APP_USR-') ? 'test-user' : ''
   const testEnvironment = /^[A-Za-z0-9_]+_test$/.test(text(process.env.DB_NAME)) && validAppUrl(text(process.env.APP_URL), 'test')
   const allowed = testing
-    ? testEnvironment && process.env.MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED === 'true' && /^\d{1,20}$/.test(sellerId)
+    ? testEnvironment && Boolean(testCredentialKind) && process.env.MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED === 'true' && /^\d{1,20}$/.test(sellerId)
     : enabledMode === 'production' && process.env.MERCADO_PAGO_LIVE_PAYMENTS_ENABLED === 'true' && validAppUrl(text(process.env.APP_URL), 'production')
-  return { mode: enabledMode, accessToken, publicKey, webhookSecret, sellerId, available: Boolean(allowed && accessToken && publicKey && webhookSecret) }
+  return { mode: enabledMode, accessToken, publicKey, webhookSecret, sellerId, testCredentialKind, available: Boolean(allowed && accessToken && publicKey && webhookSecret) }
 }
 
 export function getMercadoPagoPublicConfig() {
@@ -79,13 +82,17 @@ async function request(path, { accessToken, method = 'GET', body = null, idempot
 
 async function assertTestSeller(config) {
   if (config.mode !== 'test') return
-  const key = createHash('sha256').update(config.accessToken + ':' + config.sellerId).digest('hex')
+  const key = createHash('sha256').update(JSON.stringify([config.mode, config.testCredentialKind, config.accessToken, config.publicKey, config.sellerId])).digest('hex')
   if ((testSellerCache.get(key) || 0) > Date.now()) return
   if (!testSellerRequests.has(key)) testSellerRequests.set(key, (async () => {
-    // Do this before any POST. A mistyped production token must never create
-    // a real charge, regardless of its prefix or the configured mode label.
+    // A credential prefix alone never skips authenticated seller verification.
+    // Static TEST credentials belong to the application owner's normal profile;
+    // APP_USR credentials must belong to an actual virtual test-user profile.
     const seller = await request('/users/me', { accessToken: config.accessToken })
-    if (String(seller.id) !== config.sellerId || !Array.isArray(seller.tags) || !seller.tags.includes('test_user')) throw new MercadoPagoError('TEST_SELLER_REQUIRED', 503, 'As credenciais precisam pertencer ao vendedor de teste configurado.')
+    const sellerMatches = String(seller.id) === config.sellerId && seller.site_id === 'MLB'
+    const permittedProfile = config.testCredentialKind === 'static' ||
+      (config.testCredentialKind === 'test-user' && Array.isArray(seller.tags) && seller.tags.includes('test_user'))
+    if (!sellerMatches || !permittedProfile) throw new MercadoPagoError('TEST_SELLER_REQUIRED', 503, 'As credenciais de teste precisam corresponder ao vendedor brasileiro configurado.')
     if (testSellerCache.size >= 8) testSellerCache.delete(testSellerCache.keys().next().value)
     testSellerCache.set(key, Date.now() + 300000)
   })().finally(() => testSellerRequests.delete(key)))

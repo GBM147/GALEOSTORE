@@ -1,6 +1,6 @@
 # Mercado Pago — Checkout Transparente via Orders
 
-A GALEO utiliza a aplicação existente da loja, cadastrada como Checkout Transparente via Orders. O pagamento possui uma tela própria em `/pagamento/:orderId`, acessível após registrar o pedido no carrinho e pela área do cliente. Não é necessário cadastrar outra aplicação para preparar este código.
+O código da GALEO implementa Checkout Transparente via Orders, usando a aplicação existente da loja. O pagamento possui uma tela própria em `/pagamento/:orderId`, acessível após registrar o pedido no carrinho e pela área do cliente. A captura atual do painel mostra a aplicação como **Loja Integrada / CheckoutPro**; esses metadados e a compatibilidade da modalidade precisam ser conferidos na homologação antes de ativar os pagamentos. O código não altera esse cadastro nem cria outra aplicação automaticamente.
 
 O adaptador anterior misturava Orders com redirecionamento do Checkout Pro. O contrato atual utiliza `POST /v1/orders`, processamento automático e uma transação de Pix ou cartão tokenizado. Não espera `checkout_url` nem envia `config.online.success_url`.
 
@@ -14,7 +14,7 @@ As ferramentas MCP do Mercado Pago não estão conectadas a esta sessão. Foram 
 
 Tudo começa desativado: `MERCADO_PAGO_MODE=disabled`. Apenas salvar um Access Token não habilita pagamentos.
 
-Para homologação, use banco separado cujo nome termine em `_test`, origem própria de teste em `APP_URL` e uma conta vendedora de teste. Nunca copie os dados operacionais de produção para esse ambiente. Configure somente no servidor:
+Para homologação, use banco separado cujo nome termine em `_test`, origem própria de teste em `APP_URL` e credenciais de teste correspondentes ao vendedor configurado. Nunca copie os dados operacionais de produção para esse ambiente. Configure somente no servidor:
 
 ```dotenv
 MERCADO_PAGO_MODE=test
@@ -25,9 +25,16 @@ MERCADO_PAGO_TEST_SELLER_ID=
 MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED=true
 ```
 
-O código confere `/users/me` antes de criar uma cobrança de teste: o usuário deve corresponder ao vendedor configurado e possuir a marca `test_user`. O prefixo do token, isoladamente, não comprova que a conta é de teste. O comprador do teste deve ser diferente do vendedor e corresponder ao e-mail da conta autenticada no ambiente de homologação.
+Antes de criar uma cobrança de teste, o código exige uma consulta autenticada bem-sucedida a `/users/me`, com o ID do vendedor configurado e `site_id=MLB`. São aceitos dois modelos de credenciais, sempre com Access Token e Public Key do mesmo tipo:
 
-O backend disponibiliza somente a Public Key e as opções permitidas em `GET /api/store/payments/config`, com `Cache-Control: no-store`. Access Token e segredo de webhook nunca chegam ao frontend ou ao build. Não use prefixo `VITE_` para essas credenciais.
+- **`TEST-` / `TEST-`: credenciais estáticas de teste da aplicação.** O perfil autenticado pode ser o perfil normal do titular brasileiro, sem a marca `test_user`.
+- **`APP_USR-` / `APP_USR-`: credenciais de uma conta virtual de teste.** Além do ID e do país, o perfil autenticado precisa possuir a marca `test_user`. Credenciais `APP_USR-` de um perfil normal não passam por esse fluxo de teste.
+
+Um par misturado de prefixos fica indisponível antes de qualquer chamada ao provedor. O prefixo, isoladamente, não libera cobranças: continuam obrigatórios a confirmação explícita das credenciais, o banco e a origem de homologação, as demais chaves e a verificação autenticada do vendedor. Uma consulta negada ou um ID/país divergente não permite criar o pagamento. A verificação em cache é vinculada ao modo, tipo de credencial, Access Token, Public Key e vendedor.
+
+Para testar cartões na Web, a documentação atual permite um **e-mail válido do comprador**. Na GALEO, esse e-mail vem da conta autenticada no ambiente de homologação, não de um valor arbitrário enviado pelo navegador. Contas virtuais de comprador/vendedor continuam necessárias nos fluxos específicos do provedor que as exigirem; não são uma exigência geral para aceitar as credenciais estáticas `TEST-`.
+
+O backend disponibiliza somente a Public Key e as opções permitidas em `GET /api/store/payments/config`, com `Cache-Control: no-store`. Access Token e segredo de webhook permanecem no servidor ou nas rotinas privadas de configuração; nunca devem entrar no HTML, nos assets ou no código do frontend. Não use prefixo `VITE_` para essas credenciais.
 
 Depois da homologação, a ativação real exige todas as chaves de produção, origem HTTPS e os dois controles explícitos:
 

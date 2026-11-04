@@ -14,9 +14,9 @@ async function fixture(run, overrides = {}) {
   const environment = Object.fromEntries(keys.map(key => [key, process.env[key]]))
   const previousFetch = globalThis.fetch
   for (const key of keys) delete process.env[key]
-  Object.assign(process.env, { MERCADO_PAGO_MODE: 'test', GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN: 'local-test-' + randomUUID(), GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: 'local-public-key', GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET: 'local-webhook-secret', MERCADO_PAGO_TEST_SELLER_ID: '42', MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED: 'true', DB_NAME: 'galeo_payment_test', APP_URL: 'http://127.0.0.1:10001', ...overrides })
+  Object.assign(process.env, { MERCADO_PAGO_MODE: 'test', GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN: 'APP_USR-local-test-' + randomUUID(), GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: 'APP_USR-local-public-key', GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET: 'local-webhook-secret', MERCADO_PAGO_TEST_SELLER_ID: '42', MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED: 'true', DB_NAME: 'galeo_payment_test', APP_URL: 'http://127.0.0.1:10001', ...overrides })
   const calls = []
-  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response(rawOrder(), 201) }
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(rawOrder(), 201) }
   try { return await run(calls) }
   finally {
     globalThis.fetch = previousFetch
@@ -61,13 +61,119 @@ test('production requires explicit live enablement and exposes only the public k
 }))
 
 test('test mode checks the actual seller before attempting any payment POST', async () => fixture(async calls => {
-  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ id: 42, tags: [] }) }
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ id: 42, site_id: 'MLB', tags: [] }) }
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED', outcomeUnknown: false })
   assert.deepEqual(calls.map(call => [call.url, call.options.method]), [['https://api.mercadopago.com/users/me', 'GET']])
 }))
 
 test('a different seller test account cannot be used even with the test_user tag', async () => fixture(async calls => {
-  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ id: 99, tags: ['test_user'] }) }
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ id: 99, site_id: 'MLB', tags: ['test_user'] }) }
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED' })
+  assert.equal(calls.some(call => call.options.method === 'POST'), false)
+}))
+
+const staticCredentials = () => ({
+  GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN: 'TEST-local-static-' + randomUUID(),
+  GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: 'TEST-local-static-public-' + randomUUID()
+})
+
+test('static TEST credentials authenticate the configured Brazilian owner without requiring a virtual-user tag', async () => fixture(async calls => {
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: [] }) : response(rawOrder(), 201)
+  }
+  assert.equal(mercadoPagoOnlineConfigured(), true)
+  const result = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
+  assert.equal(result.id, 'ORDLOCAL123')
+  assert.deepEqual(calls.map(call => [call.url, call.options.method]), [
+    ['https://api.mercadopago.com/users/me', 'GET'],
+    ['https://api.mercadopago.com/v1/orders', 'POST']
+  ])
+  assert.equal(calls.every(call => call.options.headers.Authorization === 'Bearer ' + process.env.GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN), true)
+}, staticCredentials()))
+
+test('static TEST credentials cannot create a charge when authenticated profile lookup is denied', async () => fixture(async calls => {
+  for (const status of [401, 403]) {
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options })
+      return response({ message: 'private-profile-token-and-data' }, status)
+    }
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), error =>
+      error.code === 'PAYMENT_PROVIDER_REJECTED' && error.outcomeUnknown === false && !error.message.includes('private-profile'))
+  }
+  assert.equal(calls.length, 2)
+  assert.equal(calls.every(call => call.url.endsWith('/users/me') && call.options.method === 'GET'), true)
+}, staticCredentials()))
+
+test('static TEST credentials require the expected seller and Brazilian site in the authenticated profile', async () => fixture(async calls => {
+  for (const profile of [
+    { id: 99, site_id: 'MLB', tags: [] },
+    { id: 42, site_id: 'MLA', tags: [] },
+    { id: 42, tags: [] },
+    { id: 42, site_id: 'MLB', tags: ['test_user'] }
+  ]) {
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options })
+      return response(profile)
+    }
+    if (profile.site_id === 'MLB' && profile.id === 42) {
+      // Verifying a profile does not need an Orders response or create a charge.
+      const { verifyMercadoPagoTestSeller } = await import('./mercado-pago.js')
+      assert.deepEqual(await verifyMercadoPagoTestSeller(), { verified: true, seller_id: '42' })
+    } else await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED' })
+  }
+  assert.equal(calls.length, 4)
+  assert.equal(calls.some(call => call.options.method === 'POST'), false)
+}, staticCredentials()))
+
+test('test mode rejects mixed or unknown credential namespaces before contacting the provider', async () => fixture(async calls => {
+  for (const [accessToken, publicKey] of [
+    ['TEST-local-access', 'APP_USR-local-public'],
+    ['APP_USR-local-access', 'TEST-local-public'],
+    ['local-unknown-access', 'local-unknown-public']
+  ]) {
+    Object.assign(process.env, { GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN: accessToken, GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: publicKey })
+    assert.equal(mercadoPagoOnlineConfigured(), false)
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'PAYMENT_NOT_CONFIGURED' })
+  }
+  assert.equal(calls.length, 0)
+}))
+
+test('static TEST credentials retain every explicit environment and readiness guard', async () => fixture(async calls => {
+  for (const [key, value] of [
+    ['MERCADO_PAGO_MODE', 'disabled'], ['DB_NAME', 'galeo_store'],
+    ['APP_URL', 'https://galeo-store.netlify.app'], ['APP_URL', 'https://galeo-store.onrender.com'],
+    ['APP_URL', 'http://external.example.invalid'], ['MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED', 'false'],
+    ['MERCADO_PAGO_TEST_SELLER_ID', ''], ['GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET', '']
+  ]) {
+    const previous = process.env[key]
+    process.env[key] = value
+    assert.equal(mercadoPagoOnlineConfigured(), false, key)
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'PAYMENT_NOT_CONFIGURED' })
+    process.env[key] = previous
+  }
+  assert.equal(calls.length, 0)
+}, staticCredentials()))
+
+test('changing the static Public Key invalidates cached seller verification', async () => fixture(async calls => {
+  let deny = false
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return url.endsWith('/users/me') ? response({ id: deny ? 99 : 42, site_id: 'MLB', tags: [] }) : response(rawOrder(), 201)
+  }
+  await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
+  process.env.GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY = 'TEST-replaced-public-' + randomUUID()
+  deny = true
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED' })
+  assert.equal(calls.filter(call => call.url.endsWith('/users/me')).length, 2)
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 1)
+}, staticCredentials()))
+
+test('APP_USR virtual test credentials also require a Brazilian profile', async () => fixture(async calls => {
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return response({ id: 42, site_id: 'MLA', tags: ['test_user'] })
+  }
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED' })
   assert.equal(calls.some(call => call.options.method === 'POST'), false)
 }))
@@ -128,7 +234,7 @@ test('concurrent requests verify a seller once and reuse each caller-provided id
 }))
 
 test('provider rejection is definitive and does not leak provider payloads or credentials', async () => fixture(async () => {
-  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response({ message: 'secret-card-token-123 CPF12345678909', cause: ['private'] }, 422)
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response({ message: 'secret-card-token-123 CPF12345678909', cause: ['private'] }, 422)
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card() }), error => {
     assert.equal(error.code, 'PAYMENT_PROVIDER_REJECTED')
     assert.equal(error.outcomeUnknown, false)
@@ -141,7 +247,7 @@ test('provider rejection is definitive and does not leak provider payloads or cr
 
 test('timeouts, throttling and provider failures preserve an ambiguous attempt for idempotent retry', async () => fixture(async () => {
   for (const status of [408, 409, 423, 429, 500, 503]) {
-    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response({}, status)
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response({}, status)
     await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
   }
   globalThis.fetch = async () => { throw new TypeError('network includes secret-token') }
@@ -152,7 +258,7 @@ test('a stalled charge is aborted by the transport deadline and retains an unkno
   t.mock.timers.enable({ apis: ['setTimeout'] })
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
-    if (url.endsWith('/users/me')) return response({ id: 42, tags: ['test_user'] })
+    if (url.endsWith('/users/me')) return response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
     return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }))
   }
   const result = assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
@@ -166,7 +272,7 @@ test('a stalled charge is aborted by the transport deadline and retains an unkno
 
 test('invalid successful provider responses never become an accepted payment', async () => fixture(async () => {
   for (const value of [{}, rawOrder({ user_id: 99 }), rawOrder({ country_code: 'MLA' }), rawOrder({ total_amount: '1.00' }), rawOrder({ external_reference: 'DIFFERENT-ORDER' })]) {
-    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response(value, 201)
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(value, 201)
     await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), error => error.outcomeUnknown === true)
   }
 }))
