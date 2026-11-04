@@ -1,6 +1,6 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import bcrypt from 'bcrypt'
 import mysql from 'mysql2/promise'
+import { createPaymentReservationExpiry } from '../server/payment-reservations.js'
 
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 if (!loopbackHosts.has(process.env.DB_HOST) || process.env.DB_NAME !== 'galeo_store_test') {
@@ -19,7 +20,7 @@ const suffix = randomBytes(8).toString('hex')
 const password = 'MP-local-' + randomBytes(12).toString('hex')
 const webhookSecret = randomBytes(32).toString('hex')
 const fixtures = { products: [], orders: [], events: [], sessions: new Set() }
-const mpFixtures = { orders: {}, checkouts: {} }
+const mpFixtures = { orders: {}, creations: {} }
 let db, child, childExited, tempDirectory, fixturePath, customerId, adminId, customer, admin
 let eventSequence = 0
 
@@ -78,7 +79,9 @@ async function waitForCheckoutStart(fixture) {
   throw new Error('A criação do checkout simulado não iniciou.')
 }
 
-async function orderFixture(quantity = 2) {
+// A provider reference is normally already persisted before an Orders webhook
+// arrives. Creation/race tests opt out and exercise that binding through HTTP.
+async function orderFixture(quantity = 2, { bind = true } = {}) {
   const inserted = await execute(
     'INSERT INTO products(name,description,price,cost,stock,min_stock,active) VALUES(?,?,?,?,?,?,1)',
     ['Teste MP ' + suffix + '-' + fixtures.products.length, 'Produto de integração local', 20, 8, 10, 2]
@@ -95,30 +98,60 @@ async function orderFixture(quantity = 2) {
   assert.equal(created.response.status, 200, created.data.error)
   const order = created.data.order
   fixtures.orders.push(order.id)
-  return { productId, order, quantity, providerId: 'mp-' + suffix + '-' + order.id }
+  const fixture = { productId, order, quantity, providerId: 'ORD' + suffix.toUpperCase() + String(order.id), attemptId: randomUUID() }
+  await setPayment(fixture, 'pending')
+  if (bind) {
+    await execute("INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload) VALUES('ONLINE',?,'PIX','MERCADO_PAGO',?,'PENDING',?,?,?)", [order.id, fixture.providerId, Number(order.total), fixture.attemptId, JSON.stringify(mpFixtures.orders[fixture.providerId])])
+    await execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO',payment_method='PIX',payment_reference=? WHERE id=?", [fixture.providerId, order.id])
+  }
+  return fixture
 }
 
 async function setPayment(fixture, status, amount = fixture.order.total) {
+  const paid = status === 'approved' || status === 'refunded'
+  const providerStatus = { approved: 'processed', pending: 'action_required', rejected: 'failed' }[status] || status
+  const detail = { approved: 'accredited', pending: 'waiting_payment', rejected: 'rejected_by_issuer', refunded: 'refunded' }[status] || status
   mpFixtures.orders[fixture.providerId] = {
-    id: fixture.providerId, external_reference: fixture.order.code, status,
-    total_amount: Number(amount).toFixed(2),
-    transactions: { payments: [{ status, amount: Number(amount).toFixed(2), payment_method: { type: 'pix' } }] }
+    id: fixture.providerId, user_id: 42, country_code: 'MLB', external_reference: fixture.order.code,
+    status: providerStatus, status_detail: detail, total_amount: Number(amount).toFixed(2),
+    total_paid_amount: paid ? Number(amount).toFixed(2) : '0.00',
+    transactions: { payments: [{ id: 'PAY' + fixture.providerId, status: providerStatus, status_detail: detail,
+      amount: Number(amount).toFixed(2), paid_amount: paid ? Number(amount).toFixed(2) : '0.00',
+      payment_method: { id: 'pix', type: 'bank_transfer', qr_code: '000201-LOCAL-TEST-' + fixture.providerId, qr_code_base64: 'bG9jYWwtdGVzdA==' }
+    }] }
   }
   await saveMpFixtures()
 }
 
+function paymentBody(fixture, extra = {}) {
+  // Official Brazil test CPF from the Mercado Pago plugin's checkout-api guide.
+  return { method: 'pix', identification: { type: 'CPF', number: '12345678909' }, attempt_id: fixture.attemptId, ...extra }
+}
+
+async function startPayment(fixture, extra = {}) {
+  return customer.request('/api/store/orders/' + fixture.order.id + '/payment', { method: 'POST', body: paymentBody(fixture, extra) })
+}
+
+async function calls() {
+  const text = await readFile(fixturePath + '.calls', 'utf8').catch(error => {
+    if (error.code === 'ENOENT') return ''
+    throw error
+  })
+  return text.trim() ? text.trim().split('\n').map(line => JSON.parse(line)) : []
+}
+
 function eventId() { return 'mp-event-' + suffix + '-' + (++eventSequence) }
 
-async function notify(fixture, id = eventId()) {
+async function notify(fixture, id = eventId(), { signatureOverride, bodyId = fixture.providerId, topic = 'orders' } = {}) {
   if (!fixtures.events.includes(id)) fixtures.events.push(id)
   const timestamp = String(Math.floor(Date.now() / 1000))
   const requestId = 'request-' + id
-  const manifest = 'id:' + fixture.providerId + ';request-id:' + requestId + ';ts:' + timestamp + ';'
+  const manifest = 'id:' + fixture.providerId.toLowerCase() + ';request-id:' + requestId + ';ts:' + timestamp + ';'
   const signature = createHmac('sha256', webhookSecret).update(manifest).digest('hex')
   return new Client().request('/api/integrations/mercado-pago/webhook?data.id=' + encodeURIComponent(fixture.providerId), {
     method: 'POST',
-    headers: { 'X-Request-Id': requestId, 'X-Signature': 'ts=' + timestamp + ',v1=' + signature },
-    body: { id, type: 'order', data: { id: fixture.providerId } }
+    headers: { 'X-Request-Id': requestId, 'X-Signature': signatureOverride || 'ts=' + timestamp + ',v1=' + signature },
+    body: { id, type: topic, data: { id: bodyId } }
   })
 }
 
@@ -151,7 +184,11 @@ before(async () => {
       ...process.env, NODE_ENV: 'development', PORT: '10001', DB_SSL: 'false',
       APP_URL: baseUrl.origin, ALLOWED_ORIGINS: baseUrl.origin,
       SESSION_SECRET: randomBytes(32).toString('hex'),
-      MERCADO_PAGO_ACCESS_TOKEN: 'galeo-test-token', MERCADO_PAGO_WEBHOOK_SECRET: webhookSecret,
+      MERCADO_PAGO_MODE: 'test', MERCADO_PAGO_ACCESS_TOKEN: '', MERCADO_PAGO_PUBLIC_KEY: '', MERCADO_PAGO_WEBHOOK_SECRET: '',
+      GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN: 'APP_USR-local-test-only',
+      GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: 'APP_USR-local-public-test-only',
+      GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET: webhookSecret,
+      MERCADO_PAGO_TEST_SELLER_ID: '42', MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED: 'true',
       GALEO_TEST_MP_FIXTURES: fixturePath,
       RESEND_API_KEY: '', EMAIL_FROM: '', STORE_NOTIFICATION_EMAIL: '',
       CLOUDINARY_URL: '', CLOUDINARY_CLOUD_NAME: '', CLOUDINARY_API_KEY: '', CLOUDINARY_API_SECRET: '',
@@ -210,6 +247,9 @@ after(async () => {
       const orders = fixtures.orders.length ? await execute(`SELECT sale_id FROM store_orders WHERE id IN (${fixtures.orders.map(() => '?').join(',')})`, fixtures.orders) : []
       const sales = [...new Set(orders.map(order => order.sale_id).filter(Boolean))]
       await removeIds('integration_events', 'event_id', fixtures.events)
+      // New callback event keys are derived from the provider state, not the
+      // caller-controlled notification id. Remove only this run's provider ids.
+      for (const id of Object.keys(mpFixtures.orders)) await execute("DELETE FROM integration_events WHERE provider='MERCADO_PAGO' AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id'))=?", [id])
       await removeIds('payments', 'store_order_id', fixtures.orders)
       await removeIds('financial_entries', 'reference_id', sales.map(id => 'sale:' + id))
       await removeIds('store_order_items', 'order_id', fixtures.orders)
@@ -296,7 +336,7 @@ test('notificações pendentes após aprovação ou estorno não regridem pagame
     await setPayment(fixture, 'pending')
     const stale = await notify(fixture)
     assert.equal(stale.response.status, 200)
-    assert.equal(stale.data.reason, 'status_pagamento_regressivo')
+    assert.equal(stale.data.ignored, true)
     const current = await state(fixture)
     assert.equal(current.order.payment_status, previous.order.payment_status)
     assert.equal(current.order.status, previous.order.status)
@@ -331,7 +371,8 @@ test('valor aprovado divergente rejeita evento com rollback atômico e permite n
   assert.equal(current.order.payment_status, 'PENDING')
   assert.equal(current.order.sale_id, null)
   assert.equal(current.stock, 8)
-  assert.equal(current.payments.length, 0)
+  assert.equal(current.payments.length, 1)
+  assert.equal(current.payments[0].status, 'PENDING')
   const events = await execute('SELECT id FROM integration_events WHERE provider=? AND event_id=?', ['MERCADO_PAGO', id])
   assert.equal(events.length, 0)
   await setPayment(fixture, 'approved')
@@ -340,36 +381,62 @@ test('valor aprovado divergente rejeita evento com rollback atômico e permite n
   assert.equal((await state(fixture)).order.payment_status, 'APPROVED')
 })
 
-test('link de pagamento persistido é reutilizado sem segunda criação no provedor', async () => {
-  const fixture = await orderFixture()
-  const checkoutUrl = 'https://example.invalid/local-checkout/' + fixture.providerId
-  mpFixtures.checkouts[fixture.order.code] = { id: fixture.providerId, checkout_url: checkoutUrl }
+test('Pix persistido é reutilizado sem segunda criação e expõe somente instruções seguras', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
   await saveMpFixtures()
   for (let attempt = 0; attempt < 2; attempt++) {
-    const payment = await customer.request('/api/store/orders/' + fixture.order.id + '/payment', { method: 'POST', body: {} })
+    const payment = await startPayment(fixture)
     assert.equal(payment.response.status, 200, payment.data.error)
-    assert.equal(payment.data.checkout_url, checkoutUrl)
+    assert.equal(payment.data.payment.provider_reference, fixture.providerId)
+    assert.equal(payment.data.payment.qr_code, '000201-LOCAL-TEST-' + fixture.providerId)
+    assert.equal(payment.data.checkout_url, undefined)
+    assert.equal(payment.data.payment.token, undefined)
+    assert.equal(payment.data.payment.raw_payload, undefined)
   }
-  const calls = (await readFile(fixturePath + '.calls', 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-  assert.equal(calls.filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+  const providerCalls = (await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code)
+  assert.equal(providerCalls.length, 1)
+  assert.equal(providerCalls[0].body.processing_mode, 'automatic')
+  assert.equal(providerCalls[0].body.transactions.payments[0].payment_method.id, 'pix')
+  assert.equal(providerCalls[0].body.total_amount, '40.00')
+  assert.equal(providerCalls[0].idempotency_key, fixture.attemptId)
   const current = await state(fixture)
   assert.equal(current.payments.length, 1)
-  assert.equal(current.payments[0].payment_url, checkoutUrl)
-  assert.equal(current.order.payment_url, checkoutUrl)
+  assert.equal(current.payments[0].provider_reference, fixture.providerId)
+  assert.ok(!current.payments[0].payment_url)
+  assert.ok(!current.order.payment_url)
+  const status = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.equal(status.response.status, 200, status.data.error)
+  assert.equal(status.data.payment.provider_reference, fixture.providerId)
 })
 
-test('aprovação durante criação do checkout preserva pagamento aprovado e retorna pedido pago', async () => {
-  const fixture = await orderFixture()
+test('webhook sem tentativa vinculada pede retry e só confirma após criação persistida', async () => {
+  const fixture = await orderFixture(2, { bind: false })
   await setPayment(fixture, 'approved')
-  mpFixtures.checkouts[fixture.order.code] = {
-    id: fixture.providerId, checkout_url: 'https://example.invalid/delayed-checkout/' + fixture.providerId, __delay_ms: 750
-  }
+  const premature = await notify(fixture)
+  assert.ok([500, 503].includes(premature.response.status))
+  assert.equal((await state(fixture)).sales.length, 0)
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
   await saveMpFixtures()
-  const checkoutRequest = customer.request('/api/store/orders/' + fixture.order.id + '/payment', { method: 'POST', body: {} })
+  assert.equal((await startPayment(fixture)).response.status, 200)
+  assert.equal((await notify(fixture)).response.status, 200)
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'APPROVED')
+  assert.equal(current.sales.length, 1)
+  assert.equal(current.entries.length, 1)
+  assert.equal(current.stock, 8)
+})
+
+test('aprovação durante criação aguarda vínculo e preserva uma única venda e receita', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  await setPayment(fixture, 'approved')
+  mpFixtures.creations[fixture.order.code] = { ...mpFixtures.orders[fixture.providerId], __delay_ms: 750 }
+  await saveMpFixtures()
+  const checkoutRequest = startPayment(fixture)
   checkoutRequest.catch(() => {})
   await waitForCheckoutStart(fixture)
   const approved = await notify(fixture)
-  assert.equal(approved.response.status, 200, approved.data.error)
+  assert.ok([200, 500, 503].includes(approved.response.status))
   const checkout = await checkoutRequest
   assert.equal(checkout.response.status, 200, checkout.data.error)
   assert.equal(checkout.data.paid, true)
@@ -384,15 +451,15 @@ test('aprovação durante criação do checkout preserva pagamento aprovado e re
   assert.equal(current.stock, 8)
   assert.equal(current.sales.length, 1)
   assert.equal(current.entries.length, 1)
+  assert.equal((await notify(fixture)).response.status, 200)
+  assert.equal((await state(fixture)).sales.length, 1)
 })
 
-test('cancelamento durante criação do checkout impede persistir link e mantém estoque restituído', async () => {
-  const fixture = await orderFixture()
-  mpFixtures.checkouts[fixture.order.code] = {
-    id: fixture.providerId, checkout_url: 'https://example.invalid/delayed-checkout/' + fixture.providerId, __delay_ms: 750
-  }
+test('cancelamento durante criação mantém referência para conciliação e estoque restituído', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = { ...mpFixtures.orders[fixture.providerId], __delay_ms: 750 }
   await saveMpFixtures()
-  const checkoutRequest = customer.request('/api/store/orders/' + fixture.order.id + '/payment', { method: 'POST', body: {} })
+  const checkoutRequest = startPayment(fixture)
   checkoutRequest.catch(() => {})
   await waitForCheckoutStart(fixture)
   await cancel(fixture)
@@ -404,7 +471,271 @@ test('cancelamento durante criação do checkout impede persistir link e mantém
   assert.equal(current.order.payment_status, 'CANCELLED')
   assert.equal(current.order.payment_url, null)
   assert.equal(current.order.sale_id, null)
-  assert.equal(current.payments.length, 0)
+  assert.equal(current.payments.length, 1)
+  assert.equal(current.payments[0].provider_reference, fixture.providerId)
   assert.equal(current.stock, 10)
   assert.equal(current.movements.filter(item => item.type === 'ENTRADA').length, 1)
+})
+
+test('falha de transporte conserva tentativa e impede nova cobrança com UUID diferente', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = { __throw: true }
+  await saveMpFixtures()
+  const first = await startPayment(fixture)
+  assert.equal(first.response.status, 503, first.data.error)
+  assert.equal(first.data.code, 'PAYMENT_RESULT_PENDING')
+  const duplicate = await startPayment(fixture, { attempt_id: randomUUID() })
+  assert.equal(duplicate.response.status, 409, duplicate.data.error)
+  assert.equal(duplicate.data.code, 'PAYMENT_ATTEMPT_PENDING')
+  const beforeRetry = (await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code)
+  assert.equal(beforeRetry.length, 1)
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
+  await saveMpFixtures()
+  const retry = await startPayment(fixture)
+  assert.equal(retry.response.status, 200, retry.data.error)
+  const providerCalls = (await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code)
+  assert.equal(providerCalls.length, 2)
+  assert.deepEqual(providerCalls.map(call => call.idempotency_key), [fixture.attemptId, fixture.attemptId])
+  const current = await state(fixture)
+  assert.equal(current.payments.length, 1)
+  assert.equal(current.payments[0].provider_reference, fixture.providerId)
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.stock, 8)
+})
+
+test('webhook recupera cobrança aceita com resposta perdida sem repetir o POST', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = { __throw: true }
+  await saveMpFixtures()
+  const request = await startPayment(fixture)
+  assert.equal(request.response.status, 503)
+  assert.equal((await state(fixture)).payments[0].provider_reference, null)
+  await setPayment(fixture, 'approved')
+  const notice = await notify(fixture)
+  assert.equal(notice.response.status, 200, notice.data.error)
+  const duplicate = await notify(fixture)
+  assert.equal(duplicate.response.status, 200, duplicate.data.error)
+  const current = await state(fixture)
+  assert.equal(current.payments.length, 1)
+  assert.equal(current.payments[0].provider_reference, fixture.providerId)
+  assert.equal(current.order.payment_status, 'APPROVED')
+  assert.equal(current.sales.length, 1)
+  assert.equal(current.entries.length, 1)
+  assert.equal(current.stock, 8)
+  assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('segunda tentativa com resposta perdida recupera Pix pendente e depois confirma a venda', async () => {
+  const fixture = await orderFixture()
+  await setPayment(fixture, 'rejected')
+  assert.equal((await notify(fixture)).response.status, 200)
+  fixture.providerId = 'ORDRECOVER' + suffix.toUpperCase() + fixture.order.id
+  fixture.attemptId = randomUUID()
+  await setPayment(fixture, 'pending')
+  mpFixtures.creations[fixture.order.code] = { __throw: true }
+  await saveMpFixtures()
+  assert.equal((await startPayment(fixture)).response.status, 503)
+  const pending = await notify(fixture)
+  assert.equal(pending.response.status, 200, pending.data.error)
+  const current = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.equal(current.response.status, 200, current.data.error)
+  assert.equal(current.data.order.payment_status, 'PENDING')
+  assert.equal(current.data.payment.provider_reference, fixture.providerId)
+  assert.ok(current.data.payment.qr_code)
+  await setPayment(fixture, 'approved')
+  assert.equal((await notify(fixture)).response.status, 200)
+  const final = await state(fixture)
+  assert.equal(final.order.payment_status, 'APPROVED')
+  assert.equal(final.sales.length, 1)
+  assert.equal(final.entries.length, 1)
+  assert.equal(final.stock, 8)
+  assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('consulta continua exibindo aprovação persistida durante falha do provedor', async () => {
+  const fixture = await orderFixture()
+  await setPayment(fixture, 'approved')
+  assert.equal((await notify(fixture)).response.status, 200)
+  mpFixtures.orders[fixture.providerId] = { __throw: true }
+  await saveMpFixtures()
+  const current = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.equal(current.response.status, 200, current.data.error)
+  assert.equal(current.data.order.payment_status, 'APPROVED')
+  assert.equal(current.data.paid, true)
+})
+
+test('recusa permite uma nova tentativa explícita sem duplicar a reserva', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  await setPayment(fixture, 'rejected')
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
+  await saveMpFixtures()
+  const rejected = await startPayment(fixture)
+  assert.equal(rejected.response.status, 200, rejected.data.error)
+  assert.equal(rejected.data.order.payment_status, 'REJECTED')
+  fixture.providerId = 'ORDRETRY' + suffix.toUpperCase() + String(fixture.order.id)
+  fixture.attemptId = randomUUID()
+  await setPayment(fixture, 'pending')
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
+  await saveMpFixtures()
+  const retried = await startPayment(fixture)
+  assert.equal(retried.response.status, 200, retried.data.error)
+  assert.equal(retried.data.payment.provider_reference, fixture.providerId)
+  const current = await state(fixture)
+  assert.equal(current.payments.length, 2)
+  assert.equal(current.stock, 8)
+  assert.equal(current.sales.length, 0)
+})
+
+test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa explícita', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = { error: 'local_invalid_payment', __http_status: 400 }
+  await saveMpFixtures()
+  const rejected = await startPayment(fixture)
+  assert.equal(rejected.response.status, 400, rejected.data.error)
+  assert.equal(rejected.data.code, 'PAYMENT_NOT_CREATED')
+  const before = await state(fixture)
+  assert.equal(before.payments.length, 1)
+  assert.equal(before.payments[0].status, 'REJECTED')
+  assert.equal(before.payments[0].provider_reference, null)
+  fixture.attemptId = randomUUID()
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
+  await saveMpFixtures()
+  const retried = await startPayment(fixture)
+  assert.equal(retried.response.status, 200, retried.data.error)
+  const current = await state(fixture)
+  assert.equal(current.payments.length, 2)
+  assert.equal(current.stock, 8)
+  assert.equal(current.sales.length, 0)
+})
+
+test('requisições concorrentes da mesma tentativa criam apenas uma cobrança', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = { ...mpFixtures.orders[fixture.providerId], __delay_ms: 700 }
+  await saveMpFixtures()
+  const results = await Promise.all([startPayment(fixture), startPayment(fixture)])
+  assert.equal(results.filter(result => result.response.status === 200).length, 1)
+  assert.equal(results.filter(result => result.response.status === 409 && result.data.code === 'PAYMENT_IN_PROGRESS').length, 1)
+  for (const result of results) {
+    if (result.response.status === 200) assert.equal(result.data.payment.provider_reference, fixture.providerId)
+  }
+  const repeated = await startPayment(fixture)
+  assert.equal(repeated.response.status, 200, repeated.data.error)
+  assert.equal(repeated.data.payment.provider_reference, fixture.providerId)
+  const providerCalls = (await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code)
+  assert.equal(providerCalls.length, 1)
+  assert.equal((await state(fixture)).payments.length, 1)
+})
+
+test('cancelamento confirmado pelo provedor devolve a reserva uma única vez', async () => {
+  const fixture = await orderFixture()
+  await setPayment(fixture, 'canceled')
+  for (const result of [await notify(fixture), await notify(fixture)]) assert.equal(result.response.status, 200, result.data.error)
+  const current = await state(fixture)
+  assert.equal(current.order.status, 'CANCELLED')
+  assert.equal(current.order.payment_status, 'CANCELLED')
+  assert.equal(current.stock, 10)
+  assert.equal(current.movements.filter(item => item.type === 'ENTRADA').length, 1)
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.entries.length, 0)
+})
+
+test('cartão tokenizado usa valor e comprador do pedido, com aprovação persistida no servidor', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  await setPayment(fixture, 'approved')
+  const providerOrder = mpFixtures.orders[fixture.providerId]
+  providerOrder.transactions.payments[0].payment_method = { id: 'visa', type: 'credit_card', installments: 1 }
+  mpFixtures.creations[fixture.order.code] = providerOrder
+  await saveMpFixtures()
+  const result = await startPayment(fixture, { method: 'credit_card', token: 'local-card-token-123456789', payment_method_id: 'visa', installments: 1,
+    total_amount: '0.01', payer: { email: 'untrusted@example.invalid' } })
+  assert.equal(result.response.status, 200, result.data.error)
+  assert.equal(result.data.order.payment_status, 'APPROVED')
+  assert.equal(result.data.paid, true)
+  assert.equal(JSON.stringify(result.data).includes('local-card-token'), false)
+  const creation = (await calls()).find(call => call.method === 'POST' && call.external_reference === fixture.order.code)
+  assert.equal(creation.body.total_amount, '40.00')
+  assert.notEqual(creation.body.payer.email, 'untrusted@example.invalid')
+  assert.equal(creation.body.transactions.payments[0].payment_method.token, 'local-card-token-123456789')
+  assert.equal(creation.body.transactions.payments[0].payment_method.installments, 1)
+  const current = await state(fixture)
+  assert.equal(current.stock, 8)
+  assert.equal(current.sales.length, 1)
+  assert.equal(current.entries.length, 1)
+  assert.equal(Number(current.entries[0].amount), 40)
+})
+
+test('dados brutos de cartão não são aceitos e não iniciam cobrança', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  const before = (await calls()).filter(call => call.method === 'POST').length
+  const result = await startPayment(fixture, { method: 'credit_card', payment_method_id: 'visa', card_number: '4235647728025682', security_code: '123' })
+  assert.ok([400, 422].includes(result.response.status))
+  assert.equal((await calls()).filter(call => call.method === 'POST').length, before)
+  const current = await state(fixture)
+  assert.equal(current.payments.length, 0)
+  assert.equal(current.sales.length, 0)
+})
+
+test('assinatura inválida e identificadores conflitantes não consultam nem alteram pagamentos', async () => {
+  const fixture = await orderFixture()
+  await setPayment(fixture, 'approved')
+  const beforeCalls = (await calls()).length
+  const forged = await notify(fixture, eventId(), { signatureOverride: 'ts=1,v1=' + '0'.repeat(64) })
+  assert.equal(forged.response.status, 401)
+  const mismatched = await notify(fixture, eventId(), { bodyId: 'ORDOTHER' + suffix.toUpperCase() })
+  assert.ok([400, 401].includes(mismatched.response.status))
+  assert.equal((await calls()).length, beforeCalls)
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'PENDING')
+  assert.equal(current.sales.length, 0)
+})
+
+test('notificação de vendedor diferente rejeita o pagamento com rollback', async () => {
+  const fixture = await orderFixture()
+  await setPayment(fixture, 'approved')
+  mpFixtures.orders[fixture.providerId].user_id = 999
+  await saveMpFixtures()
+  const result = await notify(fixture)
+  assert.ok([400, 500, 503].includes(result.response.status))
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'PENDING')
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.stock, 8)
+})
+
+test('cinquenta tentativas ambíguas não bloqueiam a liberação de outra reserva vencida', async () => {
+  const held = []
+  for (let index = 0; index < 50; index++) {
+    const fixture = await orderFixture(1, { bind: false })
+    held.push(fixture)
+    await execute("INSERT INTO payments(channel,store_order_id,method,provider,status,amount,idempotency_key,raw_payload) VALUES('ONLINE',?,'pix','MERCADO_PAGO','PENDING',?,?,'{}')", [fixture.order.id, fixture.order.total, fixture.attemptId])
+  }
+  const safe = await orderFixture(1, { bind: false })
+  const ids = [...held.map(fixture => fixture.order.id), safe.order.id]
+  await execute('UPDATE store_orders SET created_at=DATE_SUB(NOW(),INTERVAL 2 DAY) WHERE id IN (' + ids.map(() => '?').join(',') + ')', ids)
+  const expiry = createPaymentReservationExpiry({
+    db,
+    query: async (sql, params) => {
+      // Keep this maintenance invocation inside this test's fixtures while
+      // exercising the real MySQL candidate query and its LIMIT/NOT EXISTS.
+      if (sql.startsWith('SELECT id,code,total')) return execute(sql.replace(' ORDER BY EXISTS', ' AND id IN (' + ids.map(() => '?').join(',') + ') ORDER BY EXISTS'), [...params, ...ids])
+      return execute(sql, params)
+    },
+    restoreReservation: async (connection, order) => {
+      assert.equal(Number(order.id), safe.order.id)
+      await connection.execute('UPDATE products SET stock=stock+1 WHERE id=?', [safe.productId])
+    },
+    getProviderOrder: async () => { throw new Error('Ambiguous attempts must never be polled without a reference') },
+    processProviderOrder: async () => { throw new Error('No provider state is expected in this test') }
+  })
+  const report = await expiry.expire()
+  assert.equal(report.examined, 1)
+  assert.equal(report.expired, 1)
+  assert.equal((await state(safe)).stock, 10)
+  assert.equal((await state(safe)).order.status, 'CANCELLED')
+  for (const fixture of held) {
+    const value = await state(fixture)
+    assert.equal(value.order.status, 'RECEIVED')
+    assert.equal(value.payments[0].status, 'PENDING')
+    assert.equal(value.stock, 9)
+  }
 })

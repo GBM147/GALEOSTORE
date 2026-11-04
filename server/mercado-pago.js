@@ -1,182 +1,285 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 
-const MERCADO_PAGO_BASE_URL = 'https://api.mercadopago.com'
+const BASE_URL = 'https://api.mercadopago.com'
+const REQUEST_TIMEOUT_MS = 10000
+const PRODUCTION_HOSTS = new Set(['galeo-store.netlify.app', 'galeo-store.onrender.com'])
+const testSellerCache = new Map()
+const testSellerRequests = new Map()
+const text = value => typeof value === 'string' ? value.trim() : ''
 
-function getAccessToken() {
-  return String(process.env.MERCADO_PAGO_ACCESS_TOKEN || '').trim()
+export class MercadoPagoError extends Error {
+  constructor(code, status, message, { outcomeUnknown = false } = {}) { super(message); this.name = 'MercadoPagoError'; this.code = code; this.status = status; this.outcomeUnknown = outcomeUnknown }
+}
+const invalid = message => new MercadoPagoError('PAYMENT_INVALID', 400, message || 'Confira os dados do pagamento.')
+const unavailable = (outcomeUnknown = true) => new MercadoPagoError('MERCADO_PAGO_UNAVAILABLE', 503, 'Não foi possível acessar o Mercado Pago agora. Tente novamente para este pedido.', { outcomeUnknown })
+const notConfigured = () => new MercadoPagoError('PAYMENT_NOT_CONFIGURED', 503, 'O pagamento ainda não está disponível para este ambiente.')
+
+function validAppUrl(value, mode) {
+  try {
+    const url = new URL(value)
+    if (url.username || url.password || url.search || url.hash || !['', '/'].includes(url.pathname)) return false
+    if (mode === 'test' && PRODUCTION_HOSTS.has(url.hostname)) return false
+    return url.protocol === 'https:' || (mode === 'test' && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
+  } catch { return false }
 }
 
-export function mercadoPagoOnlineConfigured() {
-  return Boolean(getAccessToken() && String(process.env.APP_URL || '').trim())
+function onlineConfiguration() {
+  const mode = text(process.env.MERCADO_PAGO_MODE).toLowerCase()
+  const enabledMode = ['test', 'production'].includes(mode) ? mode : 'disabled'
+  const testing = enabledMode === 'test'
+  const accessToken = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN : process.env.MERCADO_PAGO_ACCESS_TOKEN)
+  const publicKey = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY : process.env.MERCADO_PAGO_PUBLIC_KEY)
+  const webhookSecret = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET : process.env.MERCADO_PAGO_WEBHOOK_SECRET)
+  const sellerId = text(testing ? process.env.MERCADO_PAGO_TEST_SELLER_ID : process.env.MERCADO_PAGO_SELLER_ID)
+  const testEnvironment = /^[A-Za-z0-9_]+_test$/.test(text(process.env.DB_NAME)) && validAppUrl(text(process.env.APP_URL), 'test')
+  const allowed = testing
+    ? testEnvironment && process.env.MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED === 'true' && /^\d{1,20}$/.test(sellerId)
+    : enabledMode === 'production' && process.env.MERCADO_PAGO_LIVE_PAYMENTS_ENABLED === 'true' && validAppUrl(text(process.env.APP_URL), 'production')
+  return { mode: enabledMode, accessToken, publicKey, webhookSecret, sellerId, available: Boolean(allowed && accessToken && publicKey && webhookSecret) }
 }
 
-export function mercadoPagoPointConfigured() {
-  return Boolean(getAccessToken() && String(process.env.MERCADO_PAGO_POINT_TERMINAL_ID || '').trim())
+export function getMercadoPagoPublicConfig() {
+  const config = onlineConfiguration()
+  return { configured: config.available, available: config.available, mode: config.mode, public_key: config.available ? config.publicKey : '', methods: config.available ? ['pix', 'credit_card', 'debit_card'] : [], max_installments: 1 }
+}
+export function mercadoPagoOnlineConfigured() { return onlineConfiguration().available }
+export function getMercadoPagoWebhookSecret() { const config = onlineConfiguration(); return config.available ? config.webhookSecret : '' }
+export function mercadoPagoPointConfigured() { return Boolean(text(process.env.MERCADO_PAGO_ACCESS_TOKEN) && text(process.env.MERCADO_PAGO_POINT_TERMINAL_ID)) }
+
+async function request(path, { accessToken, method = 'GET', body = null, idempotencyKey = '' } = {}) {
+  if (!accessToken) throw notConfigured()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    const response = await fetch(BASE_URL + path, {
+      method, redirect: 'error', signal: controller.signal,
+      headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}), Authorization: 'Bearer ' + accessToken, ...(idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    })
+    if (!response.ok) {
+      // Provider errors can contain tokens or identification data. They are
+      // deliberately not included in exceptions, logs or customer responses.
+      if (response.status >= 400 && response.status < 500 && ![408, 409, 423, 429].includes(response.status)) {
+        const error = new MercadoPagoError('PAYMENT_PROVIDER_REJECTED', [400, 422].includes(response.status) ? 400 : 503, 'O Mercado Pago não aceitou os dados deste pagamento. Confira os dados ou escolha outra forma de pagamento.')
+        error.providerStatus = response.status
+        throw error
+      }
+      throw unavailable()
+    }
+    const raw = await response.text()
+    let data
+    try { data = JSON.parse(raw) } catch { throw unavailable() }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw unavailable()
+    return data
+  } catch (error) {
+    if (error instanceof MercadoPagoError) throw error
+    throw unavailable()
+  } finally { clearTimeout(timer) }
 }
 
-async function mercadoPagoRequest(path, { method = 'GET', body = null, idempotencyKey = '' } = {}) {
-  const accessToken = getAccessToken()
-  if (!accessToken) throw new Error('Mercado Pago ainda não está configurado no servidor.')
+async function assertTestSeller(config) {
+  if (config.mode !== 'test') return
+  const key = createHash('sha256').update(config.accessToken + ':' + config.sellerId).digest('hex')
+  if ((testSellerCache.get(key) || 0) > Date.now()) return
+  if (!testSellerRequests.has(key)) testSellerRequests.set(key, (async () => {
+    // Do this before any POST. A mistyped production token must never create
+    // a real charge, regardless of its prefix or the configured mode label.
+    const seller = await request('/users/me', { accessToken: config.accessToken })
+    if (String(seller.id) !== config.sellerId || !Array.isArray(seller.tags) || !seller.tags.includes('test_user')) throw new MercadoPagoError('TEST_SELLER_REQUIRED', 503, 'As credenciais precisam pertencer ao vendedor de teste configurado.')
+    if (testSellerCache.size >= 8) testSellerCache.delete(testSellerCache.keys().next().value)
+    testSellerCache.set(key, Date.now() + 300000)
+  })().finally(() => testSellerRequests.delete(key)))
+  await testSellerRequests.get(key)
+}
+export async function verifyMercadoPagoTestSeller() {
+  const config = onlineConfiguration()
+  if (!config.available || config.mode !== 'test') throw notConfigured()
+  await assertTestSeller(config)
+  return { verified: true, seller_id: config.sellerId }
+}
 
-  const response = await fetch(MERCADO_PAGO_BASE_URL + path, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: 'Bearer ' + accessToken,
-      ...(idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {})
-    },
-    ...(body ? { body: JSON.stringify(body) } : {})
+function assertNoCardData(value, depth = 0) {
+  if (depth > 5) throw invalid()
+  if (!value || typeof value !== 'object') return
+  for (const [key, nested] of Object.entries(value)) {
+    if (/^(pan|cardnumber|securitycode|cvv|cvc|expirationdate|expirationmonth|expirationyear|cardexpirationmonth|cardexpirationyear)$/i.test(key.replace(/[_\s-]/g, ''))) throw invalid('Use os campos seguros do Mercado Pago para informar o cartão.')
+    if (nested && typeof nested === 'object') assertNoCardData(nested, depth + 1)
+  }
+}
+function cpf(value) {
+  const number = text(value).replace(/[.\-\s]/g, '')
+  if (!/^\d{11}$/.test(number) || /^(\d)\1{10}$/.test(number)) throw invalid('Informe um CPF válido para o pagamento.')
+  for (let size = 9; size <= 10; size++) {
+    const sum = [...number.slice(0, size)].reduce((total, digit, index) => total + Number(digit) * (size + 1 - index), 0)
+    const digit = (sum * 10) % 11
+    if (Number(number[size]) !== (digit === 10 ? 0 : digit)) throw invalid('Informe um CPF válido para o pagamento.')
+  }
+  return number
+}
+export function normalizeMercadoPagoPayment(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('Escolha a forma de pagamento.')
+  assertNoCardData(input)
+  const method = text(input.method)
+  if (!['pix', 'credit_card', 'debit_card'].includes(method)) throw invalid('Escolha Pix ou cartão para pagar.')
+  let identification
+  if (input.identification != null) {
+    if (input.identification.type !== 'CPF') throw invalid('Informe o CPF do titular.')
+    identification = { type: 'CPF', number: cpf(input.identification.number) }
+  }
+  if (method === 'pix') return { method, ...(identification ? { identification } : {}) }
+  const token = text(input.token)
+  const paymentMethodId = text(input.payment_method_id)
+  if (!/^[A-Za-z0-9_-]{20,256}$/.test(token) || /^\d{13,19}$/.test(token)) throw invalid('Preencha novamente os campos seguros do cartão.')
+  if (!/^[a-z][a-z0-9_]{1,39}$/.test(paymentMethodId) || ['pix', 'bolbradesco'].includes(paymentMethodId)) throw invalid('Não foi possível identificar a bandeira do cartão.')
+  if (!identification) throw invalid('Informe o CPF do titular.')
+  if (input.installments != null && Number(input.installments) !== 1) throw invalid('O pagamento com cartão está disponível em uma parcela.')
+  return { method, payment_method_id: paymentMethodId, token, installments: 1, identification }
+}
+
+function moneyCents(value, { allowZero = false } = {}) {
+  const number = Number(value)
+  if ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+(?:\.\d{1,2})?$/.test(String(value)) || !Number.isFinite(number) || number < 0 || (!allowZero && number === 0) || number > 10000000) throw invalid('O valor do pedido é inválido.')
+  return Math.round(number * 100)
+}
+function idempotency(value = randomUUID()) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) throw invalid('A tentativa de pagamento é inválida. Reabra o pedido para continuar.')
+  return value
+}
+function string(value, limit) {
+  const result = text(value)
+  if (!result || result.length > limit || /[\x00-\x1f\x7f]/.test(result)) throw invalid('Os dados do pedido estão incompletos.')
+  return result
+}
+function validateProviderOrder(order, config) {
+  if (!order || !/^[A-Za-z0-9_-]{1,160}$/.test(String(order.id || ''))) throw unavailable()
+  if (config.sellerId && String(order.user_id) !== config.sellerId) throw new MercadoPagoError('PAYMENT_SELLER_MISMATCH', 503, 'Não foi possível confirmar o vendedor deste pagamento.', { outcomeUnknown: true })
+  if (order.country_code != null && order.country_code !== 'MLB') throw unavailable()
+  return order
+}
+
+export async function createMercadoPagoOnlineOrder({ order, items, payment, idempotencyKey }) {
+  const config = onlineConfiguration()
+  if (!config.available) throw notConfigured()
+  const selection = normalizeMercadoPagoPayment(payment)
+  const key = idempotency(idempotencyKey)
+  const total = moneyCents(order?.total)
+  const shipping = order.shipping_fee == null ? 0 : moneyCents(order.shipping_fee, { allowZero: true })
+  const reference = string(order.code, 128)
+  const email = string(order.customer_email, 254)
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalid('O e-mail do comprador é inválido.')
+  if (!Array.isArray(items) || !items.length || items.length > 50) throw invalid('O pedido não possui itens válidos.')
+  let itemTotal = 0
+  const payloadItems = items.map(item => {
+    const quantity = Number(item.quantity)
+    const unit = moneyCents(item.unit_price)
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50 || moneyCents(item.line_total) !== unit * quantity) throw invalid('O valor dos itens do pedido é inválido.')
+    itemTotal += unit * quantity
+    return { id: 'P' + String(item.product_id) + (item.variant_id ? '-V' + String(item.variant_id) : ''), title: string(item.product_name, 180) + (item.size_label ? ' — ' + string(item.size_label, 40) : ''), quantity, unit_price: unit / 100 }
   })
-
-  const raw = await response.text()
-  let data = null
-  try { data = raw ? JSON.parse(raw) : null } catch {}
-
-  if (!response.ok) {
-    const message = data?.message || data?.error || ('Mercado Pago HTTP ' + response.status)
-    throw new Error(message)
-  }
-
-  return data || {}
-}
-
-export async function createMercadoPagoOnlineOrder({ order, items, idempotencyKey }) {
-  if (!mercadoPagoOnlineConfigured()) {
-    throw new Error('Pagamento online ainda não está configurado no GALEO.')
-  }
-
-  const baseUrl = String(process.env.APP_URL || '').trim().replace(/\/$/, '')
-  const firstName = String(order.customer_name || '').trim().split(/\s+/)[0] || 'Cliente'
-  const lastName = String(order.customer_name || '').trim().split(/\s+/).slice(1).join(' ') || ''
-  const shippingFee = Number(order.shipping_fee || 0)
-
+  if (itemTotal + shipping !== total) throw invalid('O total do pedido não corresponde aos itens e ao frete.')
+  if (shipping) payloadItems.push({ id: 'GALEO-SHIPPING', title: 'Frete', quantity: 1, unit_price: shipping / 100 })
+  const name = text(order.customer_name).split(/\s+/)
+  const address = { zip_code: text(order.postal_code).replace(/\D/g, ''), street_name: text(order.street), street_number: text(order.number), neighborhood: text(order.neighborhood), city: text(order.city), state: text(order.state) }
+  const paymentMethod = selection.method === 'pix'
+    ? { id: 'pix', type: 'bank_transfer' }
+    : { id: selection.payment_method_id, type: selection.method, token: selection.token, installments: 1 }
   const payload = {
-    type: 'online',
-    total_amount: Number(order.total).toFixed(2),
-    external_reference: String(order.code),
-    processing_mode: 'manual',
-    capture_mode: 'automatic_async',
-    expiration_time: 'P1D',
-    payer: {
-      email: String(order.customer_email || ''),
-      first_name: firstName,
-      ...(lastName ? { last_name: lastName } : {}),
-      phone: {
-        area_code: String(order.customer_phone || '').replace(/\D/g, '').slice(0, 2),
-        number: String(order.customer_phone || '').replace(/\D/g, '').slice(2, 13)
-      },
-      address: {
-        zip_code: String(order.postal_code || ''),
-        street_name: String(order.street || ''),
-        street_number: String(order.number || ''),
-        neighborhood: String(order.neighborhood || ''),
-        city: String(order.city || '')
-      }
-    },
-    config: {
-      online: {
-        success_url: baseUrl + '/carrinho?pagamento=sucesso&pedido=' + encodeURIComponent(order.code),
-        failure_url: baseUrl + '/carrinho?pagamento=falha&pedido=' + encodeURIComponent(order.code),
-        pending_url: baseUrl + '/carrinho?pagamento=pendente&pedido=' + encodeURIComponent(order.code),
-        auto_return: 'approved',
-        allowed_user_type: 'all'
-      }
-    },
-    items: items.map((item) => ({
-      external_code: 'P' + String(item.product_id) + (item.variant_id ? '-V' + String(item.variant_id) : ''),
-      title: String(item.product_name) + (item.size_label ? ' — ' + item.size_label : ''),
-      quantity: Number(item.quantity),
-      unit_price: Number(item.unit_price).toFixed(2),
-      unit_measure: 'unit',
-      total_amount: Number(item.line_total).toFixed(2)
-    })).concat(shippingFee > 0 ? [{
-      external_code: 'GALEO-SHIPPING',
-      title: 'Frete',
-      quantity: 1,
-      unit_price: shippingFee.toFixed(2),
-      unit_measure: 'unit',
-      total_amount: shippingFee.toFixed(2)
-    }] : []),
-    description: 'Pedido ' + String(order.code) + ' — GALEO Store'
+    type: 'online', processing_mode: 'automatic', capture_mode: 'automatic_async', total_amount: (total / 100).toFixed(2), external_reference: reference,
+    payer: { email, ...(name[0] ? { first_name: name[0], ...(name.length > 1 ? { last_name: name.slice(1).join(' ') } : {}) } : {}), ...(selection.identification ? { identification: selection.identification } : {}) },
+    transactions: { payments: [{ amount: (total / 100).toFixed(2), ...(selection.method === 'pix' ? { expiration_time: 'PT30M' } : {}), payment_method: paymentMethod }] },
+    items: payloadItems, description: 'Pedido ' + reference + ' — GALEO Store',
+    ...(address.zip_code && address.street_name ? { shipment: { address } } : {}),
+    ...(selection.method !== 'pix' ? { config: { online: { transaction_security: { validation: 'supported', liability_shift: 'not_required' } } } } : {})
   }
-
-  return mercadoPagoRequest('/v1/orders', {
-    method: 'POST',
-    body: payload,
-    idempotencyKey: idempotencyKey || randomBytes(16).toString('hex')
-  })
-}
-
-export async function createMercadoPagoPointOrder({ externalReference, amount, description, terminalId, idempotencyKey }) {
-  if (!mercadoPagoPointConfigured()) {
-    throw new Error('Mercado Pago Point ainda não está configurado no GALEO.')
-  }
-
-  const payload = {
-    type: 'point',
-    external_reference: String(externalReference),
-    expiration_time: 'PT16M',
-    transactions: {
-      payments: [{ amount: Number(amount).toFixed(2) }]
-    },
-    config: {
-      point: {
-        terminal_id: String(terminalId || process.env.MERCADO_PAGO_POINT_TERMINAL_ID),
-        print_on_terminal: 'no_ticket'
-      }
-    },
-    description: String(description || 'Venda GALEO')
-  }
-
-  return mercadoPagoRequest('/v1/orders', {
-    method: 'POST',
-    body: payload,
-    idempotencyKey: idempotencyKey || randomBytes(16).toString('hex')
-  })
+  await assertTestSeller(config)
+  const result = validateProviderOrder(await request('/v1/orders', { accessToken: config.accessToken, method: 'POST', body: payload, idempotencyKey: key }), config)
+  if (result.external_reference !== reference || moneyCents(result.total_amount) !== total) throw unavailable()
+  return result
 }
 
 export async function getMercadoPagoOrder(orderId) {
-  return mercadoPagoRequest('/v1/orders/' + encodeURIComponent(String(orderId)))
+  const config = onlineConfiguration()
+  if (!config.available) throw notConfigured()
+  if (!/^[A-Za-z0-9_-]{1,160}$/.test(String(orderId))) throw invalid('O pagamento informado é inválido.')
+  await assertTestSeller(config)
+  const result = validateProviderOrder(await request('/v1/orders/' + encodeURIComponent(String(orderId)), { accessToken: config.accessToken }), config)
+  if (String(result.id) !== String(orderId)) throw unavailable()
+  return result
+}
+
+export function mapMercadoPagoOrderStatus(order) {
+  const payment = order?.transactions?.payments?.[0] || {}
+  const statuses = [order?.status, payment.status].map(value => String(value || '').toLowerCase())
+  const details = [order?.status_detail, payment.status_detail].map(value => String(value || '').toLowerCase())
+  if (statuses.some(value => ['refunded', 'refund'].includes(value)) || details.includes('refunded')) return 'REFUNDED'
+  if (statuses.some(value => ['cancelled', 'canceled', 'expired'].includes(value)) || details.includes('expired')) return 'CANCELLED'
+  if (statuses.some(value => ['failed', 'rejected'].includes(value)) || details.some(value => /^rejected(?:_|$)/.test(value))) return 'REJECTED'
+  if (details.some(value => ['waiting_capture', 'pending_challenge', 'pending_review_manual', 'in_review', 'waiting_payment', 'waiting_transfer'].includes(value))) return 'PENDING'
+  if ((statuses.includes('processed') || statuses.includes('approved')) && details.includes('accredited')) {
+    const paid = order?.total_paid_amount ?? payment.paid_amount
+    if (paid != null && (!Number.isFinite(Number(paid)) || !Number.isFinite(Number(order?.total_amount)) || Number(order.total_amount) <= 0 || Math.round(Number(paid) * 100) !== Math.round(Number(order.total_amount) * 100))) return 'PENDING'
+    return 'APPROVED'
+  }
+  return 'PENDING'
+}
+
+function safeRedirect(value) {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !/(^|\.)mercadopago\.(com|com\.br)$/.test(url.hostname)) return ''
+    return url.href.length <= 4096 ? url.href : ''
+  } catch { return '' }
+}
+function safeQrImage(value) {
+  if (typeof value !== 'string' || value.length > 524288) return ''
+  const raw = value.replace(/^data:image\/png;base64,/, '')
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) return ''
+  const bytes = Buffer.from(raw, 'base64')
+  return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? raw : ''
+}
+const boundedProviderText = (value, max) => typeof value === 'string' && value.length <= max && !/[\x00-\x1f\x7f]/.test(value) ? value : ''
+export function mercadoPagoPaymentForClient(order) {
+  const payment = order?.transactions?.payments?.[0] || {}
+  const method = payment.payment_method || {}
+  const expires = typeof payment.date_of_expiration === 'string' ? Date.parse(payment.date_of_expiration) : NaN
+  return {
+    provider_reference: /^[A-Za-z0-9_-]{1,160}$/.test(String(order?.id || '')) ? String(order.id) : '',
+    status: mapMercadoPagoOrderStatus(order),
+    provider_status: boundedProviderText(order?.status, 60), status_detail: boundedProviderText(order?.status_detail || payment.status_detail, 80),
+    method: method.id === 'pix' ? 'pix' : ['credit_card', 'debit_card'].includes(method.type) ? method.type : '',
+    qr_code: method.id === 'pix' ? boundedProviderText(method.qr_code, 8192) : '',
+    qr_code_base64: method.id === 'pix' ? safeQrImage(method.qr_code_base64) : '',
+    redirect_url: method.transaction_security?.status === 'pending' ? safeRedirect(method.transaction_security.redirect_url) : '',
+    expires_at: Number.isFinite(expires) ? new Date(expires).toISOString() : null
+  }
 }
 
 export function validateMercadoPagoWebhookSignature({ signature, requestId, dataId, secret }) {
-  if (!signature || !secret) return false
-
-  let timestamp = ''
-  let receivedHash = ''
-  for (const part of String(signature).split(',')) {
-    const [key, ...rest] = part.split('=')
-    const value = rest.join('=').trim()
-    if (key?.trim() === 'ts') timestamp = value
-    if (key?.trim() === 'v1') receivedHash = value
-  }
-
-  if (!timestamp || !receivedHash) return false
-
-  const manifest = 'id:' + String(dataId || '') + ';request-id:' + String(requestId || '') + ';ts:' + timestamp + ';'
-  const expectedHash = createHmac('sha256', secret).update(manifest).digest('hex')
-
-  const received = Buffer.from(receivedHash, 'utf8')
-  const expected = Buffer.from(expectedHash, 'utf8')
-  if (received.length !== expected.length || received.length === 0) return false
-  return timingSafeEqual(received, expected)
+  if (typeof signature !== 'string' || typeof secret !== 'string' || !secret || typeof requestId !== 'string' || !requestId || !/^[A-Za-z0-9_-]{1,160}$/.test(String(dataId || ''))) return false
+  const fields = Object.fromEntries(signature.split(',').map(part => { const [key, ...rest] = part.split('='); return [key.trim(), rest.join('=').trim()] }))
+  if (!/^\d{1,16}$/.test(fields.ts || '') || !/^[0-9a-f]{64}$/i.test(fields.v1 || '')) return false
+  // MP signs alphanumeric notification IDs in lowercase, even when the
+  // supplied Order ID contains uppercase letters.
+  const manifest = 'id:' + String(dataId).toLowerCase() + ';request-id:' + requestId + ';ts:' + fields.ts + ';'
+  const expected = createHmac('sha256', secret).update(manifest).digest()
+  const received = Buffer.from(fields.v1, 'hex')
+  return received.length === expected.length && timingSafeEqual(received, expected)
 }
 
-
+// Point remains an independent integration. Online test mode never selects
+// a production Point terminal or its access token.
+export async function createMercadoPagoPointOrder({ externalReference, amount, description, terminalId, idempotencyKey }) {
+  if (!mercadoPagoPointConfigured()) throw notConfigured()
+  const payload = { type: 'point', external_reference: String(externalReference), expiration_time: 'PT16M', transactions: { payments: [{ amount: Number(amount).toFixed(2) }] }, config: { point: { terminal_id: String(terminalId || process.env.MERCADO_PAGO_POINT_TERMINAL_ID), print_on_terminal: 'no_ticket' } }, description: String(description || 'Venda GALEO') }
+  return request('/v1/orders', { accessToken: text(process.env.MERCADO_PAGO_ACCESS_TOKEN), method: 'POST', body: payload, idempotencyKey: idempotencyKey || randomUUID() })
+}
 export async function listMercadoPagoTerminals({ storeId = '', posId = '' } = {}) {
   const params = new URLSearchParams({ limit: '50', offset: '0' })
   if (storeId) params.set('store_id', String(storeId))
   if (posId) params.set('pos_id', String(posId))
-  return mercadoPagoRequest('/terminals/v1/list?' + params.toString())
+  return request('/terminals/v1/list?' + params, { accessToken: text(process.env.MERCADO_PAGO_ACCESS_TOKEN) })
 }
-
 export async function configureMercadoPagoTerminal(terminalId, operatingMode = 'PDV') {
-  if (!mercadoPagoOnlineConfigured()) throw new Error('Mercado Pago ainda não está configurado no servidor.')
-  return mercadoPagoRequest('/terminals/v1/setup', {
-    method: 'PATCH',
-    body: {
-      terminals: [{ id: String(terminalId), operating_mode: String(operatingMode).toUpperCase() }]
-    }
-  })
+  if (!text(process.env.MERCADO_PAGO_ACCESS_TOKEN)) throw notConfigured()
+  return request('/terminals/v1/setup', { accessToken: text(process.env.MERCADO_PAGO_ACCESS_TOKEN), method: 'PATCH', body: { terminals: [{ id: String(terminalId), operating_mode: String(operatingMode).toUpperCase() }] } })
 }

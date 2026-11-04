@@ -38,7 +38,9 @@ import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
-import { mercadoPagoOnlineConfigured, mercadoPagoPointConfigured, createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, getMercadoPagoOrder, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
+import { mercadoPagoOnlineConfigured, mercadoPagoPointConfigured, createMercadoPagoPointOrder, getMercadoPagoOrder, getMercadoPagoWebhookSecret, mapMercadoPagoOrderStatus, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
+import { registerOnlinePayments } from './online-payments.js'
+import { createPaymentReservationExpiry } from './payment-reservations.js'
 import {
   configurarPersistenciaSessao,
   normalizarManterConectado,
@@ -193,7 +195,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com', 'https://api.cloudinary.com'],
+      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com', 'https://api.cloudinary.com', 'https://api.mercadopago.com', 'https://events.mercadopago.com', 'https://http2.mlstatic.com'],
+      scriptSrc: ["'self'", 'https://sdk.mercadopago.com', 'https://www.mercadopago.com', 'https://www.mercadopago.com.br', 'https://http2.mlstatic.com'],
+      frameSrc: ['https://sdk.mercadopago.com', 'https://secure-fields.mercadopago.com', 'https://www.mercadopago.com', 'https://www.mercadopago.com.br', 'https://http2.mlstatic.com'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
       mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
       objectSrc: ["'none'"],
@@ -260,6 +264,8 @@ const limitarConfirmacaoEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maxim
 const limitarReenvioEmail = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-email-resend' })
 const limitarCotacaoFrete = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 30, prefixo: 'shipping-quotes' })
 const limitarConsultaCep = criarLimitador({ janelaMs: 60 * 1000, maximo: 30, prefixo: 'postal-code-lookup' })
+const limitarPagamento = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 20, prefixo: 'online-payment-attempts' })
+const limitarStatusPagamento = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 180, prefixo: 'online-payment-status' })
 
 const Store = MySQLStoreFactory(session)
 // Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
@@ -927,16 +933,6 @@ async function devolverReservaPedido(conn, order, userId = null) {
   }
 }
 
-function mapMercadoPagoStatus(status, statusDetail = '') {
-  const value = String(status || '').toLowerCase()
-  const detail = String(statusDetail || '').toLowerCase()
-  if (value === 'processed' || value === 'approved' || detail === 'accredited') return 'APPROVED'
-  if (value === 'refunded' || value === 'refund') return 'REFUNDED'
-  if (value === 'cancelled' || value === 'canceled') return 'CANCELLED'
-  if (value === 'failed' || value === 'rejected') return 'REJECTED'
-  return 'PENDING'
-}
-
 function mapPaymentMethod(paymentMethod) {
   const value = String(paymentMethod || '').toLowerCase()
   if (value === 'pix') return 'PIX'
@@ -981,21 +977,21 @@ async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
     [accountRows[0].id, categoryRows[0].id, 'RECEITA', 'Venda ' + saleCode, Number(order.total), 'sale:' + saleId],
     { description: 3 }
   )
-  await conn.execute("UPDATE payments SET sale_id=?,status='APPROVED',paid_at=COALESCE(paid_at,NOW()) WHERE store_order_id=? AND provider='MERCADO_PAGO'", [saleId, orderId])
+  await conn.execute("UPDATE payments SET sale_id=?,status='APPROVED',paid_at=COALESCE(paid_at,NOW()) WHERE store_order_id=? AND provider='MERCADO_PAGO' AND provider_reference=?", [saleId, orderId, order.payment_reference])
   await conn.execute("UPDATE store_orders SET status=CASE WHEN status='RECEIVED' THEN 'CONFIRMED' ELSE status END,payment_status='APPROVED',paid_at=COALESCE(paid_at,NOW()),sale_id=? WHERE id=?", [saleId, orderId])
   return { saleId, saleCode, code: order.code, total: Number(order.total), customerEmail: order.customer_email, customerName: order.customer_name, created: true }
 }
 
-async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) {
+async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder, allowPendingBinding = false }) {
   const externalReference = String(mpOrder?.external_reference || '').trim()
   if (!externalReference) return { ignored: true, reason: 'sem_external_reference' }
   const orderRows = await query('SELECT id FROM store_orders WHERE code=? LIMIT 1', [externalReference])
   if (!orderRows.length) return { ignored: true, reason: 'pedido_nao_encontrado' }
   const orderId = Number(orderRows[0].id)
   const payment = mpOrder?.transactions?.payments?.[0] || {}
-  const status = mapMercadoPagoStatus(mpOrder?.status || payment.status, mpOrder?.status_detail || payment.status_detail)
+  const status = mapMercadoPagoOrderStatus(mpOrder)
   const providerReference = String(mpOrder?.id || '')
-  const method = String(payment?.payment_method?.type || payment?.payment_method?.id || '')
+  const method = String(payment?.payment_method?.id === 'pix' ? 'pix' : payment?.payment_method?.type || '')
   const amount = Number(mpOrder?.total_amount || payment?.amount || 0)
   const conn = await db.getConnection()
   let promoted = null
@@ -1009,8 +1005,63 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
     const [lockedOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE', [orderId])
     const originalOrder = privacy.decodeRow('store_orders', lockedOrders[0])
     if (!originalOrder) throw new Error('Pedido online não encontrado.')
+    let [boundPayments] = await conn.execute("SELECT id,sale_id FROM payments WHERE provider='MERCADO_PAGO' AND provider_reference=? AND store_order_id=? FOR UPDATE", [providerReference, orderId])
+    if (!boundPayments.length && allowPendingBinding) {
+      // Only the signed webhook path may recover a lost creation response.
+      // The resource was fetched with the configured seller's credentials.
+      // Exactly one committed unresolved attempt must match this order,
+      // amount and payment method; no new charge is submitted here.
+      const [unresolved] = await conn.execute("SELECT id,method,created_at FROM payments WHERE provider='MERCADO_PAGO' AND store_order_id=? AND status='PENDING' AND provider_reference IS NULL FOR UPDATE", [orderId])
+      const created = Date.parse(mpOrder.created_date || '')
+      const attemptCreated = unresolved[0]?.created_at ? new Date(unresolved[0].created_at).getTime() : NaN
+      if (unresolved.length === 1 && unresolved[0].method === method && Number.isFinite(amount) &&
+          Math.round(amount * 100) === Math.round(Number(originalOrder.total) * 100) &&
+          !(Number.isFinite(created) && Number.isFinite(attemptCreated) && created < attemptCreated - 300000)) {
+        await conn.execute("UPDATE payments SET provider_reference=? WHERE id=? AND provider_reference IS NULL AND status='PENDING'", [providerReference, unresolved[0].id])
+        boundPayments = [{ id: unresolved[0].id, sale_id: null }]
+        const [latestAttempts] = await conn.execute("SELECT id FROM payments WHERE provider='MERCADO_PAGO' AND store_order_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE", [orderId])
+        if (Number(latestAttempts[0]?.id) === Number(unresolved[0].id) && !originalOrder.sale_id &&
+            !['APPROVED', 'REFUNDED'].includes(originalOrder.payment_status) && originalOrder.status !== 'CANCELLED') {
+          // The first attempt may have failed before this ambiguous retry.
+          // Treat the recovered latest attempt as current so its pending QR
+          // and subsequent approval are persisted, rather than ignored as old.
+          originalOrder.payment_reference = providerReference
+        }
+      }
+    }
+    if (!boundPayments.length) throw new Error('Tentativa de pagamento ainda não vinculada ao pedido.')
+    if (mpOrder.country_code && mpOrder.country_code !== 'MLB') throw new Error('País do pagamento inválido.')
     if (status === 'APPROVED' && Math.round(amount * 100) !== Math.round(Number(originalOrder.total) * 100)) {
       throw new Error('O valor aprovado não corresponde ao total do pedido.')
+    }
+    if (status === 'APPROVED' && Math.round(Number(mpOrder.total_paid_amount) * 100) !== Math.round(Number(originalOrder.total) * 100)) {
+      throw new Error('O valor efetivamente pago não corresponde ao pedido.')
+    }
+    const olderAttempt = originalOrder.payment_reference && originalOrder.payment_reference !== providerReference
+    if (olderAttempt && !['APPROVED', 'REFUNDED'].includes(status)) {
+      await conn.execute('UPDATE payments SET status=? WHERE id=?', [status, boundPayments[0].id])
+      await conn.execute("UPDATE integration_events SET processed_at=NOW() WHERE provider='MERCADO_PAGO' AND event_id=?", [eventId])
+      await conn.commit()
+      return { ignored: true, reason: 'tentativa_anterior' }
+    }
+    // A refund belongs to the attempt which funded this sale, never a failed
+    // or replaced attempt from the same shopping order.
+    if (olderAttempt && status === 'REFUNDED') {
+      await conn.execute("UPDATE payments SET status='REFUNDED' WHERE id=?", [boundPayments[0].id])
+      await conn.execute("UPDATE integration_events SET processed_at=NOW() WHERE provider='MERCADO_PAGO' AND event_id=?", [eventId])
+      await conn.commit()
+      return { ignored: true, reason: 'estorno_de_outra_tentativa' }
+    }
+    if (olderAttempt && status === 'APPROVED' && originalOrder.sale_id) {
+      await conn.execute("UPDATE payments SET status='APPROVED',paid_at=COALESCE(paid_at,NOW()) WHERE id=?", [boundPayments[0].id])
+      await conn.execute("UPDATE integration_events SET processed_at=NOW() WHERE provider='MERCADO_PAGO' AND event_id=?", [eventId])
+      await conn.commit()
+      return { reconciliationRequired: true, reason: 'mais_de_um_pagamento_aprovado' }
+    }
+    if (originalOrder.status === 'CANCELLED' && !['APPROVED', 'REFUNDED'].includes(status)) {
+      await conn.execute("UPDATE integration_events SET processed_at=NOW() WHERE provider='MERCADO_PAGO' AND event_id=?", [eventId])
+      await conn.commit()
+      return { ignored: true, reason: 'pedido_cancelado' }
     }
     if ((originalOrder.payment_status === 'REFUNDED' && status !== 'REFUNDED') ||
         (originalOrder.payment_status === 'APPROVED' && !['APPROVED', 'REFUNDED'].includes(status))) {
@@ -1031,6 +1082,9 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
     } else if (status === 'APPROVED') {
       reconciliationRequired = true
       console.error('Pagamento aprovado após cancelamento; conciliação necessária:', originalOrder.code)
+    } else if (status === 'CANCELLED') {
+      await devolverReservaPedido(conn, originalOrder)
+      await conn.execute("UPDATE store_orders SET status='CANCELLED',payment_status='CANCELLED' WHERE id=?", [orderId])
     } else if (status === 'REFUNDED') {
       const [refundOrderRows]=await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE',[orderId])
       const refundOrder=privacy.decodeRow('store_orders', refundOrderRows[0])
@@ -1066,6 +1120,11 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder }) 
   })
   return { ignored: false, status, promoted, reconciliation_required: reconciliationRequired }
 }
+
+const paymentReservationExpiry = createPaymentReservationExpiry({
+  db, query, privacy, restoreReservation: devolverReservaPedido,
+  getProviderOrder: getMercadoPagoOrder, processProviderOrder: processarNotificacaoMercadoPago
+})
 
 async function exigirCliente(req,res,next) {
   if (!req.session.customerId) return res.status(401).json({ success:false,authenticated:false,error:'Faça login para continuar.' })
@@ -1532,10 +1591,11 @@ app.put('/api/customer/profile', exigirCliente, async (req,res) => {
 
 app.get('/api/customer/orders', exigirCliente, async (req,res) => {
   try {
-    const orders=await query('SELECT id,code,status,subtotal,shipping_fee,total,created_at,updated_at FROM store_orders WHERE customer_id=? ORDER BY id DESC',[req.customer.id])
+    const orders=await query('SELECT id,code,status,payment_status,payment_method,sale_id,subtotal,shipping_fee,total,created_at,updated_at FROM store_orders WHERE customer_id=? ORDER BY id DESC',[req.customer.id])
     const allItems=orders.length ? await query('SELECT id,order_id,product_id,variant_id,size_label,product_name AS name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id IN ('+orders.map(()=>'?').join(',')+') ORDER BY id',orders.map(order=>order.id)) : []
     for(const order of orders) {
       order.items=allItems.filter(item=>Number(item.order_id)===Number(order.id))
+      order.payment_available=mercadoPagoOnlineConfigured() && !order.sale_id && !['APPROVED','REFUNDED'].includes(order.payment_status) && order.status!=='CANCELLED'
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
     }
     res.json({success:true,orders})
@@ -1593,6 +1653,7 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     const orderResult=await insertPrivateBusiness(conn, 'store_orders', insertSql,
       [code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state],
       { customer_name:2, customer_email:3, customer_phone:4, postal_code:8, street:9, number:10, complement:11, neighborhood:12, city:13, state:14 })
+    if (mercadoPagoOnlineConfigured()) await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO' WHERE id=?", [orderResult.insertId])
     if (delivery.details) await conn.execute('UPDATE store_orders SET shipping_details=? WHERE id=?', [JSON.stringify(delivery.details),orderResult.insertId])
     for(const line of lines){
       await conn.execute('INSERT INTO store_order_items(order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?,?,?)',[orderResult.insertId,line.product_id,line.variant_id,line.size_label,line.product_name,line.brand,line.quantity,line.unit_price,line.line_total])
@@ -1614,72 +1675,31 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
   } finally { conn.release() }
 })
 
-app.post('/api/store/orders/:id/payment', exigirCliente, async (req,res) => {
-  const orderId=Number(req.params.id)
-  if(!Number.isInteger(orderId)||orderId<=0) return res.status(400).json({error:'Pedido inválido.'})
-  try {
-    const orders=await query('SELECT * FROM store_orders WHERE id=? AND customer_id=? LIMIT 1',[orderId,req.customer.id])
-    if(!orders.length) return res.status(404).json({error:'Pedido não encontrado.'})
-    const order=orders[0]
-    if(order.sale_id || order.payment_status==='APPROVED') return res.json({success:true,paid:true,order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
-    if(order.status==='CANCELLED') return res.status(409).json({error:'Este pedido está cancelado.'})
-    if (!mercadoPagoOnlineConfigured()) return res.json({success:true,payment_configured:false,checkout_url:'',order:{id:order.id,code:order.code,status:order.status,payment_status:order.payment_status}})
-    const existing=await query("SELECT id,private_data,provider_reference,payment_url FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' AND status='PENDING' ORDER BY id DESC LIMIT 1",[orderId])
-    if(existing.length && existing[0].payment_url) return res.json({success:true,checkout_url:existing[0].payment_url,payment_reference:existing[0].provider_reference})
-    const items=await query('SELECT product_id,variant_id,size_label,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id',[orderId])
-    const mpOrder=await createMercadoPagoOnlineOrder({order,items,idempotencyKey:'galeo-order-'+orderId})
-    const conn=await db.getConnection()
-    try {
-      await conn.beginTransaction()
-      const [currentOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? AND customer_id=? FOR UPDATE', [orderId, req.customer.id])
-      const currentOrder = privacy.decodeRow('store_orders', currentOrders[0])
-      if (!currentOrder) throw new Error('Pedido não encontrado.')
-      if (currentOrder.status === 'CANCELLED' || currentOrder.payment_status === 'REFUNDED') {
-        await conn.rollback()
-        return res.status(409).json({error:'Este pedido está cancelado.'})
-      }
-      if (currentOrder.sale_id || currentOrder.payment_status === 'APPROVED') {
-        await conn.commit()
-        return res.json({success:true,paid:true,order:{id:currentOrder.id,code:currentOrder.code,status:currentOrder.status,payment_status:currentOrder.payment_status}})
-      }
-      const paymentPrivate = { raw_payload:JSON.stringify(mpOrder), payment_url:String(mpOrder.checkout_url||'') }
-      const pendingPayment = privacy.pendingFields('payments', paymentPrivate)
-      await conn.execute(
-        "INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload,payment_url) VALUES('ONLINE',?,'CHECKOUT_PRO','MERCADO_PAGO',?,'PENDING',?,?,?,?) ON DUPLICATE KEY UPDATE provider_reference=VALUES(provider_reference),raw_payload=VALUES(raw_payload),payment_url=VALUES(payment_url)",
-        [orderId,String(mpOrder.id||''),Number(order.total),'galeo-order-'+orderId,pendingPayment.raw_payload,pendingPayment.payment_url]
-      )
-      const [paymentRows] = await conn.execute('SELECT id FROM payments WHERE idempotency_key=? FOR UPDATE', ['galeo-order-'+orderId])
-      await privacy.updateFields('payments', paymentRows[0].id, paymentPrivate, conn)
-      await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO',payment_method='CHECKOUT_PRO',payment_reference=?,payment_status='PENDING' WHERE id=?",[String(mpOrder.id||''),orderId])
-      await privacy.updateFields('store_orders', orderId, { payment_url:String(mpOrder.checkout_url||'') }, conn)
-      await conn.commit()
-    }catch(error){ await conn.rollback().catch(()=>{}); throw error } finally { conn.release() }
-    res.json({success:true,checkout_url:String(mpOrder.checkout_url||''),payment_reference:String(mpOrder.id||''),order:{id:order.id,code:order.code,payment_status:'PENDING'}})
-  } catch(error) {
-    console.error('Erro ao iniciar pagamento Mercado Pago:',error)
-    res.status(400).json({error:error.message||'Não foi possível iniciar o pagamento.'})
-  }
-})
+registerOnlinePayments(app, { db, query, privacy, exigirCliente, processProviderOrder: processarNotificacaoMercadoPago, limiter: limitarPagamento, statusLimiter: limitarStatusPagamento })
 
 app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
-  const secret=String(process.env.MERCADO_PAGO_WEBHOOK_SECRET||'').trim()
+  const secret=getMercadoPagoWebhookSecret()
   if(!secret) return res.status(503).json({error:'Webhook Mercado Pago ainda não está configurado.'})
   const signature=req.get('x-signature')||''
   const requestId=req.get('x-request-id')||''
-  const dataId=String(req.query['data.id']||req.body?.data?.id||'')
+  const queryId=req.query['data.id']
+  const bodyId=req.body?.data?.id
+  if (queryId != null && bodyId != null && String(queryId)!==String(bodyId)) return res.status(400).json({error:'Identificador de notificação inválido.'})
+  const dataId=String(queryId||bodyId||'')
   const valid=validateMercadoPagoWebhookSignature({signature,requestId,dataId,secret})
   if(!valid) return res.status(401).json({error:'Assinatura de webhook inválida.'})
   const eventId=String(req.body?.id||req.get('x-request-id')||('mp-'+dataId+'-'+String(req.body?.date_created||Date.now())))
   const eventType=String(req.body?.type||req.query.type||'order')
+  if (!['order','orders'].includes(eventType)) return res.status(200).json({received:true,ignored:true})
   const existing=await query('SELECT id FROM integration_events WHERE provider=? AND event_id=? AND processed_at IS NOT NULL LIMIT 1',['MERCADO_PAGO',eventId])
   if(existing.length) return res.status(200).json({received:true,duplicate:true})
   try {
     if(!dataId) return res.status(200).json({received:true,ignored:true})
     const mpOrder=await getMercadoPagoOrder(dataId)
-    const result=await processarNotificacaoMercadoPago({eventId,eventType,mpOrder})
+    const result=await processarNotificacaoMercadoPago({eventId,eventType,mpOrder,allowPendingBinding:true})
     return res.status(200).json({received:true,...result})
   } catch(error) {
-    console.error('Erro no webhook Mercado Pago:',error)
+    console.error('Erro no webhook Mercado Pago:',error?.code || 'PAYMENT_CONFIRMATION_FAILED')
     return res.status(500).json({error:'Não foi possível processar o webhook.'})
   }
 })
@@ -1772,6 +1792,7 @@ app.get('/api/admin/store-orders', async (req,res) => {
     const allItems=orders.length ? await query('SELECT id,order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id IN ('+orders.map(()=>'?').join(',')+') ORDER BY id',orders.map(order=>order.id)) : []
     for(const order of orders){
       order.items=allItems.filter(item=>Number(item.order_id)===Number(order.id))
+      order.payment_available=mercadoPagoOnlineConfigured() && !order.sale_id && !['APPROVED','REFUNDED'].includes(order.payment_status) && order.status!=='CANCELLED'
       order.status_label=({RECEIVED:'Recebido',CONFIRMED:'Confirmado',PREPARING:'Em preparação',SHIPPED:'Enviado',DELIVERED:'Entregue',CANCELLED:'Cancelado'})[order.status]||order.status
     }
     res.json(orders)
@@ -2783,7 +2804,8 @@ export async function runMaintenance() {
   await auditRetention.run()
   const [sessions] = await db.execute('DELETE FROM sessions WHERE expires<UNIX_TIMESTAMP()')
   const rateLimits = await pruneRateLimits(db)
-  return { success: true, expired_sessions: Number(sessions.affectedRows || 0), expired_rate_limits: rateLimits }
+  const paymentReservations = mercadoPagoOnlineConfigured() ? await paymentReservationExpiry.expire() : null
+  return { success: true, expired_sessions: Number(sessions.affectedRows || 0), expired_rate_limits: rateLimits, payment_reservations: paymentReservations }
 }
 
 export async function closeRuntime() {

@@ -18,6 +18,7 @@ const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
 const CartPage = lazy(() => import('./CartPage'))
 const AccountPage = lazy(() => import('./AccountPage'))
+const MercadoPagoCheckout = lazy(() => import('./MercadoPagoCheckout'))
 import { activeProductVariants, compareSizes } from './productVariants'
 import './product-variants.css'
 
@@ -835,6 +836,7 @@ export default function App() {
         <Route path="/conta" element={<AccountPage />} />
         <Route path="/newsletter" element={<NewsletterConfirmation />} />
         <Route path="/carrinho" element={<CartPage />} />
+        <Route path="/pagamento/:orderId" element={<MercadoPagoCheckout />} />
       </Routes></Suspense>
       {!adminRoute && <StoreFooter footer={siteSettings.footer} />}
     </div>

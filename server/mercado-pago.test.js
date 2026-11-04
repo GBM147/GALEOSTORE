@@ -1,0 +1,244 @@
+import assert from 'node:assert/strict'
+import { createHmac, randomUUID } from 'node:crypto'
+import test from 'node:test'
+import { createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, getMercadoPagoOrder, getMercadoPagoPublicConfig, getMercadoPagoWebhookSecret, mapMercadoPagoOrderStatus, mercadoPagoOnlineConfigured, mercadoPagoPaymentForClient, mercadoPagoPointConfigured, normalizeMercadoPagoPayment, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
+
+const keys = ['MERCADO_PAGO_MODE', 'MERCADO_PAGO_ACCESS_TOKEN', 'MERCADO_PAGO_PUBLIC_KEY', 'MERCADO_PAGO_WEBHOOK_SECRET', 'MERCADO_PAGO_LIVE_PAYMENTS_ENABLED', 'MERCADO_PAGO_SELLER_ID', 'MERCADO_PAGO_POINT_TERMINAL_ID', 'GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN', 'GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY', 'GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET', 'MERCADO_PAGO_TEST_SELLER_ID', 'MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED', 'DB_NAME', 'APP_URL']
+const order = { id: 1, code: 'GALEO-LOCAL', customer_email: 'buyer-local@example.invalid', customer_name: 'Pessoa local', customer_phone: '11999999999', postal_code: '01001-000', street: 'Praça local', number: '20', neighborhood: 'Centro', city: 'São Paulo', state: 'SP', total: '121.35', shipping_fee: '21.35' }
+const items = [{ product_id: 11, variant_id: 21, size_label: 'M', product_name: 'Peça local', quantity: 2, unit_price: '50.00', line_total: '100.00' }]
+const card = () => ({ method: 'credit_card', payment_method_id: 'visa', token: 'local-card-token-' + randomUUID(), installments: 1, identification: { type: 'CPF', number: '123.456.789-09' } })
+const response = (value, status = 200) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(value) })
+const rawOrder = (overrides = {}) => ({ id: 'ORDLOCAL123', user_id: 42, country_code: 'MLB', external_reference: order.code, total_amount: order.total, status: 'action_required', status_detail: 'waiting_transfer', transactions: { payments: [{ id: 'PAYLOCAL', amount: order.total, status: 'action_required', status_detail: 'waiting_transfer', date_of_expiration: '2030-11-03T16:30:00.000Z', payment_method: { id: 'pix', type: 'bank_transfer', qr_code: '000201PIX-LOCAL' } }] }, ...overrides })
+
+async function fixture(run, overrides = {}) {
+  const environment = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+  const previousFetch = globalThis.fetch
+  for (const key of keys) delete process.env[key]
+  Object.assign(process.env, { MERCADO_PAGO_MODE: 'test', GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN: 'local-test-' + randomUUID(), GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: 'local-public-key', GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET: 'local-webhook-secret', MERCADO_PAGO_TEST_SELLER_ID: '42', MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED: 'true', DB_NAME: 'galeo_payment_test', APP_URL: 'http://127.0.0.1:10001', ...overrides })
+  const calls = []
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response(rawOrder(), 201) }
+  try { return await run(calls) }
+  finally {
+    globalThis.fetch = previousFetch
+    for (const [key, value] of Object.entries(environment)) value === undefined ? delete process.env[key] : process.env[key] = value
+  }
+}
+
+test('online payments remain disabled when only an old access token is configured', async () => fixture(async calls => {
+  process.env.MERCADO_PAGO_MODE = ''
+  process.env.MERCADO_PAGO_ACCESS_TOKEN = 'legacy-token'
+  assert.equal(mercadoPagoOnlineConfigured(), false)
+  assert.deepEqual(getMercadoPagoPublicConfig(), { configured: false, available: false, mode: 'disabled', public_key: '', methods: [], max_installments: 1 })
+  assert.equal(getMercadoPagoWebhookSecret(), '')
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'PAYMENT_NOT_CONFIGURED' })
+  assert.equal(calls.length, 0)
+}))
+
+test('test configuration requires separate database/origin, all credentials and deliberate test seller configuration', async () => fixture(async calls => {
+  assert.equal(mercadoPagoOnlineConfigured(), true)
+  const cases = [ ['DB_NAME', 'galeo_store'], ['APP_URL', 'https://galeo-store.netlify.app'], ['APP_URL', 'https://galeo-store.onrender.com'], ['APP_URL', 'http://external.example.invalid'], ['APP_URL', 'https://person:password@staging.example.invalid'], ['MERCADO_PAGO_TEST_SELLER_ID', ''], ['MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED', 'false'], ['GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN', ''], ['GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY', ''], ['GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET', ''] ]
+  for (const [key, value] of cases) {
+    const previous = process.env[key]; process.env[key] = value
+    assert.equal(mercadoPagoOnlineConfigured(), false, key)
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'PAYMENT_NOT_CONFIGURED' })
+    process.env[key] = previous
+  }
+  assert.equal(calls.length, 0)
+}))
+
+test('production requires explicit live enablement and exposes only the public key', async () => fixture(async () => {
+  Object.assign(process.env, { MERCADO_PAGO_MODE: 'production', MERCADO_PAGO_ACCESS_TOKEN: 'live-private-token', MERCADO_PAGO_PUBLIC_KEY: 'live-public-key', MERCADO_PAGO_WEBHOOK_SECRET: 'live-webhook-secret', APP_URL: 'https://galeo-store.netlify.app' })
+  assert.equal(mercadoPagoOnlineConfigured(), false)
+  process.env.MERCADO_PAGO_LIVE_PAYMENTS_ENABLED = 'true'
+  const config = getMercadoPagoPublicConfig()
+  assert.equal(config.available, true)
+  assert.equal(config.public_key, 'live-public-key')
+  assert.deepEqual(config.methods, ['pix', 'credit_card', 'debit_card'])
+  assert.equal(config.max_installments, 1)
+  assert.equal(getMercadoPagoWebhookSecret(), 'live-webhook-secret')
+  assert.equal(JSON.stringify(config).includes('private-token'), false)
+  assert.equal(JSON.stringify(config).includes('webhook-secret'), false)
+}))
+
+test('test mode checks the actual seller before attempting any payment POST', async () => fixture(async calls => {
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ id: 42, tags: [] }) }
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED', outcomeUnknown: false })
+  assert.deepEqual(calls.map(call => [call.url, call.options.method]), [['https://api.mercadopago.com/users/me', 'GET']])
+}))
+
+test('a different seller test account cannot be used even with the test_user tag', async () => fixture(async calls => {
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ id: 99, tags: ['test_user'] }) }
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED' })
+  assert.equal(calls.some(call => call.options.method === 'POST'), false)
+}))
+
+test('Pix follows Orders API automatic processing and transaction expiry with server-owned amount/items/payer', async () => fixture(async calls => {
+  const idempotencyKey = randomUUID()
+  const result = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix', amount: '0.01', email: 'forged@example.invalid' }, idempotencyKey })
+  assert.equal(result.id, 'ORDLOCAL123')
+  assert.equal(calls[0].url, 'https://api.mercadopago.com/users/me')
+  const post = calls[1]
+  assert.equal(post.url, 'https://api.mercadopago.com/v1/orders')
+  assert.equal(post.options.headers['X-Idempotency-Key'], idempotencyKey)
+  assert.equal(post.options.redirect, 'error')
+  assert.ok(post.options.signal instanceof AbortSignal)
+  const body = JSON.parse(post.options.body)
+  assert.equal(body.type, 'online')
+  assert.equal(body.processing_mode, 'automatic')
+  assert.equal(body.total_amount, '121.35')
+  assert.equal(body.payer.email, order.customer_email)
+  assert.deepEqual(body.transactions.payments, [{ amount: '121.35', expiration_time: 'PT30M', payment_method: { id: 'pix', type: 'bank_transfer' } }])
+  assert.equal(body.expiration_time, undefined)
+  assert.equal(body.config, undefined)
+  assert.deepEqual(body.items[1], { id: 'GALEO-SHIPPING', title: 'Frete', quantity: 1, unit_price: 21.35 })
+  assert.equal(body.items.reduce((total, item) => total + Math.round(item.unit_price * 100) * item.quantity, 0), 12135)
+  assert.equal(body.shipment.address.zip_code, '01001000')
+}))
+
+test('card payments send a single tokenized transaction, one installment and CPF; never issuer_id', async () => fixture(async calls => {
+  const payment = card()
+  await createMercadoPagoOnlineOrder({ order, items, payment: { ...payment, issuer_id: 'ignored', installments: 1 }, idempotencyKey: randomUUID() })
+  const body = JSON.parse(calls.find(call => call.options.method === 'POST').options.body)
+  assert.deepEqual(body.transactions.payments[0].payment_method, { id: 'visa', type: 'credit_card', token: payment.token, installments: 1 })
+  assert.deepEqual(body.payer.identification, { type: 'CPF', number: '12345678909' })
+  assert.equal(body.config.online.transaction_security.validation, 'supported')
+  assert.equal(JSON.stringify(body).includes('issuer_id'), false)
+  assert.deepEqual(normalizeMercadoPagoPayment(normalizeMercadoPagoPayment(payment)), normalizeMercadoPagoPayment(payment))
+}))
+
+test('payment validation rejects raw card data and malformed payment requests before any provider call', async () => fixture(async calls => {
+  const inputs = [ null, [], { method: 'cash' }, { method: 'pix', card_number: '4235647728025682' }, { ...card(), nested: { cvv: '123' } }, { ...card(), token: '4235647728025682' }, { ...card(), payment_method_id: 'pix' }, { ...card(), installments: 12 }, { ...card(), identification: { type: 'CPF', number: '11111111111' } }, { ...card(), identification: undefined } ]
+  for (const payment of inputs) await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment }), { code: 'PAYMENT_INVALID' })
+  assert.equal(calls.length, 0)
+}))
+
+test('invalid internal total or idempotency headers never reach Mercado Pago', async () => fixture(async calls => {
+  await assert.rejects(createMercadoPagoOnlineOrder({ order: { ...order, total: '0.01' }, items, payment: { method: 'pix' } }), { code: 'PAYMENT_INVALID' })
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items: [{ ...items[0], line_total: '99.00' }], payment: { method: 'pix' } }), { code: 'PAYMENT_INVALID' })
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' }, idempotencyKey: 'unsafe\r\nAuthorization: secret' }), { code: 'PAYMENT_INVALID' })
+  assert.equal(calls.length, 0)
+}))
+
+test('concurrent requests verify a seller once and reuse each caller-provided idempotency UUID', async () => fixture(async calls => {
+  const idempotencyKey = randomUUID()
+  await Promise.all([1, 2].map(() => createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' }, idempotencyKey })))
+  assert.equal(calls.filter(call => call.url.endsWith('/users/me')).length, 1)
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 2)
+  assert.equal(calls.filter(call => call.options.method === 'POST').every(call => call.options.headers['X-Idempotency-Key'] === idempotencyKey), true)
+}))
+
+test('provider rejection is definitive and does not leak provider payloads or credentials', async () => fixture(async () => {
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response({ message: 'secret-card-token-123 CPF12345678909', cause: ['private'] }, 422)
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card() }), error => {
+    assert.equal(error.code, 'PAYMENT_PROVIDER_REJECTED')
+    assert.equal(error.outcomeUnknown, false)
+    assert.equal(error.providerStatus, 422)
+    assert.equal(error.message.includes('secret-card'), false)
+    assert.equal(error.message.includes('12345678909'), false)
+    return true
+  })
+}))
+
+test('timeouts, throttling and provider failures preserve an ambiguous attempt for idempotent retry', async () => fixture(async () => {
+  for (const status of [408, 409, 423, 429, 500, 503]) {
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response({}, status)
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
+  }
+  globalThis.fetch = async () => { throw new TypeError('network includes secret-token') }
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), error => error.outcomeUnknown === true && !error.message.includes('secret-token'))
+}))
+
+test('a stalled charge is aborted by the transport deadline and retains an unknown outcome', async t => fixture(async calls => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    if (url.endsWith('/users/me')) return response({ id: 42, tags: ['test_user'] })
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }))
+  }
+  const result = assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls.some(call => call.options.method === 'POST'), true)
+  t.mock.timers.tick(10001)
+  await result
+  assert.equal(calls.at(-1).options.signal.aborted, true)
+  t.mock.timers.reset()
+}))
+
+test('invalid successful provider responses never become an accepted payment', async () => fixture(async () => {
+  for (const value of [{}, rawOrder({ user_id: 99 }), rawOrder({ country_code: 'MLA' }), rawOrder({ total_amount: '1.00' }), rawOrder({ external_reference: 'DIFFERENT-ORDER' })]) {
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, tags: ['test_user'] }) : response(value, 201)
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), error => error.outcomeUnknown === true)
+  }
+}))
+
+test('GET Orders validates the requested ID and seller and does not support arbitrary provider paths', async () => fixture(async calls => {
+  const result = await getMercadoPagoOrder('ORDLOCAL123')
+  assert.equal(result.id, 'ORDLOCAL123')
+  assert.equal(calls.at(-1).url, 'https://api.mercadopago.com/v1/orders/ORDLOCAL123')
+  await assert.rejects(getMercadoPagoOrder('../users/me'), { code: 'PAYMENT_INVALID' })
+  globalThis.fetch = async () => response(rawOrder({ id: 'ORDOTHER' }))
+  await assert.rejects(getMercadoPagoOrder('ORDLOCAL123'), { code: 'MERCADO_PAGO_UNAVAILABLE' })
+}))
+
+test('status mapping does not mistake authorization, challenge or partial funding for approval', () => {
+  const state = (status, status_detail, extra = {}) => mapMercadoPagoOrderStatus(rawOrder({ status, status_detail, transactions: { payments: [] }, ...extra }))
+  assert.equal(state('processed', 'waiting_capture'), 'PENDING')
+  assert.equal(state('action_required', 'pending_challenge'), 'PENDING')
+  assert.equal(state('processed', 'accredited', { total_paid_amount: '100.00' }), 'PENDING')
+  assert.equal(state('processed', 'accredited', { total_paid_amount: '122.00' }), 'PENDING')
+  assert.equal(state('processed', 'accredited', { total_paid_amount: '121.35' }), 'APPROVED')
+  assert.equal(state('processed', ''), 'PENDING')
+  assert.equal(state('failed', 'rejected_by_issuer'), 'REJECTED')
+  assert.equal(state('canceled', 'expired'), 'CANCELLED')
+  assert.equal(state('refunded', 'refunded'), 'REFUNDED')
+  assert.equal(state('unrecognized', ''), 'PENDING')
+})
+
+test('client payment view exposes only whitelisted Pix data, dates and status', () => {
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]).toString('base64')
+  const raw = rawOrder()
+  raw.payer = { email: 'private@example.invalid', identification: { number: '12345678909' } }
+  raw.transactions.payments[0].payment_method.token = 'never-client-token'
+  raw.transactions.payments[0].payment_method.qr_code_base64 = png
+  const payment = mercadoPagoPaymentForClient(raw)
+  assert.equal(payment.provider_reference, 'ORDLOCAL123')
+  assert.equal(payment.qr_code, '000201PIX-LOCAL')
+  assert.equal(payment.qr_code_base64, png)
+  assert.equal(payment.expires_at, '2030-11-03T16:30:00.000Z')
+  assert.equal(payment.status, 'PENDING')
+  assert.equal(JSON.stringify(payment).includes('private@example.invalid'), false)
+  assert.equal(JSON.stringify(payment).includes('never-client-token'), false)
+  raw.transactions.payments[0].payment_method.qr_code_base64 = Buffer.from('<svg onload=alert(1)>').toString('base64')
+  assert.equal(mercadoPagoPaymentForClient(raw).qr_code_base64, '')
+})
+
+test('3DS redirects only allow HTTPS Mercado Pago hosts without credentials or alternate ports', () => {
+  const raw = rawOrder()
+  const method = raw.transactions.payments[0].payment_method = { id: 'visa', type: 'credit_card', transaction_security: { status: 'pending', redirect_url: 'https://www.mercadopago.com.br/challenge' } }
+  assert.equal(mercadoPagoPaymentForClient(raw).redirect_url, 'https://www.mercadopago.com.br/challenge')
+  for (const url of ['javascript:alert(1)', 'http://mercadopago.com/challenge', 'https://mercadopago.com.evil.invalid/challenge', 'https://evil.invalid', 'https://user:pass@mercadopago.com/challenge', 'https://mercadopago.com:444/challenge']) {
+    method.transaction_security.redirect_url = url
+    assert.equal(mercadoPagoPaymentForClient(raw).redirect_url, '')
+  }
+})
+
+test('webhook signature normalizes alphanumeric Orders IDs and rejects malformed signatures', () => {
+  const secret = 'local-signature-secret', dataId = 'ORDLOCAL123', requestId = 'local-request', timestamp = '1793710000000'
+  const hash = createHmac('sha256', secret).update('id:ordlocal123;request-id:' + requestId + ';ts:' + timestamp + ';').digest('hex')
+  const signature = 'ts=' + timestamp + ',v1=' + hash
+  assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId, dataId, secret }), true)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId, dataId: 'ORDOTHER', secret }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: signature.slice(0, -1), requestId, dataId, secret }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId: '', dataId, secret }), false)
+})
+
+test('Point configuration and token remain independent of online test credentials', async () => fixture(async calls => {
+  assert.equal(mercadoPagoPointConfigured(), false)
+  process.env.MERCADO_PAGO_ACCESS_TOKEN = 'local-point-only-token'
+  process.env.MERCADO_PAGO_POINT_TERMINAL_ID = 'local-terminal'
+  assert.equal(mercadoPagoPointConfigured(), true)
+  await createMercadoPagoPointOrder({ externalReference: 'LOCAL-POINT', amount: 10, description: 'Local', idempotencyKey: 'local-point-key' })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer local-point-only-token')
+  assert.equal(JSON.parse(calls[0].options.body).type, 'point')
+}))

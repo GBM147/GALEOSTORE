@@ -164,17 +164,7 @@ export default function CartPage() {
   }
 
   async function startPayment(order) {
-    if (!order.paymentConfigured) return
-    const payment = await customerApi('/api/store/orders/' + order.id + '/payment', { method:'POST' })
-    if (payment.checkout_url) {
-      window.location.assign(payment.checkout_url)
-      return
-    }
-    if (payment.paid || payment.payment_configured === false) {
-      setRegisteredOrder((current) => ({ ...current, paymentConfigured:false, paid:Boolean(payment.paid) }))
-      return
-    }
-    throw new Error('Não foi possível abrir o pagamento. Tente novamente para este pedido.')
+    if (order.paymentConfigured) navigate('/pagamento/' + order.id, { replace:true })
   }
 
   async function retryPayment() {
@@ -219,7 +209,7 @@ export default function CartPage() {
   if (loading) return <main className="section-shell page-space product-page-state"><h1>Carregando carrinho</h1></main>
   const paymentQuery = new URLSearchParams(window.location.search).get('pagamento')
   const returnedOrder = new URLSearchParams(window.location.search).get('pedido')
-  if (paymentQuery) { const labels = { sucesso:'Pagamento enviado com sucesso', pendente:'Pagamento aguardando confirmação', falha:'Pagamento não concluído' }; return <main className="section-shell page-space cart-success"><h1>{labels[paymentQuery] || 'Pagamento'}</h1>{returnedOrder && <p>Pedido <strong>{returnedOrder}</strong> — o status será atualizado automaticamente quando o Mercado Pago confirmar o pagamento</p>}<Link className="button button-primary" to="/conta">Acompanhar pedido ↗</Link></main> }
+  if (paymentQuery) { const labels = { sucesso:'Pagamento em verificação', pendente:'Pagamento aguardando confirmação', falha:'Pagamento não concluído' }; return <main className="section-shell page-space cart-success"><h1>{labels[paymentQuery] || 'Pagamento'}</h1>{returnedOrder && <p>Pedido <strong>{returnedOrder}</strong> — o status será atualizado automaticamente quando o Mercado Pago confirmar o pagamento</p>}<Link className="button button-primary" to="/conta">Acompanhar pedido ↗</Link></main> }
   if (registeredOrder) return <main className="section-shell page-space cart-success"><h1>Pedido recebido</h1><p>Seu pedido{registeredOrder.code && <> <strong>{registeredOrder.code}</strong></>} foi registrado. {registeredOrder.paid ? 'Pagamento aprovado.' : 'Acompanhe a confirmação na sua conta.'}</p>{error && <p className="form-error" role="alert">{error}</p>}{registeredOrder.paymentConfigured && <button className="button button-primary" type="button" onClick={retryPayment} disabled={submitting}>{submitting ? 'Abrindo pagamento…' : 'Continuar para pagamento ↗'}</button>}<Link className="button button-ghost" to="/conta">Ver meus pedidos ↗</Link></main>
 
   return (
@@ -242,7 +232,7 @@ export default function CartPage() {
               </>}
             </section>
             {availabilityError ? <p className="form-error" role="alert">{availabilityError}</p> : !customer ? <div className="cart-login-box"><span>Para finalizar o pedido</span><strong>Entre ou crie sua conta</strong><Link className="button button-primary" to="/conta?return=/carrinho">Entrar / criar conta ↗</Link></div> : (
-              <form id="cart-checkout-form" className="checkout-form" onSubmit={submitOrder}><h2 className="checkout-title">Endereço de entrega</h2><label>Nome<input value={form.name} onChange={(e) => setForm((c)=>({...c,name:e.target.value}))} autoComplete="shipping name" required /></label><label>Telefone<input value={form.phone} onChange={(e) => setForm((c)=>({...c,phone:e.target.value}))} autoComplete="shipping tel" required /></label><label>Estado<input value={form.state} onChange={(e) => postalAddress.changeAddressField('state', e.target.value.toUpperCase())} autoComplete="shipping address-level1" maxLength="2" required /></label><label>Rua<input value={form.street} onChange={(e) => postalAddress.changeAddressField('street', e.target.value)} autoComplete="shipping address-line1" required /></label><div className="checkout-grid"><label>Número<input value={form.number} onChange={(e) => setForm((c)=>({...c,number:e.target.value}))} required /></label><label>Complemento<input value={form.complement} onChange={(e) => setForm((c)=>({...c,complement:e.target.value}))} autoComplete="shipping address-line2" /></label></div><label>Bairro<input value={form.neighborhood} onChange={(e) => postalAddress.changeAddressField('neighborhood', e.target.value)} autoComplete="shipping address-level3" required /></label><label>Cidade<input value={form.city} onChange={(e) => postalAddress.changeAddressField('city', e.target.value)} autoComplete="shipping address-level2" required /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary" type="submit" disabled={submitting || Boolean(shippingBlocked)}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></form>
+              <form id="cart-checkout-form" className="checkout-form" onSubmit={submitOrder}><h2 className="checkout-title">Endereço de entrega</h2><label>Nome<input value={form.name} onChange={(e) => setForm((c)=>({...c,name:e.target.value}))} autoComplete="shipping name" required /></label><label>Telefone<input value={form.phone} onChange={(e) => setForm((c)=>({...c,phone:e.target.value}))} autoComplete="shipping tel" required /></label><label>Estado<input value={form.state} onChange={(e) => postalAddress.changeAddressField('state', e.target.value.toUpperCase())} autoComplete="shipping address-level1" maxLength="2" required /></label><label>Rua<input value={form.street} onChange={(e) => postalAddress.changeAddressField('street', e.target.value)} autoComplete="shipping address-line1" required /></label><div className="checkout-grid"><label>Número<input value={form.number} onChange={(e) => setForm((c)=>({...c,number:e.target.value}))} required /></label><label>Complemento<input value={form.complement} onChange={(e) => setForm((c)=>({...c,complement:e.target.value}))} autoComplete="shipping address-line2" /></label></div><label>Bairro<input value={form.neighborhood} onChange={(e) => postalAddress.changeAddressField('neighborhood', e.target.value)} autoComplete="shipping address-level3" required /></label><label>Cidade<input value={form.city} onChange={(e) => postalAddress.changeAddressField('city', e.target.value)} autoComplete="shipping address-level2" required /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary" type="submit" data-mp-checkout-cta="checkout-api" disabled={submitting || Boolean(shippingBlocked)}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></form>
             )}
           </aside>
         </div>

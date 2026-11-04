@@ -60,41 +60,40 @@ async function fixture(t, { homeSections = [utilitySection], settings = [], cart
   return { page, calls, pageErrors }
 }
 
-test('checkout retries payment for the registered order, including after reload', async (t) => {
-  let paymentAttempts = 0
+test('checkout abre tela dedicada e retoma o mesmo pedido após recarregar', async (t) => {
+  let payment = null
+  const order = { id:42, code:'GALEO-TEST', total:129.9, status:'RECEIVED', payment_status:'PENDING', customer_email:'cliente@example.test' }
   const { page, calls, pageErrors } = await fixture(t, {
     cart:[{ ...product, quantity:1 }],
     handle:({ path, method }) => {
-      if (path === '/api/store/orders' && method === 'POST') return { data:{ order:{ id:42, code:'GALEO-TEST' }, payment_configured:true } }
+      if (path === '/api/store/orders' && method === 'POST') return { data:{ order, payment_configured:true } }
+      if (path === '/api/store/payments/config') return { data:{ available:true, mode:'test', public_key:'PUBLIC-LOCAL', methods:['pix'] } }
       if (path === '/api/store/orders/42/payment') {
-        paymentAttempts++
-        return paymentAttempts < 3
-          ? { status:400, data:{ error:'Pagamento indisponível no teste' } }
-          : { data:{ checkout_url:baseUrl + '/conta' } }
+        if (method === 'POST') payment = { provider_reference:'ORDLOCAL42', status:'PENDING', method:'pix', qr_code:'PIX-LOCAL-CODE' }
+        return { data:{ success:true, order, payment } }
       }
     }
   })
   await page.goto(baseUrl + '/carrinho')
-  await page.getByLabel('CEP', { exact:true }).fill('01001000')
-  await page.getByLabel('Estado', { exact:true }).fill('SP')
-  await page.getByLabel('Rua', { exact:true }).fill('Rua Teste')
-  await page.getByLabel('Número', { exact:true }).fill('123')
-  await page.getByLabel('Bairro', { exact:true }).fill('Centro')
-  await page.getByLabel('Cidade', { exact:true }).fill('São Paulo')
+  for (const [field, value] of [['CEP','01001000'],['Estado','SP'],['Rua','Rua Teste'],['Número','123'],['Bairro','Centro'],['Cidade','São Paulo']]) {
+    await page.getByLabel(field, { exact:true }).fill(value)
+  }
   await page.getByRole('button', { name:'Solicitar pedido ↗', exact:true }).click()
-  await page.getByRole('heading', { name:'Pedido recebido', exact:true }).waitFor()
-  await page.getByText('Pagamento indisponível no teste', { exact:true }).waitFor()
-  assert.equal(new URL(page.url()).searchParams.get('pedido_pendente'), '42')
+  await page.waitForURL('**/pagamento/42')
+  await page.getByRole('heading', { name:'Pagamento', exact:true }).waitFor()
   assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('galeo-cart-v2'))), [])
-  await page.getByRole('button', { name:'Continuar para pagamento ↗', exact:true }).click()
-  await page.getByText('Pagamento indisponível no teste', { exact:true }).waitFor()
   await page.reload()
-  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('galeo-cart-v2'))), [])
-  await page.getByRole('button', { name:'Continuar para pagamento ↗', exact:true }).click()
-  await page.waitForURL('**/conta')
-  assert.equal(calls.filter((call) => call.path === '/api/store/orders' && call.method === 'POST').length, 1)
-  assert.equal(calls.filter((call) => call.path === '/api/store/orders/42/payment').length, 3)
-  assert.ok(calls.filter((call) => call.method === 'POST').every((call) => call.headers['x-csrf-token'] === 'test-csrf'))
+  await page.getByRole('button', { name:'Gerar Pix', exact:true }).waitFor()
+  assert.equal(calls.filter(call => call.path === '/api/store/orders/42/payment' && call.method === 'POST').length, 0)
+  await page.getByLabel('CPF do comprador').fill('12345678909')
+  await page.getByRole('button', { name:'Gerar Pix', exact:true }).click()
+  await page.getByRole('heading', { name:'Aguardando pagamento', exact:true }).waitFor()
+  await page.reload()
+  await page.getByRole('heading', { name:'Aguardando pagamento', exact:true }).waitFor()
+  assert.equal(await page.getByLabel('Pix copia e cola').inputValue(), 'PIX-LOCAL-CODE')
+  assert.equal(calls.filter(call => call.path === '/api/store/orders' && call.method === 'POST').length, 1)
+  assert.equal(calls.filter(call => call.path === '/api/store/orders/42/payment' && call.method === 'POST').length, 1)
+  assert.ok(calls.filter(call => call.method === 'POST').every(call => call.headers['x-csrf-token'] === 'test-csrf'))
   assert.deepEqual(pageErrors, [])
 })
 
