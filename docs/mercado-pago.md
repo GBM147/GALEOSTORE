@@ -25,16 +25,15 @@ MERCADO_PAGO_TEST_SELLER_ID=
 MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED=true
 ```
 
-Antes de criar uma cobrança de teste, o código exige uma consulta autenticada bem-sucedida a `/users/me`, com o ID do vendedor configurado e `site_id=MLB`. São aceitos dois modelos de credenciais, sempre com Access Token e Public Key do mesmo tipo:
+Para testar **Orders API**, obtenha o Access Token e a Public Key **`APP_USR-` de homologação no painel da aplicação**. O ambiente de teste da GALEO exige consulta autenticada a `/users/me`, com o ID do vendedor configurado, `site_id=MLB` e a marca `test_user`. Credenciais `APP_USR-` de um perfil normal não passam por esse fluxo.
 
-- **`TEST-` / `TEST-`: credenciais estáticas de teste da aplicação.** O perfil autenticado pode ser o perfil normal do titular brasileiro, sem a marca `test_user`.
-- **`APP_USR-` / `APP_USR-`: credenciais de uma conta virtual de teste.** Além do ID e do país, o perfil autenticado precisa possuir a marca `test_user`. Credenciais `APP_USR-` de um perfil normal não passam por esse fluxo de teste.
+As credenciais estáticas **`TEST-`** são válidas para outros produtos, como Payments API/Bricks; não são aceitas por este adaptador de Orders. Na homologação, esse par permitiu consultar o perfil e tokenizar o cartão de teste, mas `POST /v1/orders` respondeu **401 `invalid_credentials`**. Esses dois primeiros resultados não comprovam compatibilidade com Orders. Não altere o prefixo de uma chave: obtenha as credenciais da conta de teste pelo painel do fornecedor.
 
-Um par misturado de prefixos fica indisponível antes de qualquer chamada ao provedor. O prefixo, isoladamente, não libera cobranças: continuam obrigatórios a confirmação explícita das credenciais, o banco e a origem de homologação, as demais chaves e a verificação autenticada do vendedor. Uma consulta negada ou um ID/país divergente não permite criar o pagamento. A verificação em cache é vinculada ao modo, tipo de credencial, Access Token, Public Key e vendedor.
+Pares estáticos `TEST-`, misturados ou desconhecidos ficam indisponíveis antes de qualquer chamada ao provedor. O prefixo `APP_USR-`, isoladamente, não libera cobranças: continuam obrigatórios a confirmação explícita das credenciais, o banco e a origem de homologação, as demais chaves e a verificação autenticada do vendedor. Uma consulta negada ou um ID/país divergente não permite criar o pagamento. A verificação em cache é vinculada ao modo, tipo de credencial, Access Token, Public Key e vendedor.
 
 Em homologação, uma recusa definitiva na criação do pagamento pode registrar o status HTTP e códigos de erro limitados no payload cifrado da tentativa. Esse diagnóstico não inclui mensagens, dados do cartão ou credenciais, não aparece nas respostas ao cliente e não modifica o tratamento de respostas ambíguas. O registro permanece desativado em produção.
 
-Para testar cartões na Web, a documentação atual permite um **e-mail válido do comprador**. Na GALEO, esse e-mail vem da conta autenticada no ambiente de homologação, não de um valor arbitrário enviado pelo navegador. Contas virtuais de comprador/vendedor continuam necessárias nos fluxos específicos do provedor que as exigirem; não são uma exigência geral para aceitar as credenciais estáticas `TEST-`.
+Para testar cartões na Web, a documentação atual permite um **e-mail válido do comprador**. Na GALEO, esse e-mail vem da conta autenticada no ambiente de homologação, não de um valor arbitrário enviado pelo navegador. A exigência de uma conta virtual vendedora para Orders permanece independente desse e-mail.
 
 O backend disponibiliza somente a Public Key e as opções permitidas em `GET /api/store/payments/config`, com `Cache-Control: no-store`. Access Token e segredo de webhook permanecem no servidor ou nas rotinas privadas de configuração; nunca devem entrar no HTML, nos assets ou no código do frontend. Não use prefixo `VITE_` para essas credenciais.
 

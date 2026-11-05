@@ -32,9 +32,7 @@ function onlineConfiguration() {
   const publicKey = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY : process.env.MERCADO_PAGO_PUBLIC_KEY)
   const webhookSecret = text(testing ? process.env.GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET : process.env.MERCADO_PAGO_WEBHOOK_SECRET)
   const sellerId = text(testing ? process.env.MERCADO_PAGO_TEST_SELLER_ID : process.env.MERCADO_PAGO_SELLER_ID)
-  const testCredentialKind = accessToken.startsWith('TEST-') && publicKey.startsWith('TEST-')
-    ? 'static'
-    : accessToken.startsWith('APP_USR-') && publicKey.startsWith('APP_USR-') ? 'test-user' : ''
+  const testCredentialKind = accessToken.startsWith('APP_USR-') && publicKey.startsWith('APP_USR-') ? 'test-user' : ''
   const testEnvironment = /^[A-Za-z0-9_]+_test$/.test(text(process.env.DB_NAME)) && validAppUrl(text(process.env.APP_URL), 'test')
   const allowed = testing
     ? testEnvironment && Boolean(testCredentialKind) && process.env.MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED === 'true' && /^\d{1,20}$/.test(sellerId)
@@ -150,12 +148,10 @@ async function assertTestSeller(config) {
   if ((testSellerCache.get(key) || 0) > Date.now()) return
   if (!testSellerRequests.has(key)) testSellerRequests.set(key, (async () => {
     // A credential prefix alone never skips authenticated seller verification.
-    // Static TEST credentials belong to the application owner's normal profile;
-    // APP_USR credentials must belong to an actual virtual test-user profile.
+    // Orders requires credentials from an actual virtual test-user profile.
     const seller = await request('/users/me', { accessToken: config.accessToken })
     const sellerMatches = String(seller.id) === config.sellerId && seller.site_id === 'MLB'
-    const permittedProfile = config.testCredentialKind === 'static' ||
-      (config.testCredentialKind === 'test-user' && Array.isArray(seller.tags) && seller.tags.includes('test_user'))
+    const permittedProfile = config.testCredentialKind === 'test-user' && Array.isArray(seller.tags) && seller.tags.includes('test_user')
     if (!sellerMatches || !permittedProfile) throw new MercadoPagoError('TEST_SELLER_REQUIRED', 503, 'As credenciais de teste precisam corresponder ao vendedor brasileiro configurado.')
     if (testSellerCache.size >= 8) testSellerCache.delete(testSellerCache.keys().next().value)
     testSellerCache.set(key, Date.now() + 300000)

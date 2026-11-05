@@ -77,22 +77,23 @@ const staticCredentials = () => ({
   GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY: 'TEST-local-static-public-' + randomUUID()
 })
 
-test('static TEST credentials authenticate the configured Brazilian owner without requiring a virtual-user tag', async () => fixture(async calls => {
+test('Orders rejects static TEST credentials before profile lookup or payment creation', async () => fixture(async calls => {
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
     return url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: [] }) : response(rawOrder(), 201)
   }
-  assert.equal(mercadoPagoOnlineConfigured(), true)
-  const result = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
-  assert.equal(result.id, 'ORDLOCAL123')
-  assert.deepEqual(calls.map(call => [call.url, call.options.method]), [
-    ['https://api.mercadopago.com/users/me', 'GET'],
-    ['https://api.mercadopago.com/v1/orders', 'POST']
-  ])
-  assert.equal(calls.every(call => call.options.headers.Authorization === 'Bearer ' + process.env.GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN), true)
+  assert.equal(mercadoPagoOnlineConfigured(), false)
+  assert.deepEqual(getMercadoPagoPublicConfig(), { configured: false, available: false, mode: 'test', public_key: '', methods: [], max_installments: 1 })
+  for (const payment of [{ method: 'pix' }, card()]) {
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment }), { code: 'PAYMENT_NOT_CONFIGURED' })
+  }
+  const { verifyMercadoPagoTestSeller } = await import('./mercado-pago.js')
+  await assert.rejects(verifyMercadoPagoTestSeller(), { code: 'PAYMENT_NOT_CONFIGURED' })
+  await assert.rejects(getMercadoPagoOrder('ORDSTATICREJECTED'), { code: 'PAYMENT_NOT_CONFIGURED' })
+  assert.equal(calls.length, 0)
 }, staticCredentials()))
 
-test('static TEST credentials cannot create a charge when authenticated profile lookup is denied', async () => fixture(async calls => {
+test('Orders test credentials cannot create a charge when authenticated profile lookup is denied', async () => fixture(async calls => {
   for (const status of [401, 403]) {
     globalThis.fetch = async (url, options) => {
       calls.push({ url, options })
@@ -103,9 +104,9 @@ test('static TEST credentials cannot create a charge when authenticated profile 
   }
   assert.equal(calls.length, 2)
   assert.equal(calls.every(call => call.url.endsWith('/users/me') && call.options.method === 'GET'), true)
-}, staticCredentials()))
+}))
 
-test('static TEST credentials require the expected seller and Brazilian site in the authenticated profile', async () => fixture(async calls => {
+test('Orders test credentials require the expected seller and Brazilian site in the authenticated profile', async () => fixture(async calls => {
   for (const profile of [
     { id: 99, site_id: 'MLB', tags: [] },
     { id: 42, site_id: 'MLA', tags: [] },
@@ -124,7 +125,7 @@ test('static TEST credentials require the expected seller and Brazilian site in 
   }
   assert.equal(calls.length, 4)
   assert.equal(calls.some(call => call.options.method === 'POST'), false)
-}, staticCredentials()))
+}))
 
 test('test mode rejects mixed or unknown credential namespaces before contacting the provider', async () => fixture(async calls => {
   for (const [accessToken, publicKey] of [
@@ -139,7 +140,7 @@ test('test mode rejects mixed or unknown credential namespaces before contacting
   assert.equal(calls.length, 0)
 }))
 
-test('static TEST credentials retain every explicit environment and readiness guard', async () => fixture(async calls => {
+test('Orders test credentials retain every explicit environment and readiness guard', async () => fixture(async calls => {
   for (const [key, value] of [
     ['MERCADO_PAGO_MODE', 'disabled'], ['DB_NAME', 'galeo_store'],
     ['APP_URL', 'https://galeo-store.netlify.app'], ['APP_URL', 'https://galeo-store.onrender.com'],
@@ -153,21 +154,21 @@ test('static TEST credentials retain every explicit environment and readiness gu
     process.env[key] = previous
   }
   assert.equal(calls.length, 0)
-}, staticCredentials()))
+}))
 
-test('changing the static Public Key invalidates cached seller verification', async () => fixture(async calls => {
+test('changing the APP_USR Public Key invalidates cached seller verification', async () => fixture(async calls => {
   let deny = false
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
-    return url.endsWith('/users/me') ? response({ id: deny ? 99 : 42, site_id: 'MLB', tags: [] }) : response(rawOrder(), 201)
+    return url.endsWith('/users/me') ? response({ id: deny ? 99 : 42, site_id: 'MLB', tags: ['test_user'] }) : response(rawOrder(), 201)
   }
   await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
-  process.env.GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY = 'TEST-replaced-public-' + randomUUID()
+  process.env.GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY = 'APP_USR-replaced-public-' + randomUUID()
   deny = true
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'TEST_SELLER_REQUIRED' })
   assert.equal(calls.filter(call => call.url.endsWith('/users/me')).length, 2)
   assert.equal(calls.filter(call => call.options.method === 'POST').length, 1)
-}, staticCredentials()))
+}))
 
 test('APP_USR virtual test credentials also require a Brazilian profile', async () => fixture(async calls => {
   globalThis.fetch = async (url, options) => {
