@@ -1030,7 +1030,7 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder, al
       }
     }
     if (!boundPayments.length) throw new Error('Tentativa de pagamento ainda não vinculada ao pedido.')
-    if (mpOrder.country_code && mpOrder.country_code !== 'MLB') throw new Error('País do pagamento inválido.')
+    if (mpOrder.country_code && !['BRA', 'MLB'].includes(mpOrder.country_code)) throw new Error('País do pagamento inválido.')
     if (status === 'APPROVED' && Math.round(amount * 100) !== Math.round(Number(originalOrder.total) * 100)) {
       throw new Error('O valor aprovado não corresponde ao total do pedido.')
     }

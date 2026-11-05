@@ -112,7 +112,7 @@ async function setPayment(fixture, status, amount = fixture.order.total) {
   const providerStatus = { approved: 'processed', pending: 'action_required', rejected: 'failed' }[status] || status
   const detail = { approved: 'accredited', pending: 'waiting_payment', rejected: 'rejected_by_issuer', refunded: 'refunded' }[status] || status
   mpFixtures.orders[fixture.providerId] = {
-    id: fixture.providerId, user_id: 42, country_code: 'MLB', external_reference: fixture.order.code,
+    id: fixture.providerId, user_id: '42', country_code: 'BRA', external_reference: fixture.order.code,
     status: providerStatus, status_detail: detail, total_amount: Number(amount).toFixed(2),
     total_paid_amount: paid ? Number(amount).toFixed(2) : '0.00',
     transactions: { payments: [{ id: 'PAY' + fixture.providerId, status: providerStatus, status_detail: detail,
@@ -704,6 +704,19 @@ test('notificação de vendedor diferente rejeita o pagamento com rollback', asy
   const fixture = await orderFixture()
   await setPayment(fixture, 'approved')
   mpFixtures.orders[fixture.providerId].user_id = 999
+  await saveMpFixtures()
+  const result = await notify(fixture)
+  assert.ok([400, 500, 503].includes(result.response.status))
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'PENDING')
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.stock, 8)
+})
+
+test('notificação de país diferente rejeita o pagamento sem criar venda nem mexer na reserva', async () => {
+  const fixture = await orderFixture()
+  await setPayment(fixture, 'approved')
+  mpFixtures.orders[fixture.providerId].country_code = 'ARG'
   await saveMpFixtures()
   const result = await notify(fixture)
   assert.ok([400, 500, 503].includes(result.response.status))

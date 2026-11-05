@@ -282,7 +282,8 @@ function string(value, limit) {
 function validateProviderOrder(order, config) {
   if (!order || !/^[A-Za-z0-9_-]{1,160}$/.test(String(order.id || ''))) throw unavailable()
   if (config.sellerId && String(order.user_id) !== config.sellerId) throw new MercadoPagoError('PAYMENT_SELLER_MISMATCH', 503, 'Não foi possível confirmar o vendedor deste pagamento.', { outcomeUnknown: true })
-  if (order.country_code != null && order.country_code !== 'MLB') throw unavailable()
+  // Orders uses ISO country BRA; older fixtures used the account site MLB.
+  if (order.country_code != null && !['BRA', 'MLB'].includes(order.country_code)) throw unavailable()
   return order
 }
 

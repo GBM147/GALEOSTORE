@@ -19,7 +19,7 @@ async function captureOrder(shippingFee, expectedTotal) {
     assert.equal(options.method,'POST')
     assert.equal(options.headers['X-Idempotency-Key'],idempotencyKey)
     captured = JSON.parse(options.body)
-    return {ok:true,status:201,text:async()=>JSON.stringify({id:'local-order',user_id:42,country_code:'MLB',external_reference:'LOCAL-ORDER',total_amount:expectedTotal.toFixed(2)})}
+    return {ok:true,status:201,text:async()=>JSON.stringify({id:'local-order',user_id:'42',country_code:'BRA',external_reference:'LOCAL-ORDER',total_amount:expectedTotal.toFixed(2)})}
   }
   try {
     const order = {id:1,code:'LOCAL-ORDER',customer_name:'Cliente local',customer_email:'local@example.invalid',customer_phone:'11999999999',postal_code:'01001000',street:'Rua local',number:'1',neighborhood:'Centro',city:'São Paulo',total:expectedTotal,...(shippingFee === undefined ? {} : {shipping_fee:shippingFee})}

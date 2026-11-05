@@ -8,7 +8,7 @@ const order = { id: 1, code: 'GALEO-LOCAL', customer_email: 'buyer-local@example
 const items = [{ product_id: 11, variant_id: 21, size_label: 'M', product_name: 'Peça local', quantity: 2, unit_price: '50.00', line_total: '100.00' }]
 const card = () => ({ method: 'credit_card', payment_method_id: 'visa', token: 'local-card-token-' + randomUUID(), installments: 1, identification: { type: 'CPF', number: '123.456.789-09' } })
 const response = (value, status = 200) => new Response(JSON.stringify(value), { status })
-const rawOrder = (overrides = {}) => ({ id: 'ORDLOCAL123', user_id: 42, country_code: 'MLB', external_reference: order.code, total_amount: order.total, status: 'action_required', status_detail: 'waiting_transfer', transactions: { payments: [{ id: 'PAYLOCAL', amount: order.total, status: 'action_required', status_detail: 'waiting_transfer', date_of_expiration: '2030-11-03T16:30:00.000Z', payment_method: { id: 'pix', type: 'bank_transfer', qr_code: '000201PIX-LOCAL' } }] }, ...overrides })
+const rawOrder = (overrides = {}) => ({ id: 'ORDLOCAL123', user_id: '42', country_code: 'BRA', external_reference: order.code, total_amount: order.total, status: 'action_required', status_detail: 'waiting_transfer', transactions: { payments: [{ id: 'PAYLOCAL', amount: order.total, status: 'action_required', status_detail: 'waiting_transfer', date_of_expiration: '2030-11-03T16:30:00.000Z', payment_method: { id: 'pix', type: 'bank_transfer', qr_code: '000201PIX-LOCAL' } }] }, ...overrides })
 
 async function fixture(run, overrides = {}) {
   const environment = Object.fromEntries(keys.map(key => [key, process.env[key]]))
@@ -377,8 +377,20 @@ test('a stalled charge is aborted by the transport deadline and retains an unkno
   t.mock.timers.reset()
 }))
 
+test('Orders accepts Brazilian ISO country with string seller ID and retains legacy MLB compatibility', async () => fixture(async () => {
+  for (const country of ['BRA', 'MLB']) {
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(rawOrder({ country_code: country }), 201)
+    const created = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
+    assert.equal(created.country_code, country)
+    assert.equal(created.user_id, '42')
+    assert.equal((await getMercadoPagoOrder('ORDLOCAL123')).country_code, country)
+  }
+}))
+
 test('invalid successful provider responses never become an accepted payment', async () => fixture(async () => {
-  for (const value of [{}, rawOrder({ user_id: 99 }), rawOrder({ country_code: 'MLA' }), rawOrder({ total_amount: '1.00' }), rawOrder({ external_reference: 'DIFFERENT-ORDER' })]) {
+  for (const value of [{}, rawOrder({ id: undefined }), rawOrder({ user_id: undefined }), rawOrder({ user_id: null }),
+    rawOrder({ user_id: 99 }), ...['MLA', 'ARG', 'USA', 'BR', 'bra', ''].map(country_code => rawOrder({ country_code })),
+    rawOrder({ total_amount: '1.00' }), rawOrder({ external_reference: 'DIFFERENT-ORDER' })]) {
     globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(value, 201)
     await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), error => error.outcomeUnknown === true)
   }
