@@ -32,6 +32,8 @@ Antes de criar uma cobrança de teste, o código exige uma consulta autenticada 
 
 Um par misturado de prefixos fica indisponível antes de qualquer chamada ao provedor. O prefixo, isoladamente, não libera cobranças: continuam obrigatórios a confirmação explícita das credenciais, o banco e a origem de homologação, as demais chaves e a verificação autenticada do vendedor. Uma consulta negada ou um ID/país divergente não permite criar o pagamento. A verificação em cache é vinculada ao modo, tipo de credencial, Access Token, Public Key e vendedor.
 
+Em homologação, uma recusa definitiva na criação do pagamento pode registrar o status HTTP e códigos de erro limitados no payload cifrado da tentativa. Esse diagnóstico não inclui mensagens, dados do cartão ou credenciais, não aparece nas respostas ao cliente e não modifica o tratamento de respostas ambíguas. O registro permanece desativado em produção.
+
 Para testar cartões na Web, a documentação atual permite um **e-mail válido do comprador**. Na GALEO, esse e-mail vem da conta autenticada no ambiente de homologação, não de um valor arbitrário enviado pelo navegador. Contas virtuais de comprador/vendedor continuam necessárias nos fluxos específicos do provedor que as exigirem; não são uma exigência geral para aceitar as credenciais estáticas `TEST-`.
 
 O backend disponibiliza somente a Public Key e as opções permitidas em `GET /api/store/payments/config`, com `Cache-Control: no-store`. Access Token e segredo de webhook permanecem no servidor ou nas rotinas privadas de configuração; nunca devem entrar no HTML, nos assets ou no código do frontend. Não use prefixo `VITE_` para essas credenciais.

@@ -4,6 +4,7 @@ import {
   getMercadoPagoOrder,
   getMercadoPagoPublicConfig,
   mercadoPagoPaymentForClient,
+  mercadoPagoTestFailureDiagnostic,
   normalizeMercadoPagoPayment
 } from './mercado-pago.js'
 
@@ -201,6 +202,8 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
         // ambiguous call already created an order with a different token.
         // It must never unlock a new attempt/second possible charge.
         if (error?.outcomeUnknown === false && createdHere) {
+          const diagnostic = mercadoPagoTestFailureDiagnostic(error)
+          if (diagnostic) await privacy.updateFields('payments', stubId, { raw_payload: JSON.stringify({ test_provider_error: diagnostic }) }, transaction)
           await transaction.execute("UPDATE payments SET status='REJECTED' WHERE id=? AND provider_reference IS NULL AND status='PENDING'", [stubId])
           await transaction.commit()
           throw problem(400, 'PAYMENT_NOT_CREATED', 'Não foi possível iniciar o pagamento. Confira os dados e tente novamente.')

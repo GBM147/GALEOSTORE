@@ -5,6 +5,7 @@ const REQUEST_TIMEOUT_MS = 10000
 const PRODUCTION_HOSTS = new Set(['galeo-store.netlify.app', 'galeo-store.onrender.com'])
 const testSellerCache = new Map()
 const testSellerRequests = new Map()
+const testFailureDiagnostics = new WeakMap()
 const text = value => typeof value === 'string' ? value.trim() : ''
 
 export class MercadoPagoError extends Error {
@@ -49,7 +50,68 @@ export function mercadoPagoOnlineConfigured() { return onlineConfiguration().ava
 export function getMercadoPagoWebhookSecret() { const config = onlineConfiguration(); return config.available ? config.webhookSecret : '' }
 export function mercadoPagoPointConfigured() { return Boolean(text(process.env.MERCADO_PAGO_ACCESS_TOKEN) && text(process.env.MERCADO_PAGO_POINT_TERMINAL_ID)) }
 
-async function request(path, { accessToken, method = 'GET', body = null, idempotencyKey = '' } = {}) {
+async function testFailureDiagnostic(response, config, body, idempotencyKey) {
+  const diagnostic = { http_status: response.status, codes: [] }
+  // Error messages and descriptions may echo private request data. Only
+  // bounded machine codes are useful for this private test diagnostic.
+  const privateValues = [config.accessToken, config.publicKey, config.webhookSecret, idempotencyKey]
+  const collect = value => {
+    if (typeof value === 'string' && value) privateValues.push(value)
+    else if (Array.isArray(value)) value.forEach(collect)
+    else if (value && typeof value === 'object') Object.values(value).forEach(collect)
+  }
+  collect(body)
+  const forbidden = new Set(privateValues.map(value => value.toLowerCase()))
+  const secrets = [config.accessToken, config.publicKey, config.webhookSecret,
+    body?.transactions?.payments?.[0]?.payment_method?.token, body?.payer?.identification?.number]
+    .filter(value => typeof value === 'string' && value.length >= 6).map(value => value.toLowerCase())
+  const add = value => {
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) value = String(value)
+    if (typeof value !== 'string' || value.length > 64 ||
+        !/^(?:[A-Za-z][A-Za-z0-9_.-]{0,63}|\d{1,10})$/.test(value) || /\d{11,}/.test(value) ||
+        /^[a-f0-9]{24,}$/i.test(value)) return
+    const lower = value.toLowerCase()
+    if (forbidden.has(lower) || secrets.some(secret => lower.includes(secret)) || diagnostic.codes.includes(value)) return
+    if (diagnostic.codes.length < 16) diagnostic.codes.push(value)
+  }
+  try {
+    // Streaming prevents an unexpectedly large provider error from being
+    // retained. Failure to read diagnostics never changes the known 4xx.
+    const reader = response.body?.getReader()
+    if (!reader) return diagnostic
+    const chunks = []
+    let size = 0
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > 32768) { await reader.cancel().catch(() => {}); return diagnostic }
+        chunks.push(Buffer.from(value))
+      }
+    } finally { reader.releaseLock() }
+    const data = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return diagnostic
+    for (const key of ['errorKey', 'error', 'code']) add(data[key])
+    for (const list of [data.cause, data.errors]) {
+      if (!Array.isArray(list)) continue
+      for (const item of list.slice(0, 32)) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+        for (const key of ['errorKey', 'error', 'code']) add(item[key])
+      }
+    }
+  } catch { /* Keep only the HTTP status if the private diagnostic is unreadable. */ }
+  return diagnostic
+}
+
+export function mercadoPagoTestFailureDiagnostic(error) {
+  const config = onlineConfiguration()
+  if (config.mode !== 'test' || !config.available) return null
+  const value = error && typeof error === 'object' ? testFailureDiagnostics.get(error) : null
+  return value ? { http_status: value.http_status, codes: [...value.codes] } : null
+}
+
+async function request(path, { accessToken, method = 'GET', body = null, idempotencyKey = '', diagnosticConfig = null } = {}) {
   if (!accessToken) throw notConfigured()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -60,11 +122,13 @@ async function request(path, { accessToken, method = 'GET', body = null, idempot
       ...(body ? { body: JSON.stringify(body) } : {})
     })
     if (!response.ok) {
-      // Provider errors can contain tokens or identification data. They are
-      // deliberately not included in exceptions, logs or customer responses.
+      // Provider bodies never enter exceptions, logs or customer responses.
       if (response.status >= 400 && response.status < 500 && ![408, 409, 423, 429].includes(response.status)) {
         const error = new MercadoPagoError('PAYMENT_PROVIDER_REJECTED', [400, 422].includes(response.status) ? 400 : 503, 'O Mercado Pago não aceitou os dados deste pagamento. Confira os dados ou escolha outra forma de pagamento.')
         error.providerStatus = response.status
+        if (diagnosticConfig?.mode === 'test' && diagnosticConfig.available && method === 'POST' && path === '/v1/orders') {
+          testFailureDiagnostics.set(error, await testFailureDiagnostic(response, diagnosticConfig, body, idempotencyKey))
+        }
         throw error
       }
       throw unavailable()
@@ -199,7 +263,7 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
     ...(selection.method !== 'pix' ? { config: { online: { transaction_security: { validation: 'supported', liability_shift: 'not_required' } } } } : {})
   }
   await assertTestSeller(config)
-  const result = validateProviderOrder(await request('/v1/orders', { accessToken: config.accessToken, method: 'POST', body: payload, idempotencyKey: key }), config)
+  const result = validateProviderOrder(await request('/v1/orders', { accessToken: config.accessToken, method: 'POST', body: payload, idempotencyKey: key, diagnosticConfig: config }), config)
   if (result.external_reference !== reference || moneyCents(result.total_amount) !== total) throw unavailable()
   return result
 }

@@ -10,9 +10,10 @@ const errorCode = expected => error => error instanceof DataProtectionError && e
 
 // A deterministic store exercises confidentiality, merge and rollback semantics;
 // real MySQL/application coverage runs separately on the isolated local database.
-function memoryDatabase() {
+function memoryDatabase(initialTables = {}) {
   let tables = Object.fromEntries(Object.keys(PRIVATE_FIELD_MAP).map(table => [table, []]))
   tables.customers = [structuredClone(fixture)]
+  Object.assign(tables, structuredClone(initialTables))
   let snapshot
   const stats = { commits: 0, rollbacks: 0, failCommit: false }
   const db = {
@@ -52,6 +53,18 @@ function memoryDatabase() {
   }
   return db
 }
+
+test('diagnóstico privado do pagamento é cifrado e restaurado somente pela camada de privacidade', async () => {
+  const db = memoryDatabase({ payments: [{ id: 8, raw_payload: '{}', private_data: null, status: 'PENDING' }] })
+  const privacy = createDatabasePrivacy({ db, enabled: true, key })
+  const value = JSON.stringify({ test_provider_error: { http_status: 400, codes: ['invalid_order'] } })
+  await privacy.updateFields('payments', 8, { raw_payload: value }, db)
+  const stored = db.row('payments')
+  assert.ok(stored.private_data)
+  assert.equal(JSON.stringify(stored).includes('invalid_order'), false)
+  assert.equal(JSON.stringify(stored).includes('test_provider_error'), false)
+  assert.deepEqual(privacy.decodeRow('payments', stored).raw_payload, JSON.parse(value))
+})
 
 test('proteção habilitada exige chave antes de tocar o banco', () => {
   assert.throws(() => createDatabasePrivacy({ enabled: true, key: '' }), errorCode('DATA_KEY_MISSING'))

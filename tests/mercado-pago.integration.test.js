@@ -487,6 +487,7 @@ test('falha de transporte conserva tentativa e impede nova cobrança com UUID di
   const duplicate = await startPayment(fixture, { attempt_id: randomUUID() })
   assert.equal(duplicate.response.status, 409, duplicate.data.error)
   assert.equal(duplicate.data.code, 'PAYMENT_ATTEMPT_PENDING')
+  assert.deepEqual((await state(fixture)).payments[0].raw_payload, {}, 'ambiguous outcome must not be recorded as a definitive provider rejection')
   const beforeRetry = (await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code)
   assert.equal(beforeRetry.length, 1)
   mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
@@ -588,7 +589,9 @@ test('recusa permite uma nova tentativa explícita sem duplicar a reserva', asyn
 
 test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa explícita', async () => {
   const fixture = await orderFixture(2, { bind: false })
-  mpFixtures.creations[fixture.order.code] = { error: 'local_invalid_payment', __http_status: 400 }
+  mpFixtures.creations[fixture.order.code] = { error: 'local_invalid_payment', code: 3001,
+    message: 'private-test-message buyer@example.invalid',
+    cause: [{ code: 'invalid_field', description: 'CPF 12345678909' }, { code: '12345678909' }], __http_status: 400 }
   await saveMpFixtures()
   const rejected = await startPayment(fixture)
   assert.equal(rejected.response.status, 400, rejected.data.error)
@@ -597,6 +600,13 @@ test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa ex
   assert.equal(before.payments.length, 1)
   assert.equal(before.payments[0].status, 'REJECTED')
   assert.equal(before.payments[0].provider_reference, null)
+  assert.deepEqual(before.payments[0].raw_payload, { test_provider_error: { http_status: 400, codes: ['local_invalid_payment', '3001', 'invalid_field'] } })
+  assert.equal(JSON.stringify(rejected.data).includes('test_provider_error'), false)
+  assert.equal(JSON.stringify(rejected.data).includes('local_invalid_payment'), false)
+  const privateView = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.equal(privateView.response.status, 200)
+  assert.equal(JSON.stringify(privateView.data).includes('test_provider_error'), false)
+  assert.equal(JSON.stringify(privateView.data).includes('invalid_field'), false)
   fixture.attemptId = randomUUID()
   mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
   await saveMpFixtures()
