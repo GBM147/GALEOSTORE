@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   createMercadoPagoOnlineOrder,
+  findMercadoPagoOrderForAttempt,
   getMercadoPagoOrder,
   getMercadoPagoPublicConfig,
   mercadoPagoPaymentForClient,
@@ -54,7 +55,7 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
     return rows[0]
   }
   async function payments(id, connection, lock = false) {
-    return query("SELECT * FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' ORDER BY id DESC" + (lock ? ' FOR UPDATE' : ''), [id], connection)
+    return query("SELECT *,UNIX_TIMESTAMP(created_at)*1000 AS created_at_ms FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' ORDER BY id DESC" + (lock ? ' FOR UPDATE' : ''), [id], connection)
   }
   function view(order, payment) {
     const config = getMercadoPagoPublicConfig()
@@ -83,8 +84,27 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
       const id = idFrom(req)
       let order = await owned(id, req.customer.id)
       let rows = await payments(id)
+      let recoveredByLookup = false
+      const unresolved = rows.filter(row => row.status === 'PENDING')
+      if (getMercadoPagoPublicConfig().available && unresolved.length === 1 && !unresolved[0].provider_reference && rows[0]?.id === unresolved[0].id &&
+          uuid.test(unresolved[0].idempotency_key || '') && !order.sale_id &&
+          !terminal.has(order.payment_status) && order.status !== 'CANCELLED') {
+        const attempt = unresolved[0]
+        const value = await findMercadoPagoOrderForAttempt({ order, attempt })
+        if (value) {
+          assertBoundOrder(value, order)
+          // The processor locks and rechecks this exact committed attempt.
+          // Provider GETs above never hold a database lock.
+          await processProviderOrder({ eventId: eventKey(value), eventType: 'orders', mpOrder: value,
+            recoverPendingAttempt: { id: Number(attempt.id), idempotency_key: attempt.idempotency_key,
+              created_at_ms: Number(attempt.created_at_ms), method: attempt.method, order_id: id } })
+          recoveredByLookup = true
+          order = await owned(id, req.customer.id)
+          rows = await payments(id)
+        }
+      }
       const payment = rows.find(row => row.status === 'PENDING' && row.provider_reference) || rows[0]
-      if (getMercadoPagoPublicConfig().available && payment?.provider_reference &&
+      if (!recoveredByLookup && getMercadoPagoPublicConfig().available && payment?.provider_reference &&
           ['PENDING', 'APPROVED'].includes(payment.status) && order.payment_status !== 'REFUNDED') {
         try { await reconcile(order, payment.provider_reference) }
         catch (error) {

@@ -22,11 +22,21 @@ globalThis.fetch = async (input, options = {}) => {
   const headers = new Headers(options.headers)
   if (headers.get('Authorization') !== 'Bearer APP_USR-local-test-only') return Response.json({ error: 'UNEXPECTED_LOCAL_TEST_CREDENTIAL' }, { status: 401 })
   appendFileSync(fixturePath + '.calls', JSON.stringify({ phase: 'started', method, path: url.pathname,
-    external_reference: body?.external_reference, idempotency_key: headers.get('X-Idempotency-Key'), body }) + '\n')
+    external_reference: body?.external_reference || url.searchParams.get('external_reference') || undefined,
+    ...(method === 'GET' && url.pathname === '/v1/orders' ? { query: Object.fromEntries(url.searchParams) } : {}),
+    idempotency_key: headers.get('X-Idempotency-Key'), body }) + '\n')
   const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8'))
   let payload
   if (method === 'GET' && url.pathname === '/users/me') {
     payload = { id: 42, site_id: 'MLB', tags: ['test_user'] }
+  } else if (method === 'GET' && url.pathname === '/v1/orders') {
+    const reference = url.searchParams.get('external_reference')
+    const complete = reference && Number.isFinite(Date.parse(url.searchParams.get('begin_date'))) &&
+      Number.isFinite(Date.parse(url.searchParams.get('end_date')))
+    if (!complete) return Response.json({ error: 'INVALID_LOCAL_ORDER_SEARCH' }, { status: 400 })
+    const matched = Object.values(fixtures.orders).filter(order => order.external_reference === reference)
+    payload = fixtures.searches?.[reference] || { data: matched,
+      paging: { total: String(matched.length), total_pages: matched.length ? '1' : '0', offset: '0', limit: '50' } }
   } else if (method === 'GET' && url.pathname.startsWith('/v1/orders/')) {
     payload = fixtures.orders[decodeURIComponent(url.pathname.slice('/v1/orders/'.length))]
   } else if (method === 'POST' && url.pathname === '/v1/orders') {

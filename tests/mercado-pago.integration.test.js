@@ -20,7 +20,7 @@ const suffix = randomBytes(8).toString('hex')
 const password = 'MP-local-' + randomBytes(12).toString('hex')
 const webhookSecret = randomBytes(32).toString('hex')
 const fixtures = { products: [], orders: [], events: [], sessions: new Set() }
-const mpFixtures = { orders: {}, creations: {} }
+const mpFixtures = { orders: {}, creations: {}, searches: {} }
 let db, child, childExited, tempDirectory, fixturePath, customerId, adminId, customer, admin
 let eventSequence = 0
 
@@ -98,7 +98,8 @@ async function orderFixture(quantity = 2, { bind = true } = {}) {
   assert.equal(created.response.status, 200, created.data.error)
   const order = created.data.order
   fixtures.orders.push(order.id)
-  const fixture = { productId, order, quantity, providerId: 'ORD' + suffix.toUpperCase() + String(order.id), attemptId: randomUUID() }
+  const fixture = { productId, order, quantity, providerId: 'ORD' + suffix.toUpperCase() + String(order.id),
+    attemptId: randomUUID(), testAddress: '127.0.1.' + fixtures.orders.length }
   await setPayment(fixture, 'pending')
   if (bind) {
     await execute("INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload) VALUES('ONLINE',?,'PIX','MERCADO_PAGO',?,'PENDING',?,?,?)", [order.id, fixture.providerId, Number(order.total), fixture.attemptId, JSON.stringify(mpFixtures.orders[fixture.providerId])])
@@ -113,6 +114,7 @@ async function setPayment(fixture, status, amount = fixture.order.total) {
   const detail = { approved: 'accredited', pending: 'waiting_payment', rejected: 'rejected_by_issuer', refunded: 'refunded' }[status] || status
   mpFixtures.orders[fixture.providerId] = {
     id: fixture.providerId, user_id: '42', country_code: 'BRA', external_reference: fixture.order.code,
+    type: 'online', processing_mode: 'automatic', created_date: fixture.createdDate ||= new Date().toISOString(),
     status: providerStatus, status_detail: detail, total_amount: Number(amount).toFixed(2),
     total_paid_amount: paid ? Number(amount).toFixed(2) : '0.00',
     transactions: { payments: [{ id: 'PAY' + fixture.providerId, status: providerStatus, status_detail: detail,
@@ -129,7 +131,28 @@ function paymentBody(fixture, extra = {}) {
 }
 
 async function startPayment(fixture, extra = {}) {
-  return customer.request('/api/store/orders/' + fixture.order.id + '/payment', { method: 'POST', body: paymentBody(fixture, extra) })
+  // Each isolated scenario is a separate local client. Retries and concurrent
+  // requests for that scenario retain one address and the real rate limiter.
+  return customer.request('/api/store/orders/' + fixture.order.id + '/payment', {
+    method: 'POST', body: paymentBody(fixture, extra), headers: { 'X-Forwarded-For': fixture.testAddress }
+  })
+}
+
+async function lostApprovedPayment({ card = false } = {}) {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = { __throw: true }
+  await saveMpFixtures()
+  const creation = await startPayment(fixture, card ? {
+    method: 'credit_card', token: 'local-card-token-read-recovery', payment_method_id: 'visa', installments: 1
+  } : {})
+  assert.equal(creation.response.status, 503, creation.data.error)
+  assert.equal(creation.data.code, 'PAYMENT_RESULT_PENDING')
+  await setPayment(fixture, 'approved')
+  if (card) {
+    mpFixtures.orders[fixture.providerId].transactions.payments[0].payment_method = { id: 'visa', type: 'credit_card', installments: 1 }
+    await saveMpFixtures()
+  }
+  return fixture
 }
 
 async function calls() {
@@ -524,6 +547,197 @@ test('webhook recupera cobrança aceita com resposta perdida sem repetir o POST'
   assert.equal(current.entries.length, 1)
   assert.equal(current.stock, 8)
   assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('consulta recupera cartão aprovado com resposta perdida sem outra cobrança e preserva uma única venda', async () => {
+  const fixture = await lostApprovedPayment({ card: true })
+  const recovered = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.equal(recovered.response.status, 200, recovered.data.error)
+  assert.equal(recovered.data.paid, true)
+  assert.equal(recovered.data.payment.provider_reference, fixture.providerId)
+  assert.equal(recovered.data.payment.attempt_id, fixture.attemptId)
+  const providerCalls = (await calls()).filter(call => call.external_reference === fixture.order.code)
+  const searches = providerCalls.filter(call => call.method === 'GET' && call.path === '/v1/orders')
+  assert.equal(searches.length, 1)
+  assert.equal(searches[0].query.external_reference, fixture.order.code)
+  assert.ok(Number.isFinite(Date.parse(searches[0].query.begin_date)))
+  assert.ok(Number.isFinite(Date.parse(searches[0].query.end_date)))
+  const reconcileEvents = await execute("SELECT event_id FROM integration_events WHERE provider='MERCADO_PAGO' AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id'))=?", [fixture.providerId])
+  assert.equal(reconcileEvents.length, 1)
+  assert.ok(reconcileEvents[0].event_id.startsWith('reconcile-'), 'provider GET recovery must not be recorded as an actual provider notification')
+  const repeated = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.equal(repeated.response.status, 200, repeated.data.error)
+  assert.equal(repeated.data.paid, true)
+  assert.equal((await notify(fixture)).response.status, 200)
+  const current = await state(fixture)
+  assert.equal(current.order.status, 'CONFIRMED')
+  assert.equal(current.order.payment_status, 'APPROVED')
+  assert.equal(current.payments.length, 1)
+  assert.equal(current.payments[0].provider_reference, fixture.providerId)
+  assert.equal(current.payments[0].idempotency_key, fixture.attemptId)
+  assert.equal(current.sales.length, 1)
+  assert.equal(current.entries.length, 1)
+  assert.equal(Number(current.entries[0].amount), 40)
+  assert.equal(current.stock, 8)
+  assert.equal(current.movements.filter(value => value.type === 'SAIDA').length, 1)
+  assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('busca vazia, ambígua, incompleta ou divergente conserva a mesma tentativa sem vínculo nem venda', async () => {
+  const invalidCases = [
+    ['empty', (_order, search) => { search.data = []; search.paging.total = '0'; search.paging.total_pages = '0' }],
+    ['multiple', (order, search) => { search.data.push({ ...structuredClone(order), id: order.id + 'OTHER' }); search.paging.total = '2' }],
+    ['partial-page', (_order, search) => { search.paging.total = '2'; search.paging.total_pages = '2' }],
+    ['wrong-seller', order => { order.user_id = '999' }],
+    ['wrong-amount', order => { order.total_amount = '1.00' }],
+    ['wrong-method', order => { order.transactions.payments[0].payment_method = { id: 'visa', type: 'credit_card' } }],
+    ['old-resource', order => { order.created_date = new Date(Date.now() - 60 * 60 * 1000).toISOString() }],
+    ['missing-date', order => { delete order.created_date }],
+    ['wrong-paid-amount', order => { order.total_paid_amount = '1.00'; order.transactions.payments[0].paid_amount = '1.00' }],
+    ['unavailable-search', (_order, search) => { search.__http_status = 503 }]
+  ]
+  for (const [name, mutate] of invalidCases) {
+    const fixture = await lostApprovedPayment()
+    const order = mpFixtures.orders[fixture.providerId]
+    const search = { data: [order], paging: { total: '1', total_pages: '1', offset: '0', limit: '50' } }
+    mutate(order, search)
+    mpFixtures.searches[fixture.order.code] = search
+    await saveMpFixtures()
+    const response = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+    assert.ok([200, 503].includes(response.response.status), name + ': ' + response.data.error)
+    assert.notEqual(response.data.paid, true, name)
+    const current = await state(fixture)
+    assert.equal(current.order.payment_status, 'PENDING', name)
+    assert.equal(current.order.payment_reference, null, name)
+    assert.equal(current.payments.length, 1, name)
+    assert.equal(current.payments[0].status, 'PENDING', name)
+    assert.equal(current.payments[0].provider_reference, null, name)
+    assert.equal(current.payments[0].idempotency_key, fixture.attemptId, name)
+    assert.equal(current.sales.length, 0, name)
+    assert.equal(current.entries.length, 0, name)
+    assert.equal(current.stock, 8, name)
+    assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1, name)
+  }
+})
+
+test('GET autenticado divergente da busca não vincula cobrança nem altera a tentativa', async () => {
+  const fixture = await lostApprovedPayment()
+  const searchedOrder = structuredClone(mpFixtures.orders[fixture.providerId])
+  mpFixtures.searches[fixture.order.code] = { data: [searchedOrder], paging: { total: '1', total_pages: '1', offset: '0', limit: '50' } }
+  mpFixtures.orders[fixture.providerId].external_reference = 'ANOTHER-ORDER-' + suffix
+  await saveMpFixtures()
+  const response = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.ok([200, 503].includes(response.response.status))
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'PENDING')
+  assert.equal(current.payments[0].provider_reference, null)
+  assert.equal(current.payments[0].idempotency_key, fixture.attemptId)
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.stock, 8)
+})
+
+test('cliente de outro pedido não consulta o provedor nem recupera tentativa alheia', async () => {
+  const fixture = await lostApprovedPayment()
+  const foreign = await execute("INSERT INTO customers(name,email,password_hash,phone,email_verified_at) SELECT 'Outro cliente MP',?,password_hash,phone,NOW() FROM customers WHERE id=?", ['mp-other-' + suffix + '@example.invalid', customerId])
+  try {
+    await execute('UPDATE store_orders SET customer_id=? WHERE id=?', [foreign.insertId, fixture.order.id])
+    const beforeCalls = (await calls()).length
+    const response = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+    assert.equal(response.response.status, 404)
+    assert.equal((await calls()).length, beforeCalls)
+    const current = await state(fixture)
+    assert.equal(current.payments[0].provider_reference, null)
+    assert.equal(current.payments[0].idempotency_key, fixture.attemptId)
+    assert.equal(current.sales.length, 0)
+  } finally {
+    await execute('UPDATE store_orders SET customer_id=? WHERE id=?', [customerId, fixture.order.id])
+    await execute('DELETE FROM customers WHERE id=?', [foreign.insertId])
+  }
+})
+
+test('recuperação por consulta concorrente com webhook mantém somente uma venda e uma receita', async () => {
+  const fixture = await lostApprovedPayment()
+  const responses = await Promise.all([
+    customer.request('/api/store/orders/' + fixture.order.id + '/payment'),
+    customer.request('/api/store/orders/' + fixture.order.id + '/payment'),
+    notify(fixture)
+  ])
+  assert.equal(responses[2].response.status, 200, responses[2].data.error)
+  for (const response of responses.slice(0, 2)) assert.ok([200, 503].includes(response.response.status), response.data.error)
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'APPROVED')
+  assert.equal(current.payments.length, 1)
+  assert.equal(current.payments[0].idempotency_key, fixture.attemptId)
+  assert.equal(current.payments[0].provider_reference, fixture.providerId)
+  assert.equal(current.sales.length, 1)
+  assert.equal(current.entries.length, 1)
+  assert.equal(current.stock, 8)
+  assert.equal(current.movements.filter(value => value.type === 'SAIDA').length, 1)
+  assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('cancelamento durante busca de recuperação não reabre pedido nem retira estoque devolvido', async () => {
+  const fixture = await lostApprovedPayment()
+  mpFixtures.searches[fixture.order.code] = { data: [mpFixtures.orders[fixture.providerId]],
+    paging: { total: '1', total_pages: '1', offset: '0', limit: '50' }, __delay_ms: 500 }
+  await saveMpFixtures()
+  const statusRequest = customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await calls()).some(call => call.method === 'GET' && call.path === '/v1/orders' && call.external_reference === fixture.order.code)) break
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  await cancel(fixture)
+  const response = await statusRequest
+  assert.ok([200, 503].includes(response.response.status), response.data.error)
+  const current = await state(fixture)
+  assert.equal(current.order.status, 'CANCELLED')
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.entries.length, 0)
+  assert.equal(current.stock, 10)
+  assert.equal(current.movements.filter(value => value.type === 'ENTRADA').length, 1)
+  assert.equal(current.payments[0].idempotency_key, fixture.attemptId)
+  assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('UUID alterado durante busca de recuperação impede vínculo de um snapshot desatualizado', async () => {
+  const fixture = await lostApprovedPayment()
+  mpFixtures.searches[fixture.order.code] = { data: [mpFixtures.orders[fixture.providerId]],
+    paging: { total: '1', total_pages: '1', offset: '0', limit: '50' }, __delay_ms: 500 }
+  await saveMpFixtures()
+  const statusRequest = customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await calls()).some(call => call.method === 'GET' && call.path === '/v1/orders' && call.external_reference === fixture.order.code)) break
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  const changedAttempt = randomUUID()
+  await execute("UPDATE payments SET idempotency_key=? WHERE store_order_id=? AND status='PENDING' AND provider_reference IS NULL", [changedAttempt, fixture.order.id])
+  const response = await statusRequest
+  assert.ok([200, 503].includes(response.response.status), response.data.error)
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'PENDING')
+  assert.equal(current.payments[0].provider_reference, null)
+  assert.equal(current.payments[0].idempotency_key, changedAttempt)
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.entries.length, 0)
+  assert.equal(current.stock, 8)
+  assert.equal((await calls()).filter(call => call.method === 'POST' && call.external_reference === fixture.order.code).length, 1)
+})
+
+test('duas tentativas pendentes impedem busca e recuperação mesmo quando somente a última não tem referência', async () => {
+  const fixture = await orderFixture()
+  const newerAttempt = randomUUID()
+  await execute("INSERT INTO payments(channel,store_order_id,method,provider,provider_reference,status,amount,idempotency_key,raw_payload) VALUES('ONLINE',?,'pix','MERCADO_PAGO',NULL,'PENDING',?,?,?)", [fixture.order.id, fixture.order.total, newerAttempt, '{}'])
+  const beforeCalls = (await calls()).length
+  const response = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
+  assert.ok([200, 503].includes(response.response.status), response.data.error)
+  const providerCalls = (await calls()).slice(beforeCalls)
+  assert.equal(providerCalls.some(call => call.method === 'GET' && call.path === '/v1/orders'), false)
+  const current = await state(fixture)
+  assert.equal(current.order.payment_status, 'PENDING')
+  assert.equal(current.payments.length, 2)
+  assert.equal(current.payments.find(payment => payment.idempotency_key === newerAttempt).provider_reference, null)
+  assert.equal(current.sales.length, 0)
+  assert.equal(current.stock, 8)
 })
 
 test('segunda tentativa com resposta perdida recupera Pix pendente e depois confirma a venda', async () => {

@@ -982,7 +982,7 @@ async function promoverPedidoPagoParaVenda(conn, orderId, paymentData = {}) {
   return { saleId, saleCode, code: order.code, total: Number(order.total), customerEmail: order.customer_email, customerName: order.customer_name, created: true }
 }
 
-async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder, allowPendingBinding = false }) {
+async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder, allowPendingBinding = false, recoverPendingAttempt = null }) {
   const externalReference = String(mpOrder?.external_reference || '').trim()
   if (!externalReference) return { ignored: true, reason: 'sem_external_reference' }
   const orderRows = await query('SELECT id FROM store_orders WHERE code=? LIMIT 1', [externalReference])
@@ -1005,21 +1005,37 @@ async function processarNotificacaoMercadoPago({ eventId, eventType, mpOrder, al
     const [lockedOrders] = await conn.execute('SELECT * FROM store_orders WHERE id=? FOR UPDATE', [orderId])
     const originalOrder = privacy.decodeRow('store_orders', lockedOrders[0])
     if (!originalOrder) throw new Error('Pedido online não encontrado.')
-    let [boundPayments] = await conn.execute("SELECT id,sale_id FROM payments WHERE provider='MERCADO_PAGO' AND provider_reference=? AND store_order_id=? FOR UPDATE", [providerReference, orderId])
-    if (!boundPayments.length && allowPendingBinding) {
-      // Only the signed webhook path may recover a lost creation response.
+    let [boundPayments] = await conn.execute("SELECT id,sale_id,method,idempotency_key,UNIX_TIMESTAMP(created_at)*1000 AS created_at_ms FROM payments WHERE provider='MERCADO_PAGO' AND provider_reference=? AND store_order_id=? FOR UPDATE", [providerReference, orderId])
+    if (recoverPendingAttempt && (Number(recoverPendingAttempt.order_id) !== orderId ||
+        (boundPayments.length && (Number(boundPayments[0].id) !== recoverPendingAttempt.id ||
+          boundPayments[0].idempotency_key !== recoverPendingAttempt.idempotency_key ||
+          Number(boundPayments[0].created_at_ms) !== recoverPendingAttempt.created_at_ms ||
+          boundPayments[0].method !== recoverPendingAttempt.method)))) {
+      throw new Error('A tentativa de pagamento mudou durante a consulta.')
+    }
+    if (!boundPayments.length && (allowPendingBinding || recoverPendingAttempt)) {
+      // Signed webhooks and authenticated provider-read recovery may bind a
+      // lost creation response. Neither path submits another charge.
       // The resource was fetched with the configured seller's credentials.
       // Exactly one committed unresolved attempt must match this order,
       // amount and payment method; no new charge is submitted here.
-      const [unresolved] = await conn.execute("SELECT id,method,created_at FROM payments WHERE provider='MERCADO_PAGO' AND store_order_id=? AND status='PENDING' AND provider_reference IS NULL FOR UPDATE", [orderId])
+      const [pendingAttempts] = await conn.execute("SELECT id,method,created_at,idempotency_key,provider_reference,UNIX_TIMESTAMP(created_at)*1000 AS created_at_ms FROM payments WHERE provider='MERCADO_PAGO' AND store_order_id=? AND status='PENDING' FOR UPDATE", [orderId])
+      const unresolved = pendingAttempts.filter(row => !row.provider_reference)
+      const [latestAttempts] = await conn.execute("SELECT id FROM payments WHERE provider='MERCADO_PAGO' AND store_order_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE", [orderId])
+      if (recoverPendingAttempt && (pendingAttempts.length !== 1 || unresolved.length !== 1 || Number(unresolved[0].id) !== recoverPendingAttempt.id ||
+          unresolved[0].idempotency_key !== recoverPendingAttempt.idempotency_key ||
+          Number(unresolved[0].created_at_ms) !== recoverPendingAttempt.created_at_ms ||
+          unresolved[0].method !== recoverPendingAttempt.method || Number(latestAttempts[0]?.id) !== recoverPendingAttempt.id ||
+          originalOrder.sale_id || ['APPROVED', 'REFUNDED'].includes(originalOrder.payment_status) || originalOrder.status === 'CANCELLED')) {
+        throw new Error('A tentativa de pagamento mudou durante a consulta.')
+      }
       const created = Date.parse(mpOrder.created_date || '')
-      const attemptCreated = unresolved[0]?.created_at ? new Date(unresolved[0].created_at).getTime() : NaN
-      if (unresolved.length === 1 && unresolved[0].method === method && Number.isFinite(amount) &&
+      const attemptCreated = Number(unresolved[0]?.created_at_ms)
+      if (unresolved.length === 1 && String(unresolved[0].method).toLowerCase() === method && Number.isFinite(amount) &&
           Math.round(amount * 100) === Math.round(Number(originalOrder.total) * 100) &&
           !(Number.isFinite(created) && Number.isFinite(attemptCreated) && created < attemptCreated - 300000)) {
         await conn.execute("UPDATE payments SET provider_reference=? WHERE id=? AND provider_reference IS NULL AND status='PENDING'", [providerReference, unresolved[0].id])
         boundPayments = [{ id: unresolved[0].id, sale_id: null }]
-        const [latestAttempts] = await conn.execute("SELECT id FROM payments WHERE provider='MERCADO_PAGO' AND store_order_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE", [orderId])
         if (Number(latestAttempts[0]?.id) === Number(unresolved[0].id) && !originalOrder.sale_id &&
             !['APPROVED', 'REFUNDED'].includes(originalOrder.payment_status) && originalOrder.status !== 'CANCELLED') {
           // The first attempt may have failed before this ambiguous retry.

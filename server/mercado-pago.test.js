@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHmac, randomUUID } from 'node:crypto'
 import test from 'node:test'
-import { createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, getMercadoPagoOrder, getMercadoPagoPublicConfig, getMercadoPagoWebhookSecret, mapMercadoPagoOrderStatus, mercadoPagoOnlineConfigured, mercadoPagoPaymentForClient, mercadoPagoPointConfigured, mercadoPagoTestFailureDiagnostic, normalizeMercadoPagoPayment, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
+import { createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, findMercadoPagoOrderForAttempt, getMercadoPagoOrder, getMercadoPagoPublicConfig, getMercadoPagoWebhookSecret, mapMercadoPagoOrderStatus, mercadoPagoOnlineConfigured, mercadoPagoPaymentForClient, mercadoPagoPointConfigured, mercadoPagoTestFailureDiagnostic, normalizeMercadoPagoPayment, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
 
 const keys = ['MERCADO_PAGO_MODE', 'MERCADO_PAGO_ACCESS_TOKEN', 'MERCADO_PAGO_PUBLIC_KEY', 'MERCADO_PAGO_WEBHOOK_SECRET', 'MERCADO_PAGO_LIVE_PAYMENTS_ENABLED', 'MERCADO_PAGO_SELLER_ID', 'MERCADO_PAGO_POINT_TERMINAL_ID', 'GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN', 'GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY', 'GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET', 'MERCADO_PAGO_TEST_SELLER_ID', 'MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED', 'DB_NAME', 'APP_URL']
 const order = { id: 1, code: 'GALEO-LOCAL', customer_email: 'buyer-local@example.invalid', customer_name: 'Pessoa local', customer_phone: '11999999999', postal_code: '01001-000', street: 'Praça local', number: '20', neighborhood: 'Centro', city: 'São Paulo', state: 'SP', total: '121.35', shipping_fee: '21.35' }
@@ -385,6 +385,61 @@ test('Orders accepts Brazilian ISO country with string seller ID and retains leg
     assert.equal(created.user_id, '42')
     assert.equal((await getMercadoPagoOrder('ORDLOCAL123')).country_code, country)
   }
+}))
+
+test('lost-response lookup uses only authenticated GETs and rechecks a unique complete result', async () => fixture(async calls => {
+  const attempt = { method: 'pix', created_at_ms: Date.now() - 1000 }
+  const value = rawOrder({ type: 'online', created_date: new Date(attempt.created_at_ms + 200).toISOString() })
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    if (url.endsWith('/users/me')) return response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+    if (new URL(url).pathname === '/v1/orders') return response({ data: [value], paging: { total: '1', total_pages: '1', offset: '0', limit: '50' } })
+    return response(value)
+  }
+  assert.equal((await findMercadoPagoOrderForAttempt({ order, attempt })).id, value.id)
+  assert.equal(calls.length, 3)
+  assert.equal(calls.every(call => call.options.method === 'GET' && !call.options.body), true)
+  const search = new URL(calls[1].url)
+  assert.equal(search.searchParams.get('external_reference'), order.code)
+  assert.equal(search.searchParams.get('page_size'), '50')
+  assert.equal(calls[2].url, 'https://api.mercadopago.com/v1/orders/' + value.id)
+}))
+
+test('lost-response lookup never chooses from incomplete, ambiguous or contradictory results', async () => fixture(async () => {
+  const attempt = { method: 'pix', created_at_ms: Date.now() - 1000 }
+  const value = rawOrder({ type: 'online', created_date: new Date(attempt.created_at_ms + 200).toISOString() })
+  const complete = data => ({ data, paging: { total: String(data.length), total_pages: data.length ? '1' : '0', offset: '0', limit: '50' } })
+  const invalidResults = [
+    { data: [value] }, { ...complete([value]), paging: { total: '2', total_pages: '2', offset: '0' } },
+    complete([value, { ...value, id: 'OTHER' }]), complete([{ ...value, user_id: '99' }]),
+    complete([{ ...value, type: 'point' }]), complete([{ ...value, created_date: new Date(attempt.created_at_ms - 300001).toISOString() }]),
+    complete([{ ...value, status: 'processed', status_detail: 'accredited', total_paid_amount: '1.00' }])
+  ]
+  for (const result of invalidResults) {
+    let gets = 0
+    globalThis.fetch = async url => {
+      if (url.endsWith('/users/me')) return response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+      gets++
+      assert.equal(new URL(url).pathname, '/v1/orders')
+      return response(result)
+    }
+    await assert.rejects(findMercadoPagoOrderForAttempt({ order, attempt }))
+    assert.equal(gets, 1, 'invalid search must not even fetch a candidate resource')
+  }
+  globalThis.fetch = async url => url.endsWith('/users/me')
+    ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(complete([]))
+  assert.equal(await findMercadoPagoOrderForAttempt({ order, attempt }), null)
+}))
+
+test('lost-response lookup fails closed when the separately fetched resource changes', async () => fixture(async () => {
+  const attempt = { method: 'pix', created_at_ms: Date.now() - 1000 }
+  const value = rawOrder({ type: 'online', created_date: new Date(attempt.created_at_ms + 200).toISOString() })
+  globalThis.fetch = async url => {
+    if (url.endsWith('/users/me')) return response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+    if (new URL(url).pathname === '/v1/orders') return response({ data: [value], paging: { total: '1', total_pages: '1' } })
+    return response({ ...value, external_reference: 'DIFFERENT-ORDER' })
+  }
+  await assert.rejects(findMercadoPagoOrderForAttempt({ order, attempt }))
 }))
 
 test('invalid successful provider responses never become an accepted payment', async () => fixture(async () => {

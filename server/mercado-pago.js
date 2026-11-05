@@ -335,6 +335,54 @@ export async function getMercadoPagoOrder(orderId) {
   return result
 }
 
+// Recover only an already-created resource. No tokenization or charge is
+// submitted here, and an incomplete/ambiguous search never unlocks a retry.
+export async function findMercadoPagoOrderForAttempt({ order, attempt }) {
+  const config = onlineConfiguration()
+  if (!config.available || !/^\d{1,20}$/.test(config.sellerId)) throw notConfigured()
+  const reference = string(order?.code, 128)
+  const total = moneyCents(order?.total)
+  const created = Number(attempt?.created_at_ms)
+  const now = Date.now()
+  const method = text(attempt?.method).toLowerCase()
+  if (!Number.isSafeInteger(created) || created <= 0 || created > now + 60000 ||
+      now - created > 30 * 86400000 || !['pix', 'credit_card', 'debit_card'].includes(method)) throw unavailable()
+  const earliest = created - 300000, latest = now + 60000
+  const matches = value => {
+    const transactions = value?.transactions?.payments
+    const payment = Array.isArray(transactions) && transactions.length === 1 ? transactions[0] : null
+    const providerMethod = payment?.payment_method
+    const actualMethod = providerMethod?.id === 'pix'
+      ? (providerMethod.type === 'bank_transfer' ? 'pix' : '') : providerMethod?.type
+    const at = typeof value?.created_date === 'string' ? Date.parse(value.created_date) : NaN
+    const accredited = [value?.status_detail, payment?.status_detail].includes('accredited')
+    try {
+      return Boolean(value && /^[A-Za-z0-9_-]{1,160}$/.test(String(value.id || '')) &&
+        value.type === 'online' && String(value.user_id) === config.sellerId && value.external_reference === reference &&
+        moneyCents(value.total_amount) === total && payment && moneyCents(payment.amount) === total &&
+        actualMethod === method && Number.isFinite(at) && at >= earliest && at <= latest &&
+        (!accredited && mapMercadoPagoOrderStatus(value) !== 'APPROVED' ||
+          (moneyCents(value.total_paid_amount) === total && moneyCents(payment.paid_amount) === total)))
+    } catch { return false }
+  }
+  await assertTestSeller(config)
+  const parameters = new URLSearchParams({ begin_date: new Date(earliest).toISOString(), end_date: new Date(latest).toISOString(),
+    external_reference: reference, page: '1', page_size: '50', sort_by: 'created_date', sort_order: 'desc' })
+  const result = await request('/v1/orders?' + parameters, { accessToken: config.accessToken })
+  const values = result.data
+  const count = result.paging?.total, pages = result.paging?.total_pages
+  const integer = value => /^(?:0|[1-9]\d{0,8})$/.test(String(value))
+  if (!Array.isArray(values) || values.length > 50 || !integer(count) || Number(count) !== values.length ||
+      !integer(pages) || Number(pages) > 1 || (result.paging?.offset != null && String(result.paging.offset) !== '0')) throw unavailable()
+  if (!values.length) return null
+  // Search is scoped to the exact external reference. Even a second result
+  // that fails another guard makes this resource selection ambiguous.
+  if (values.length !== 1 || !matches(values[0])) throw unavailable()
+  const value = await getMercadoPagoOrder(String(values[0].id))
+  if (!matches(value) || String(value.id) !== String(values[0].id)) throw unavailable()
+  return value
+}
+
 export function mapMercadoPagoOrderStatus(order) {
   const payment = order?.transactions?.payments?.[0] || {}
   const statuses = [order?.status, payment.status].map(value => String(value || '').toLowerCase())
