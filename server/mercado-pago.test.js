@@ -179,7 +179,7 @@ test('APP_USR virtual test credentials also require a Brazilian profile', async 
   assert.equal(calls.some(call => call.options.method === 'POST'), false)
 }))
 
-test('Pix follows Orders API automatic processing and transaction expiry with server-owned amount/items/payer', async () => fixture(async calls => {
+test('Pix uses minimal Orders fields with transaction expiry and server-owned total including freight', async () => fixture(async calls => {
   const idempotencyKey = randomUUID()
   const result = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix', amount: '0.01', email: 'forged@example.invalid' }, idempotencyKey })
   assert.equal(result.id, 'ORDLOCAL123')
@@ -193,23 +193,23 @@ test('Pix follows Orders API automatic processing and transaction expiry with se
   assert.equal(body.type, 'online')
   assert.equal(body.processing_mode, 'automatic')
   assert.equal(body.total_amount, '121.35')
-  assert.equal(body.payer.email, order.customer_email)
+  assert.deepEqual(body.payer, { email: order.customer_email })
   assert.deepEqual(body.transactions.payments, [{ amount: '121.35', expiration_time: 'PT30M', payment_method: { id: 'pix', type: 'bank_transfer' } }])
   assert.equal(body.expiration_time, undefined)
   assert.equal(body.config, undefined)
-  assert.deepEqual(body.items[1], { id: 'GALEO-SHIPPING', title: 'Frete', quantity: 1, unit_price: 21.35 })
-  assert.equal(body.items.reduce((total, item) => total + Math.round(item.unit_price * 100) * item.quantity, 0), 12135)
-  assert.equal(body.shipment.address.zip_code, '01001000')
+  assert.deepEqual(Object.keys(body).sort(), ['external_reference', 'payer', 'processing_mode', 'total_amount', 'transactions', 'type'])
+  for (const key of ['items', 'shipment', 'capture_mode', 'description']) assert.equal(body[key], undefined)
 }))
 
-test('card payments send a single tokenized transaction, one installment and CPF; never issuer_id', async () => fixture(async calls => {
+test('card payments use the documented minimal tokenized transaction and retain CPF input validation', async () => fixture(async calls => {
   const payment = card()
   await createMercadoPagoOnlineOrder({ order, items, payment: { ...payment, issuer_id: 'ignored', installments: 1 }, idempotencyKey: randomUUID() })
   const body = JSON.parse(calls.find(call => call.options.method === 'POST').options.body)
   assert.deepEqual(body.transactions.payments[0].payment_method, { id: 'visa', type: 'credit_card', token: payment.token, installments: 1 })
-  assert.deepEqual(body.payer.identification, { type: 'CPF', number: '12345678909' })
-  assert.equal(body.config.online.transaction_security.validation, 'supported')
+  assert.deepEqual(body, { type: 'online', processing_mode: 'automatic', total_amount: '121.35', external_reference: order.code,
+    payer: { email: order.customer_email }, transactions: { payments: [{ amount: '121.35', payment_method: { id: 'visa', type: 'credit_card', token: payment.token, installments: 1 } }] } })
   assert.equal(JSON.stringify(body).includes('issuer_id'), false)
+  assert.equal(JSON.stringify(body).includes('12345678909'), false)
   assert.deepEqual(normalizeMercadoPagoPayment(normalizeMercadoPagoPayment(payment)), normalizeMercadoPagoPayment(payment))
 }))
 
@@ -222,6 +222,8 @@ test('payment validation rejects raw card data and malformed payment requests be
 test('invalid internal total or idempotency headers never reach Mercado Pago', async () => fixture(async calls => {
   await assert.rejects(createMercadoPagoOnlineOrder({ order: { ...order, total: '0.01' }, items, payment: { method: 'pix' } }), { code: 'PAYMENT_INVALID' })
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items: [{ ...items[0], line_total: '99.00' }], payment: { method: 'pix' } }), { code: 'PAYMENT_INVALID' })
+  await assert.rejects(createMercadoPagoOnlineOrder({ order: { ...order, shipping_fee: '0.00' }, items, payment: { method: 'pix' } }), { code: 'PAYMENT_INVALID' })
+  await assert.rejects(createMercadoPagoOnlineOrder({ order: { ...order, shipping_fee: '-1.00' }, items, payment: { method: 'pix' } }), { code: 'PAYMENT_INVALID' })
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' }, idempotencyKey: 'unsafe\r\nAuthorization: secret' }), { code: 'PAYMENT_INVALID' })
   assert.equal(calls.length, 0)
 }))
@@ -283,6 +285,46 @@ test('test diagnostics bound code count and malformed or oversized bodies never 
       assert.equal(error.code, 'PAYMENT_PROVIDER_REJECTED')
       assert.equal(error.outcomeUnknown, false)
       assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 422, codes: index === 0 ? Array.from({ length: 16 }, (_, i) => 'error_' + i) : [] })
+      return true
+    })
+  }
+}))
+
+test('test diagnostics retain only outgoing schema paths mentioned by structured provider errors', async () => fixture(async () => {
+  const payment = card()
+  const noisy = { code: 'property_type', description: 'Wrong total_amount and transactions.payments[0].payment_method.type; expected type string. ' + payment.token,
+    message: 'Private payer ' + order.customer_email + ' CPF 12345678909', errors: [
+      { code: 'unsupported_properties', field: 'body.payer.email' },
+      { path: '/transactions/payments/0/payment_method/id' },
+      { instancePath: '#/transactions/payments/0/payment_method/token' },
+      { json_path: '$.transactions.payments[0].amount' },
+      { field: 'transactions.payments[99].payment_method.id' },
+      { path: 'payer.email_extra' }, { field: 'city_extra' },
+      { message: 'items[0].unit_price shipment.address payer.first_name nottotal_amount' },
+      { field: payment.token, message: process.env.GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN },
+      { description: 'Duplicate /transactions/payments/0/payment_method/id and transactions.payments.0.amount' }
+    ] }
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(noisy, 400)
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment }), error => {
+    const diagnostic = mercadoPagoTestFailureDiagnostic(error)
+    assert.deepEqual(diagnostic, { http_status: 400, codes: ['property_type', 'unsupported_properties'], fields: [
+      'payer.email', 'transactions.payments.0.payment_method.id', 'transactions.payments.0.payment_method.token',
+      'transactions.payments.0.amount', 'total_amount', 'transactions.payments.0.payment_method.type'
+    ] })
+    const serialized = JSON.stringify(diagnostic)
+    for (const privateValue of [payment.token, order.customer_email, '12345678909', process.env.GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN]) assert.equal(serialized.includes(privateValue), false)
+    assert.equal(JSON.stringify(error).includes('payer.email'), false)
+    diagnostic.fields.push('mutated')
+    assert.equal(mercadoPagoTestFailureDiagnostic(error).fields.includes('mutated'), false)
+    return true
+  })
+}))
+
+test('test diagnostic path matching ignores oversized prose and unquoted generic words', async () => fixture(async () => {
+  for (const message of ['expected type string for unknown properties', 'x'.repeat(8200) + ' total_amount']) {
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response({ code: 'field_error', message }, 400)
+    await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card() }), error => {
+      assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 400, codes: ['field_error'] })
       return true
     })
   }

@@ -27,9 +27,9 @@ async function captureOrder(shippingFee, expectedTotal) {
     await createMercadoPagoOnlineOrder({order,items,payment:{method:'pix'},idempotencyKey})
     assert.equal(calls,1)
     assert.deepEqual(items,originalItems)
-    const lineCents = captured.items.reduce((sum,item)=>sum+Math.round(Number(item.unit_price)*100)*item.quantity,0)
-    assert.equal(lineCents,Math.round(Number(captured.total_amount)*100))
     assert.equal(captured.total_amount,expectedTotal.toFixed(2))
+    assert.equal(captured.transactions.payments[0].amount,expectedTotal.toFixed(2))
+    assert.equal(captured.items,undefined)
     return captured
   } finally {
     globalThis.fetch = previousFetch
@@ -37,18 +37,17 @@ async function captureOrder(shippingFee, expectedTotal) {
   }
 }
 
-test('online checkout item totals include one explicit shipping charge with no stock item mutation',async()=>{
+test('online checkout total includes freight once without transmitting optional item metadata',async()=>{
   const payload=await captureOrder('21.35',121.35)
-  assert.equal(payload.items.length,2)
-  assert.deepEqual(payload.items[1],{id:'GALEO-SHIPPING',title:'Frete',quantity:1,unit_price:21.35})
-  assert.equal(payload.items[0].id,'P11-V21')
-  assert.equal(payload.items[0].unit_price,50)
+  assert.equal(payload.total_amount,'121.35')
+  assert.equal(payload.shipment,undefined)
+  assert.deepEqual(payload.payer,{email:'local@example.invalid'})
 })
 
-test('legacy orders and zero-cost delivery retain product-only payment items',async()=>{
+test('legacy orders and zero-cost delivery retain the product-only total',async()=>{
   for(const shippingFee of [undefined,null,0,'0.00']) {
     const payload=await captureOrder(shippingFee,100)
-    assert.equal(payload.items.length,1)
-    assert.equal(payload.items.some(item=>item.id==='GALEO-SHIPPING'),false)
+    assert.equal(payload.total_amount,'100.00')
+    assert.equal(payload.items,undefined)
   }
 })

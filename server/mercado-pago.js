@@ -48,6 +48,62 @@ export function mercadoPagoOnlineConfigured() { return onlineConfiguration().ava
 export function getMercadoPagoWebhookSecret() { const config = onlineConfiguration(); return config.available ? config.webhookSecret : '' }
 export function mercadoPagoPointConfigured() { return Boolean(text(process.env.MERCADO_PAGO_ACCESS_TOKEN) && text(process.env.MERCADO_PAGO_POINT_TERMINAL_ID)) }
 
+const diagnosticPath = value => typeof value === 'string' && value.length <= 160 && /^[A-Za-z_][A-Za-z0-9_]*(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d{1,3}))*$/.test(value)
+const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function requestFieldCatalog(body) {
+  const paths = new Set()
+  const visit = (value, parts = [], depth = 0) => {
+    if (depth > 8 || paths.size >= 512 || !value || typeof value !== 'object') return
+    const keys = Array.isArray(value) ? value.slice(0, 1000).map((_item, index) => String(index)) : Object.keys(value)
+    for (const key of keys) {
+      if (paths.size >= 512) break
+      if (!(Array.isArray(value) ? /^\d{1,3}$/ : /^[A-Za-z_][A-Za-z0-9_]{0,63}$/).test(key)) continue
+      const next = [...parts, key], path = next.join('.')
+      if (!diagnosticPath(path)) continue
+      paths.add(path)
+      visit(value[key], next, depth + 1)
+    }
+  }
+  visit(body)
+  return [...paths].map(path => {
+    const parts = path.split('.')
+    const bracket = parts.reduce((result, part) => /^\d+$/.test(part) ? result + '[' + part + ']' : result ? result + '.' + part : part, '')
+    const aliases = new Set([path, bracket, '/' + parts.join('/'), '#/' + parts.join('/'), 'body.' + path, 'body.' + bracket, '$.' + path, '$.' + bracket])
+    return {
+      path,
+      // A parent path must not match a child, an absent index or a suffix.
+      patterns: [...aliases].map(alias => new RegExp(String.raw`(?:^|[^A-Za-z0-9_$#./\[\]-])${escapeRegex(alias)}(?=$|[^A-Za-z0-9_$#./\[\]-])`)),
+      // Generic one-word keys in prose (e.g. expected "type") need quotes
+      // or an exact structured field value to be useful as a field mention.
+      proseNeedsQuotes: parts.length === 1 && !path.includes('_'),
+      quoted: new RegExp('(?:^|["\'`])' + escapeRegex(path) + '(?=$|["\'`])')
+    }
+  })
+}
+
+function mentionedRequestFields(data, body, forbidden) {
+  const catalog = requestFieldCatalog(body).filter(entry => !forbidden.has(entry.path.toLowerCase())), found = new Set()
+  const inspect = (value, prose = false) => {
+    if (typeof value !== 'string' || value.length > 8192) return
+    for (const entry of catalog) {
+      if (found.size >= 16) return
+      if (prose && entry.proseNeedsQuotes && !entry.quoted.test(value)) continue
+      if (entry.patterns.some(pattern => pattern.test(value))) found.add(entry.path)
+    }
+  }
+  const nodes = [data, ...[data.cause, data.errors].flatMap(list => Array.isArray(list) ? list.slice(0, 32) : [])]
+    .filter(value => value && typeof value === 'object' && !Array.isArray(value))
+  // Explicit provider field/path attributes take priority over prose.
+  for (const node of nodes) {
+    for (const key of ['field', 'path', 'property', 'property_name', 'field_name', 'instancePath', 'instance_path', 'json_path']) inspect(node[key])
+  }
+  for (const node of nodes) {
+    for (const key of ['description', 'message']) inspect(node[key], true)
+  }
+  return [...found]
+}
+
 async function testFailureDiagnostic(response, config, body, idempotencyKey) {
   const diagnostic = { http_status: response.status, codes: [] }
   // Error messages and descriptions may echo private request data. Only
@@ -58,6 +114,7 @@ async function testFailureDiagnostic(response, config, body, idempotencyKey) {
     else if (Array.isArray(value)) value.forEach(collect)
     else if (value && typeof value === 'object') Object.values(value).forEach(collect)
   }
+  collect(config.privateValues)
   collect(body)
   const forbidden = new Set(privateValues.map(value => value.toLowerCase()))
   const secrets = [config.accessToken, config.publicKey, config.webhookSecret,
@@ -98,6 +155,10 @@ async function testFailureDiagnostic(response, config, body, idempotencyKey) {
         for (const key of ['errorKey', 'error', 'code']) add(item[key])
       }
     }
+    // Only names from our outgoing schema are copied. Provider descriptions,
+    // messages and request values never become part of the diagnostic.
+    const fields = mentionedRequestFields(data, body, forbidden)
+    if (fields.length) diagnostic.fields = fields
   } catch { /* Keep only the HTTP status if the private diagnostic is unreadable. */ }
   return diagnostic
 }
@@ -106,7 +167,8 @@ export function mercadoPagoTestFailureDiagnostic(error) {
   const config = onlineConfiguration()
   if (config.mode !== 'test' || !config.available) return null
   const value = error && typeof error === 'object' ? testFailureDiagnostics.get(error) : null
-  return value ? { http_status: value.http_status, codes: [...value.codes] } : null
+  return value ? { http_status: value.http_status, codes: [...value.codes],
+    ...(Array.isArray(value.fields) && value.fields.length ? { fields: value.fields.filter(diagnosticPath).slice(0, 16) } : {}) } : null
 }
 
 async function request(path, { accessToken, method = 'GET', body = null, idempotencyKey = '', diagnosticConfig = null } = {}) {
@@ -236,30 +298,28 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalid('O e-mail do comprador é inválido.')
   if (!Array.isArray(items) || !items.length || items.length > 50) throw invalid('O pedido não possui itens válidos.')
   let itemTotal = 0
-  const payloadItems = items.map(item => {
+  for (const item of items) {
     const quantity = Number(item.quantity)
     const unit = moneyCents(item.unit_price)
     if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50 || moneyCents(item.line_total) !== unit * quantity) throw invalid('O valor dos itens do pedido é inválido.')
     itemTotal += unit * quantity
-    return { id: 'P' + String(item.product_id) + (item.variant_id ? '-V' + String(item.variant_id) : ''), title: string(item.product_name, 180) + (item.size_label ? ' — ' + string(item.size_label, 40) : ''), quantity, unit_price: unit / 100 }
-  })
+    string(item.product_name, 180)
+    if (item.size_label) string(item.size_label, 40)
+  }
   if (itemTotal + shipping !== total) throw invalid('O total do pedido não corresponde aos itens e ao frete.')
-  if (shipping) payloadItems.push({ id: 'GALEO-SHIPPING', title: 'Frete', quantity: 1, unit_price: shipping / 100 })
-  const name = text(order.customer_name).split(/\s+/)
-  const address = { zip_code: text(order.postal_code).replace(/\D/g, ''), street_name: text(order.street), street_number: text(order.number), neighborhood: text(order.neighborhood), city: text(order.city), state: text(order.state) }
   const paymentMethod = selection.method === 'pix'
     ? { id: 'pix', type: 'bank_transfer' }
     : { id: selection.payment_method_id, type: selection.method, token: selection.token, installments: 1 }
   const payload = {
-    type: 'online', processing_mode: 'automatic', capture_mode: 'automatic_async', total_amount: (total / 100).toFixed(2), external_reference: reference,
-    payer: { email, ...(name[0] ? { first_name: name[0], ...(name.length > 1 ? { last_name: name.slice(1).join(' ') } : {}) } : {}), ...(selection.identification ? { identification: selection.identification } : {}) },
-    transactions: { payments: [{ amount: (total / 100).toFixed(2), ...(selection.method === 'pix' ? { expiration_time: 'PT30M' } : {}), payment_method: paymentMethod }] },
-    items: payloadItems, description: 'Pedido ' + reference + ' — GALEO Store',
-    ...(address.zip_code && address.street_name ? { shipment: { address } } : {}),
-    ...(selection.method !== 'pix' ? { config: { online: { transaction_security: { validation: 'supported', liability_shift: 'not_required' } } } } : {})
+    type: 'online', processing_mode: 'automatic', total_amount: (total / 100).toFixed(2), external_reference: reference,
+    payer: { email },
+    transactions: { payments: [{ amount: (total / 100).toFixed(2), ...(selection.method === 'pix' ? { expiration_time: 'PT30M' } : {}), payment_method: paymentMethod }] }
   }
+  // Keep our full order metadata in GALEO. Orders receives the documented
+  // minimal request; its defaults govern capture/security behavior.
+  const diagnosticConfig = config.mode === 'test' ? { ...config, privateValues: [...Object.values(order), ...text(order.customer_name).split(/\s+/), selection.identification?.number] } : null
   await assertTestSeller(config)
-  const result = validateProviderOrder(await request('/v1/orders', { accessToken: config.accessToken, method: 'POST', body: payload, idempotencyKey: key, diagnosticConfig: config }), config)
+  const result = validateProviderOrder(await request('/v1/orders', { accessToken: config.accessToken, method: 'POST', body: payload, idempotencyKey: key, diagnosticConfig }), config)
   if (result.external_reference !== reference || moneyCents(result.total_amount) !== total) throw unavailable()
   return result
 }

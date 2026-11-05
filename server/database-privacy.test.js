@@ -57,7 +57,7 @@ function memoryDatabase(initialTables = {}) {
 test('diagnóstico privado do pagamento é cifrado e restaurado somente pela camada de privacidade', async () => {
   const db = memoryDatabase({ payments: [{ id: 8, raw_payload: '{}', private_data: null, status: 'PENDING' }] })
   const privacy = createDatabasePrivacy({ db, enabled: true, key })
-  const value = JSON.stringify({ test_provider_error: { http_status: 400, codes: ['invalid_order'] } })
+  const value = JSON.stringify({ test_provider_error: { http_status: 400, codes: ['invalid_order'], fields: ['transactions.payments.0.payment_method.id'] } })
   await privacy.updateFields('payments', 8, { raw_payload: value }, db)
   const stored = db.row('payments')
   assert.ok(stored.private_data)

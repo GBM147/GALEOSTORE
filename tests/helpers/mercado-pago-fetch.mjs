@@ -34,6 +34,8 @@ globalThis.fetch = async (input, options = {}) => {
     // official Orders API fields exercised by this isolated local suite.
     const payment = body?.transactions?.payments?.[0]
     const valid = body?.type === 'online' && body?.processing_mode === 'automatic' &&
+      Object.keys(body).every(key => ['type', 'processing_mode', 'total_amount', 'external_reference', 'payer', 'transactions'].includes(key)) &&
+      Object.keys(body?.payer || {}).length === 1 && typeof body?.payer?.email === 'string' &&
       /^\d+\.\d{2}$/.test(body?.total_amount) && payment?.amount === body.total_amount &&
       ['pix', 'visa', 'master'].includes(payment?.payment_method?.id) &&
       ['bank_transfer', 'credit_card', 'debit_card'].includes(payment?.payment_method?.type) &&

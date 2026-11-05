@@ -4,6 +4,8 @@ O código da GALEO implementa Checkout Transparente via Orders, usando a aplica�
 
 O adaptador anterior misturava Orders com redirecionamento do Checkout Pro. O contrato atual utiliza `POST /v1/orders`, processamento automático e uma transação de Pix ou cartão tokenizado. Não espera `checkout_url` nem envia `config.online.success_url`.
 
+O pedido enviado ao Mercado Pago segue o exemplo mínimo documentado: tipo online, processamento automático, total, referência, e-mail do comprador e transação. Produtos, nomes, endereço e demais metadados completos permanecem na GALEO. O total enviado continua sendo conferido contra os itens e o frete do pedido; os padrões do provedor regem captura e segurança da transação.
+
 ## Estado da validação
 
 O código tem testes automatizados locais com MySQL isolado e APIs/SDK simulados. Isso verifica a lógica da GALEO, mas **não comprova uma compra no Mercado Pago**, a entrega real do webhook, a tokenização com as chaves da loja ou a qualidade oficial da integração. Essas etapas dependem das credenciais e da conta de teste. Não houve cobrança real durante o desenvolvimento.
@@ -31,7 +33,7 @@ As credenciais estáticas **`TEST-`** são válidas para outros produtos, como P
 
 Pares estáticos `TEST-`, misturados ou desconhecidos ficam indisponíveis antes de qualquer chamada ao provedor. O prefixo `APP_USR-`, isoladamente, não libera cobranças: continuam obrigatórios a confirmação explícita das credenciais, o banco e a origem de homologação, as demais chaves e a verificação autenticada do vendedor. Uma consulta negada ou um ID/país divergente não permite criar o pagamento. A verificação em cache é vinculada ao modo, tipo de credencial, Access Token, Public Key e vendedor.
 
-Em homologação, uma recusa definitiva na criação do pagamento pode registrar o status HTTP e códigos de erro limitados no payload cifrado da tentativa. Esse diagnóstico não inclui mensagens, dados do cartão ou credenciais, não aparece nas respostas ao cliente e não modifica o tratamento de respostas ambíguas. O registro permanece desativado em produção.
+Em homologação, uma recusa definitiva na criação do pagamento pode registrar o status HTTP, códigos limitados e nomes de campos reconhecidos do pedido no payload cifrado da tentativa. Os nomes são derivados somente das chaves realmente enviadas; mensagens do provedor servem para reconhecer essas referências e não são armazenadas. Esse diagnóstico não inclui valores dos campos, dados do cartão ou credenciais, não aparece nas respostas ao cliente e não modifica o tratamento de respostas ambíguas. O registro permanece desativado em produção.
 
 Para testar cartões na Web, a documentação atual permite um **e-mail válido do comprador**. Na GALEO, esse e-mail vem da conta autenticada no ambiente de homologação, não de um valor arbitrário enviado pelo navegador. A exigência de uma conta virtual vendedora para Orders permanece independente desse e-mail.
 

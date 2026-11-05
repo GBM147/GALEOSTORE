@@ -591,7 +591,7 @@ test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa ex
   const fixture = await orderFixture(2, { bind: false })
   mpFixtures.creations[fixture.order.code] = { error: 'local_invalid_payment', code: 3001,
     message: 'private-test-message buyer@example.invalid',
-    cause: [{ code: 'invalid_field', description: 'CPF 12345678909' }, { code: '12345678909' }], __http_status: 400 }
+    cause: [{ code: 'invalid_field', description: 'transactions.payments[0].payment_method.id; CPF 12345678909' }, { code: '12345678909' }], __http_status: 400 }
   await saveMpFixtures()
   const rejected = await startPayment(fixture)
   assert.equal(rejected.response.status, 400, rejected.data.error)
@@ -600,9 +600,10 @@ test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa ex
   assert.equal(before.payments.length, 1)
   assert.equal(before.payments[0].status, 'REJECTED')
   assert.equal(before.payments[0].provider_reference, null)
-  assert.deepEqual(before.payments[0].raw_payload, { test_provider_error: { http_status: 400, codes: ['local_invalid_payment', '3001', 'invalid_field'] } })
+  assert.deepEqual(before.payments[0].raw_payload, { test_provider_error: { http_status: 400, codes: ['local_invalid_payment', '3001', 'invalid_field'], fields: ['transactions.payments.0.payment_method.id'] } })
   assert.equal(JSON.stringify(rejected.data).includes('test_provider_error'), false)
   assert.equal(JSON.stringify(rejected.data).includes('local_invalid_payment'), false)
+  assert.equal(JSON.stringify(rejected.data).includes('transactions.payments.0.payment_method.id'), false)
   const privateView = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
   assert.equal(privateView.response.status, 200)
   assert.equal(JSON.stringify(privateView.data).includes('test_provider_error'), false)
