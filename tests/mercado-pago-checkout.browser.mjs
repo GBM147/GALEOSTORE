@@ -226,7 +226,7 @@ test('cartão monta três iframes e envia token e metadados sem dados brutos do 
   assert.equal(['card_number', 'security_code', 'expiration_month', 'expiration_year', 'amount', 'email', 'issuer_id'].some(key => Object.hasOwn(body, key)), false)
   const configuration = await page.evaluate(() => window.__mpSdkConfigurations.at(-1))
   assert.equal(configuration.iframe, true)
-  assert.equal(configuration.advancedFraudPrevention, true)
+  assert.equal(configuration.advancedFraudPrevention, false)
   assert.equal(configuration.amount, '129.90')
   for (const field of ['issuer', 'installments', 'identificationType']) assert.ok(configuration.fields.includes(field))
   for (const style of configuration.secureFieldStyles) {

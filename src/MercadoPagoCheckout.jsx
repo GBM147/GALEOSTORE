@@ -162,7 +162,9 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
       try {
         const MercadoPago = await loadCardSdk()
         if (disposed) return
-        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: true })
+        // The official standalone security script owns device collection.
+        // Avoid a second SDK widget that needs an inline script under CSP.
+        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: false })
         controller = mp.cardForm({
           amount: Number(order.total).toFixed(2),
           iframe: true,
