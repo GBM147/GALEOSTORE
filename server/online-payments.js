@@ -13,7 +13,10 @@ import {
 const provider = 'MERCADO_PAGO'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const terminal = new Set(['APPROVED', 'REFUNDED'])
-const problem = (status, code, message) => Object.assign(new Error(message), { safe: true, status, code })
+const problem = (status, code, message, extra = null) => Object.assign(new Error(message), { safe: true, status, code, ...(extra ? { extra } : {}) })
+// Homologation only (test database and Mercado Pago test mode): the sanitized
+// diagnostic holds HTTP status, provider codes and field names, never values.
+const homologationDiagnostics = () => getMercadoPagoPublicConfig().mode === 'test' && /_test$/.test(String(process.env.DB_NAME || ''))
 const rawOrder = payment => {
   const value = payment?.raw_payload
   if (value && typeof value === 'object' && !Array.isArray(value)) return value
@@ -81,7 +84,7 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
     return value
   }
   function failure(res, error, fallback = 'Não foi possível consultar o pagamento. Tente novamente.') {
-    if (error?.safe) return res.status(error.status).json({ error: error.message, code: error.code })
+    if (error?.safe) return res.status(error.status).json({ error: error.message, code: error.code, ...(error.extra || {}) })
     return res.status(503).json({ error: fallback, code: 'PAYMENT_UNAVAILABLE' })
   }
 
@@ -235,7 +238,8 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
           if (diagnostic) await privacy.updateFields('payments', stubId, { raw_payload: JSON.stringify({ test_provider_error: diagnostic }) }, transaction)
           await transaction.execute("UPDATE payments SET status='REJECTED' WHERE id=? AND provider_reference IS NULL AND status='PENDING'", [stubId])
           await transaction.commit()
-          throw problem(400, 'PAYMENT_NOT_CREATED', 'Não foi possível iniciar o pagamento. Confira os dados e tente novamente.')
+          throw problem(400, 'PAYMENT_NOT_CREATED', 'Não foi possível iniciar o pagamento. Confira os dados e tente novamente.',
+            diagnostic && homologationDiagnostics() ? { test_provider_error: diagnostic } : null)
         }
         throw problem(503, 'PAYMENT_RESULT_PENDING', 'A confirmação desta tentativa ainda não chegou. Tente consultar ou repetir esta mesma tentativa.')
       }

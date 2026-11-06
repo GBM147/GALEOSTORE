@@ -888,8 +888,9 @@ test('cartão tokenizado usa valor e comprador do pedido, com aprovação persis
   assert.deepEqual(creation.body.payer.phone, { area_code: '11', number: '999999999' })
   assert.deepEqual(creation.body.payer.address, { state: 'SP', zip_code: '01001000', street_number: '1',
     street_name: 'Rua de teste', city: 'São Paulo', neighborhood: 'Centro' })
-  assert.deepEqual(creation.body.config, { statement_descriptor: 'GALEO', online: {
+  assert.deepEqual(creation.body.config, { online: {
     transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } })
+  assert.equal(creation.body.transactions.payments[0].payment_method.statement_descriptor, 'GALEO')
   assert.equal(creation.body.capture_mode, 'automatic')
   assert.deepEqual(creation.body.items, [{ external_code: 'galeo-' + fixture.productId,
     title: 'Teste MP ' + suffix + '-' + (fixtures.products.length - 1), quantity: 2, unit_price: '20.00', category_id: 'fashion' }])

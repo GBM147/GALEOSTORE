@@ -408,12 +408,13 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
   } else if (selection.use_shipping_address === false) payer.address = selection.billing_address
   const paymentMethod = selection.method === 'pix'
     ? { id: 'pix', type: 'bank_transfer' }
-    : { id: selection.payment_method_id, type: selection.method, token: selection.token, installments: 1 }
+    : { id: selection.payment_method_id, type: selection.method, token: selection.token, installments: 1, statement_descriptor: 'GALEO' }
   const additional = buyerSupplement(buyerContext)
   const payload = {
     type: 'online', processing_mode: 'automatic', capture_mode: 'automatic', total_amount: (total / 100).toFixed(2), external_reference: reference,
-    payer, items: providerItems, config: { statement_descriptor: 'GALEO', ...(selection.method === 'pix' ? {} : {
-      online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } }) },
+    // The Orders schema keeps statement_descriptor on the card payment method.
+    payer, items: providerItems, ...(selection.method === 'pix' ? {} : { config: {
+      online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }),
     ...(additional ? { additional_info: additional } : {}),
     transactions: { payments: [{ amount: (total / 100).toFixed(2), ...(selection.method === 'pix' ? { expiration_time: 'PT30M' } : {}), payment_method: paymentMethod }] }
   }
