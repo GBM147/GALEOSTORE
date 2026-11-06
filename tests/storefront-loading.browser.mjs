@@ -161,13 +161,22 @@ test('endereço inexistente mostra página não encontrada, sem indexação e co
   assert.equal(await page.getByRole('link', { name: 'Ver catálogo ↗', exact: true }).getAttribute('href'), '/shop')
   assert.equal(await page.getByRole('link', { name: 'Voltar ao início', exact: true }).getAttribute('href'), '/')
   assert.equal(await page.locator('meta[name="robots"][content="noindex"]').count(), 1)
-  assert.equal(await page.title(), 'Página não encontrada — Galeo Store')
+  assert.equal(await page.title(), 'Página não encontrada | Galeo Store')
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
   await page.getByRole('link', { name: 'Ver catálogo ↗', exact: true }).click()
   await page.waitForURL('**/shop')
   await page.locator('.product-card').first().waitFor()
   assert.equal(await page.locator('meta[name="robots"][content="noindex"]').count(), 0)
-  assert.notEqual(await page.title(), 'Página não encontrada — Galeo Store')
+  assert.equal(await page.title(), 'Catálogo | Galeo Store')
+})
+
+test('Home e catálogo têm títulos próprios na aba do navegador', async t => {
+  const { page } = await fixture(t)
+  await page.goto(baseUrl + '/shop')
+  await page.waitForFunction(() => document.title === 'Catálogo | Galeo Store')
+  await page.getByRole('link', { name: 'Galeo Store', exact: false }).first().click()
+  await page.waitForURL(url => new URL(url).pathname === '/')
+  await page.waitForFunction(() => document.title === 'Galeo Store')
 })
 
 test('a logo do cabeçalho usa a versão leve de 128 px', async t => {

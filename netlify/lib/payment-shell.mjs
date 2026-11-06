@@ -30,31 +30,38 @@ export function injectScriptNonce(html, nonce) {
   return String(html).replace(/<script\b(?![^>]*\snonce=)/gi, `<script nonce="${nonce}"`)
 }
 
-function unavailable() {
+export function unavailable() {
   return new Response('<!doctype html><meta charset="utf-8"><title>Galeo Store</title><p>A página de pagamento está temporariamente indisponível. Atualize em instantes.</p>', {
     status: 503,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '5' }
   })
 }
 
-export async function paymentShellResponse(request, { fetchShell = fetch, nonce = createNonce() } = {}) {
-  if (!['GET', 'HEAD'].includes(request.method)) {
-    return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD', 'Cache-Control': 'no-store' } })
-  }
+// The built index.html with the security headers Netlify applied to it.
+// Returns null when the static shell cannot be read safely.
+export async function fetchStaticShell(request, fetchShell = fetch) {
   let shell
   try {
     shell = await fetchShell(new URL('/', request.url), { headers: { Accept: 'text/html' }, redirect: 'manual' })
   } catch {
-    return unavailable()
+    return null
   }
-  if (!shell.ok || !String(shell.headers.get('content-type') || '').includes('text/html')) return unavailable()
-  const policy = shell.headers.get('content-security-policy')
+  if (!shell.ok || !String(shell.headers.get('content-type') || '').includes('text/html')) return null
   const headers = new Headers({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
   for (const name of forwardedHeaders) {
     const value = shell.headers.get(name)
     if (value) headers.set(name, value)
   }
-  const html = await shell.text()
+  return { html: await shell.text(), policy: shell.headers.get('content-security-policy'), headers }
+}
+
+export async function paymentShellResponse(request, { fetchShell = fetch, nonce = createNonce() } = {}) {
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD', 'Cache-Control': 'no-store' } })
+  }
+  const shell = await fetchStaticShell(request, fetchShell)
+  if (!shell) return unavailable()
+  const { html, policy, headers } = shell
   if (!policy) return new Response(request.method === 'HEAD' ? null : html, { status: 200, headers })
   headers.set('Content-Security-Policy', addScriptNonce(policy, nonce))
   return new Response(request.method === 'HEAD' ? null : injectScriptNonce(html, nonce), { status: 200, headers })

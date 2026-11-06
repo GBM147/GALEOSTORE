@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'fix/**', 'feature/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Testes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-only
+          MYSQL_DATABASE: galeo_store_test
+          MYSQL_USER: galeo_test
+          MYSQL_PASSWORD: ci-test-only
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-only"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    # Disposable local services only: no production credentials or external providers.
+    env:
+      NODE_ENV: development
+      PORT: '10000'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3307'
+      DB_USER: galeo_test
+      DB_PASSWORD: ci-test-only
+      DB_NAME: galeo_store_test
+      DB_SSL: 'false'
+      MYSQL_ROOT_PASSWORD: ci-root-only
+      SESSION_SECRET: ci-only-session-secret-0123456789abcdef0123456789abcdef
+      DISTRIBUTOR_WEBHOOK_SECRET: ci-only-distributor-secret
+      APP_URL: http://127.0.0.1:10000
+      ALLOWED_ORIGINS: http://127.0.0.1:10000,http://127.0.0.1:5173
+      GALEO_TEST_BASE_URL: http://127.0.0.1:10000
+      FRONTEND_TEST_URL: http://127.0.0.1:5173
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verificação de sintaxe
+        run: npm run check
+
+      - name: Testes unitários
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Permissões do MySQL de teste
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -uroot -pci-root-only <<'SQL'
+          GRANT SELECT, TRIGGER, EVENT, CREATE USER ON *.* TO 'galeo_test'@'%';
+          SET GLOBAL log_bin_trust_function_creators = 1;
+          FLUSH PRIVILEGES;
+          SQL
+
+      - name: Schema de teste
+        run: node scripts/migrate-schema.mjs
+
+      - name: Integração com a API local
+        run: |
+          node server/index.js > api.log 2>&1 &
+          echo $! > api.pid
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:10000/health && break; sleep 1; done
+          npm run test:integration
+          kill "$(cat api.pid)"
+
+      # Each suite below creates and drops its own database.
+      - name: Integração com bancos descartáveis
+        run: |
+          clear_limits() { mysql -h 127.0.0.1 -P 3307 -uroot -pci-root-only galeo_store_test -e 'DELETE FROM rate_limit_counters'; }
+          clear_limits && npm run test:security
+          clear_limits && npm run test:email
+          npm run test:netlify
+          npm run test:products
+          npm run test:shipping
+          npm run test:expenses
+          npm run test:home
+          npm run test:media
+          # Runs before the wildcard grant below: it revokes ALTER on its own database.
+          npm run test:recovery
+
+      - name: Integração da newsletter e da limpeza
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -uroot -pci-root-only -e "GRANT ALL PRIVILEGES ON \`galeo\\_store\\_test%\`.* TO 'galeo_test'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+          npm run test:newsletter
+          npm run test:cleanup
+
+      - name: Navegador
+        run: |
+          npm install --no-save --package-lock=false playwright@1.63.0
+          npx playwright install --with-deps chromium
+          npm run dev -- --host 127.0.0.1 --port 5173 --strictPort > vite.log 2>&1 &
+          for attempt in $(seq 1 40); do curl -fsS -o /dev/null http://127.0.0.1:5173/ && break; sleep 1; done
+          npm run test:browser
+
+      - name: Logs dos servidores locais
+        if: failure()
+        run: tail -n 120 api.log vite.log 2>/dev/null || true

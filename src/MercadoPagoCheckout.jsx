@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { customerApi } from './storeApi'
 import usePostalCodeAddress from './usePostalCodeAddress'
 import './mercado-pago-checkout.css'
+import { usePageMeta } from './pageMeta'
 
 const money = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const sdkUrl = 'https://sdk.mercadopago.com/js/v2'
@@ -260,6 +261,7 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
 }
 
 export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
+  usePageMeta('Pagamento')
   const params = useParams()
   const orderId = Number(initialOrder?.id || params.orderId)
   const attemptKey = 'galeo.mp.attempt.' + orderId

@@ -5,13 +5,16 @@ import { buildEnvironment, functionsBundleConfig, headersFile, readNetlifyConfig
 
 const config = await readNetlifyConfig(fileURLToPath(new URL('../netlify.toml', import.meta.url)))
 
-test('_redirects mantém a ordem do netlify.toml, com a página de pagamento antes do fallback do SPA', () => {
+test('_redirects mantém a ordem do netlify.toml, com pagamento, produto e SEO antes do fallback do SPA', () => {
   const lines = redirectsFile(config).trim().split('\n')
   assert.deepEqual(lines, [
     '/api/* /.netlify/functions/api/api/:splat 200!',
     '/api /.netlify/functions/api/api 200!',
     '/health /.netlify/functions/api/health 200!',
     '/pagamento/* /.netlify/functions/api/pagamento/:splat 200!',
+    '/produto/* /.netlify/functions/api/produto/:splat 200!',
+    '/robots.txt /.netlify/functions/api/robots.txt 200!',
+    '/sitemap.xml /.netlify/functions/api/sitemap.xml 200!',
     '/* /index.html 200'
   ])
 })

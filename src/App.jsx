@@ -21,6 +21,7 @@ const AccountPage = lazy(() => import('./AccountPage'))
 const MercadoPagoCheckout = lazy(() => import('./MercadoPagoCheckout'))
 import { activeProductVariants, compareSizes } from './productVariants'
 import './product-variants.css'
+import { usePageMeta } from './pageMeta'
 
 const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
 
@@ -300,6 +301,7 @@ function HeroTitle({ text, highlight }) {
 }
 
 function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults, visualDefaults }) {
+  usePageMeta('')
   const editor = useVisualEditor()
   const heroElement = useRef(null)
   const editing = Boolean(editor?.editing)
@@ -394,14 +396,13 @@ function StorefrontMotionGate(props) {
 // Unknown addresses used to render an empty page. The SPA cannot send HTTP 404,
 // so the page asks search engines not to index it.
 function NotFound() {
+  usePageMeta('Página não encontrada')
   useEffect(() => {
-    const previous = document.title
     const robots = document.createElement('meta')
     robots.name = 'robots'
     robots.content = 'noindex'
     document.head.append(robots)
-    document.title = 'Página não encontrada — Galeo Store'
-    return () => { robots.remove(); document.title = previous }
+    return () => robots.remove()
   }, [])
   return <main className="section-shell page-space not-found-page">
     <h1>Página não encontrada</h1>
@@ -446,6 +447,7 @@ const normalizeSearchText = (value) => String(value || '')
   .trim()
 
 function Shop({ products = fallbackProducts, categories = [], visualDefaults }) {
+  usePageMeta('Catálogo')
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedCategory = searchParams.get('category') || 'Todos'
   const selectedBrand = searchParams.get('brand') || ''

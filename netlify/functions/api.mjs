@@ -1,6 +1,8 @@
 import serverless from 'serverless-http'
 import { apiPath, lambdaEvent, webResponse } from '../lib/http.mjs'
 import { isPaymentShellPath, paymentShellResponse } from '../lib/payment-shell.mjs'
+import { productIdFromPath, productShellResponse } from '../lib/product-shell.mjs'
+import { publicOrigin } from '../../server/seo.js'
 
 // This must precede the dynamic import: the classic server also supports npm start.
 process.env.GALEO_SERVERLESS = 'true'
@@ -13,9 +15,33 @@ const runtime = () => (runtimePromise ??= import('../../server/index.js').then(m
   throw error
 }))
 
+// Reads a product through the public store route, so a shared link shows
+// exactly what the catalog shows. Returns null for missing or hidden products.
+async function loadPublicProduct(request, context, productId) {
+  const api = await runtime()
+  return api.withRequestTasks(async () => {
+    try {
+      await api.initializeRuntime()
+      const lookup = new Request(new URL('/api/store/products/' + productId, request.url), { headers: { Accept: 'application/json' } })
+      const result = await api.handle(await lambdaEvent(lookup, context), { callbackWaitsForEmptyEventLoop: false })
+      if (result.statusCode === 404) return null
+      if (result.statusCode !== 200) throw new Error('PRODUCT_LOOKUP_FAILED')
+      return JSON.parse(result.isBase64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body).product || null
+    } finally {
+      await api.drainBackgroundTasks()
+    }
+  })
+}
+
 export default async function apiRequest(request, context) {
+  const path = apiPath(new URL(request.url).pathname)
   // The payment page shell needs no database or Express runtime.
-  if (isPaymentShellPath(apiPath(new URL(request.url).pathname))) return paymentShellResponse(request)
+  if (isPaymentShellPath(path)) return paymentShellResponse(request)
+  const productId = productIdFromPath(path)
+  if (productId) {
+    return productShellResponse(request, { productId, origin: publicOrigin() || new URL(request.url).origin,
+      loadProduct: id => loadPublicProduct(request, context, id) })
+  }
   try {
     const api = await runtime()
     return await api.withRequestTasks(async () => {

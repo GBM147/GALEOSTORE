@@ -172,3 +172,53 @@ test('the actual Netlify bundle loads native bcrypt and reads the same shared se
     await exec(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, GALEO_FIXTURE_COOKIE: owner.cookie }, timeout: 15000 })
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
+
+test('product links carry their preview and robots/sitemap follow the environment', async () => {
+  const realFetch = globalThis.fetch
+  // The static shell normally comes from the CDN; serve the built-page stand-in locally.
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url)
+    if (url.origin === origin && url.pathname === '/') {
+      return new Response('<!doctype html><html><head><meta name="description" content="Padrão" /><meta property="og:title" content="Galeo Store" /><title>Galeo Store</title></head><body><div id="root"></div></body></html>',
+        { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'self'", 'X-Frame-Options': 'DENY' } })
+    }
+    return realFetch(input, init)
+  }
+  const context = { ip: '198.51.100.31', requestId: 'local-seo-fixture' }
+  try {
+    const page = await request(new Request(origin + '/.netlify/functions/api/produto/' + productId), context)
+    assert.equal(page.status, 200)
+    assert.equal(page.headers.get('content-security-policy'), "default-src 'self'")
+    const html = await page.text()
+    assert.match(html, /<title>Camiseta local \| Galeo Store<\/title>/)
+    assert.match(html, new RegExp('<meta property="og:url" content="' + origin + '/produto/' + productId + '" />'))
+    assert.match(html, /<meta property="product:price:amount" content="100\.00" \/>/)
+    assert.equal((html.match(/property="og:title"/g) || []).length, 1)
+
+    const { insertId: hiddenId } = await fixture.query("INSERT INTO products(name,description,price,stock,active) VALUES('Peça oculta','Fixture',10,1,0)")
+    const hidden = await (await request(new Request(origin + '/produto/' + hiddenId), context)).text()
+    assert.match(hidden, /<meta name="robots" content="noindex" \/>/)
+    assert.equal(hidden.includes('Peça oculta'), false)
+
+    // This fixture is a test database: homologation is never indexed.
+    assert.equal(await (await request(new Request(origin + '/.netlify/functions/api/robots.txt'), context)).text(), 'User-agent: *\nDisallow: /\n')
+    assert.equal((await request(new Request(origin + '/.netlify/functions/api/sitemap.xml'), context)).status, 404)
+
+    // The pool is already open, so a production-like name only changes the SEO rule.
+    const databaseName = process.env.DB_NAME
+    process.env.DB_NAME = 'galeo_store'
+    try {
+      const robots = await (await request(new Request(origin + '/.netlify/functions/api/robots.txt'), context)).text()
+      assert.ok(robots.includes('Sitemap: ' + origin + '/sitemap.xml\n'))
+      const sitemap = await request(new Request(origin + '/.netlify/functions/api/sitemap.xml'), context)
+      assert.equal(sitemap.status, 200)
+      const xml = await sitemap.text()
+      assert.ok(xml.includes('<loc>' + origin + '/produto/' + productId + '</loc>'))
+      assert.equal(xml.includes('/produto/' + hiddenId + '<'), false)
+    } finally {
+      process.env.DB_NAME = databaseName
+    }
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})

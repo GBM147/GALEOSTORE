@@ -95,6 +95,8 @@ Publicações enviadas pela API com arquivos já compilados precisam também
 incluir `dist/_redirects` e `dist/_headers` equivalentes ao TOML e o agendamento
 da função `maintenance` no manifesto. Nesse fluxo o Netlify não executa o
 processamento habitual de `netlify.toml` de um build por Git.
+As páginas de produto (`/produto/*`), `robots.txt` e `sitemap.xml` também passam pela função `api`, antes da regra `/*`. O produto sai com título, descrição, foto, preço e dados estruturados para as prévias de links, e o CDN guarda essa página por até 5 minutos (`Netlify-CDN-Cache-Control`); a navegação dentro do site continua no SPA, sem chamar a função. Na homologação, `robots.txt` bloqueia tudo e não há sitemap.
+
 O `_redirects` precisa manter a regra `/pagamento/*` para a função `api` antes da regra `/*`: ela entrega a página de pagamento com o nonce de CSP exigido pelo coletor de dispositivo do Mercado Pago.
 
 Não expor as credenciais de produção a deploy previews de branches não

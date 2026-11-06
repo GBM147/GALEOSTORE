@@ -7,6 +7,7 @@ import ShippingServiceIdentity, { ShippingProviderAttribution } from './Shipping
 import usePostalCodeAddress from './usePostalCodeAddress'
 import './product-variants.css'
 import './shipping.css'
+import { usePageMeta } from './pageMeta'
 
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 
@@ -19,6 +20,7 @@ function pendingOrderFromUrl(search = window.location.search) {
 }
 
 export default function CartPage() {
+  usePageMeta('Carrinho')
   const navigate = useNavigate()
   const location = useLocation()
   const [cart, setCart] = useState(readCart)

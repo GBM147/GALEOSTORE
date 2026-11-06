@@ -68,6 +68,11 @@ Para hospedagem gratuita com uso comercial, a configuração do Netlify está em
 origem; Aiven, Cloudinary e Resend são preservados. O comando `npm start`
 continua disponível para desenvolvimento e servidores Node tradicionais.
 
+## Testes automáticos
+O GitHub Actions (`.github/workflows/ci.yml`) roda verificação de sintaxe,
+unitários, build, integração com MySQL descartável e navegador a cada envio e em
+pull requests, sem credenciais reais.
+
 ## Validação da interface
 Com `npm run dev` ativo, execute `node --test tests/frontend.browser.mjs`.
 Esses testes usam APIs simuladas para verificar checkout, reenvio de mídia e o

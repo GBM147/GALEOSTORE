@@ -5,6 +5,7 @@ import helmet from 'helmet'
 import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
+import { registerSeoRoutes } from './seo.js'
 import { createDataProtection } from './data-protection.js'
 import { createDatabasePrivacy } from './database-privacy.js'
 import { protectSessionStore } from './protected-session-store.js'
@@ -1143,6 +1144,8 @@ async function exigirCliente(req,res,next) {
   }
 }
 
+
+registerSeoRoutes(app, { query })
 
 app.get('/health', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')

@@ -5,6 +5,7 @@ import ProductGallery from './ProductGallery'
 import { formatProductPrice, productCanBePurchased, productHasPrice } from './productAvailability'
 import { activeProductVariants, findProductVariant, productForVariant, productHasVariants } from './productVariants'
 import './product-variants.css'
+import { usePageMeta } from './pageMeta'
 
 const productGallery = (product) => {
   const uploaded = Array.isArray(product?.media) ? product.media : []
@@ -22,6 +23,7 @@ export default function ProductPage() {
   const { id } = useParams()
   const [product, setProduct] = useState(null)
   const [related, setRelated] = useState([])
+  usePageMeta(product?.name, product?.description)
   const [quantity, setQuantity] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

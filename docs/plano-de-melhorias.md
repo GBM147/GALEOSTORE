@@ -51,14 +51,14 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
 - [ ] **Barra do Netlify na produção** (Donos, no painel): o script
   `/.netlify/scripts/hud` é injetado em todas as páginas e gera um erro de CSP.
   Desativar a barra de colaboração para a produção.
-- [ ] **Testes automáticos no GitHub** (Técnico): CI gratuito com MySQL para
-  rodar unitários, integração e navegador a cada envio; hoje tudo é manual.
-  Em 06/11 as suítes rodaram com MySQL local: 283 unitárias, 185 de navegador e
-  219 de integração. As 4 falhas são anteriores às mudanças de 06/11: o teste 37
-  de produtos ainda usa a configuração do Mercado Pago anterior a Orders e
-  precisa ser reescrito; 2 testes de legibilidade do título da Home no tema
-  claro; 1 de usuário restrito da limpeza, que depende de permissões do MySQL.
-  A suíte de privacidade, que exige um segundo MySQL com criptografia, não rodou.
+- [x] **Testes automáticos no GitHub** (Técnico, 06/11): `.github/workflows/ci.yml`
+  roda verificação de sintaxe, unitários, build, integração com MySQL descartável e
+  navegador a cada envio para `main`, `fix/**`, `feature/**` e em pull requests.
+  Quatro testes que já falhavam antes de 06/11 rodam como pendentes (`todo`): o
+  teste 37 de produtos (reescrever para o fluxo Orders), os 2 de contraste do
+  título da Home no tema claro e o de usuário restrito da limpeza (permissões do
+  MySQL). A suíte de privacidade, que exige um segundo MySQL com criptografia,
+  ainda não roda no CI.
 - [ ] **Proteção de dados em produção** (Donos + Técnico): ativar a criptografia
   extra dos dados pessoais e limpar os dados de teste. Dependem de acesso válido
   ao Aiven, backup conferido e janela sem escritas.
@@ -68,12 +68,15 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
 
 ## 3. Melhorias de vendas, desempenho e acessibilidade
 
-- [ ] **SEO e compartilhamento** (Técnico): todas as páginas se chamam
-  "Galeo Store", sem descrição por página, sem `canonical` e sem tags OG.
-  Gerar no servidor título, descrição e foto de cada produto (como já é feito na
-  página de pagamento) para a prévia aparecer no WhatsApp e no Instagram; criar
-  `robots.txt`, `sitemap.xml` e dados estruturados de produto. Hoje
-  `/robots.txt` e `/sitemap.xml` devolvem a página do site.
+- [x] **SEO e compartilhamento** (Técnico, 06/11): título próprio em cada página;
+  a página de produto sai da função com título, descrição, foto 1200×630, preço,
+  `canonical` e dados estruturados de produto, para a prévia aparecer no WhatsApp,
+  Instagram e Facebook (cache de 5 minutos no CDN); `robots.txt` e `sitemap.xml`
+  gerados pela API, com a homologação sempre bloqueada; prévia padrão com a logo.
+- [ ] **Google Search Console** (Donos): cadastrar o site e enviar
+  `https://galeo-store.netlify.app/sitemap.xml` depois da publicação. Se a loja
+  ganhar domínio próprio, atualizar a URL absoluta da prévia padrão no
+  `index.html` e o `APP_URL`.
 - [ ] **Desempenho** (Técnico): ~~a logo `galeo-brand.webp` tem 367 KB (736×1600) e aparece em 32×32 no topo de todas as páginas~~ (06/11: `galeo-logo-128.webp`, 4,5 KB). Usar redimensionamento do Cloudinary (`f_auto`, `q_auto`, largura)
   nas fotos. Dividir o JavaScript inicial (483 KB) por página. A primeira carga
   depois de um tempo parado pode levar mais de 10 s pelo início a frio da função.

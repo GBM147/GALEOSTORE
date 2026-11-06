@@ -43,6 +43,25 @@
   status = 200
   force = true
 
+# Product pages carry their own title, photo and price for link previews.
+[[redirects]]
+  from = "/produto/*"
+  to = "/.netlify/functions/api/produto/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/robots.txt"
+  to = "/.netlify/functions/api/robots.txt"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/sitemap.xml"
+  to = "/.netlify/functions/api/sitemap.xml"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

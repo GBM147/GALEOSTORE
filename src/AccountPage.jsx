@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { customerApi } from './storeApi'
+import { usePageMeta } from './pageMeta'
 
 const dateTime = (value) => value ? new Date(value).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : '—'
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 const verificationTokenFromHash = (hash) => /^#verify=([a-f0-9]{64})$/i.exec(hash)?.[1] || ''
 
 export default function AccountPage() {
+  usePageMeta('Minha conta')
   const location = useLocation()
   const navigate = useNavigate()
   const returnTo = new URLSearchParams(location.search).get('return') || '/'
