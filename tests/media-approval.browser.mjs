@@ -164,6 +164,8 @@ async function captureComparison(page, comparison, device, scope) {
   }
 }
 
+// The storefront asks Cloudinary for resized copies; compare the source photo.
+const sourcePhoto = url => String(url || '').replace(/\/f_auto,q_auto,c_limit,w_\d+\//, '/')
 for (const [device, viewport] of [['desktop', { width:1366, height:950 }], ['mobile', { width:390, height:844 }]]) {
   test(device + ': biblioteca exige aprovação explícita e preserva original durante processamento e erro', async t => {
     const { page, calls, items, pageErrors, unexpectedApi } = await fixture(t, { viewport, processingFirst:true, aiPreviewFailsOnce:true })
@@ -289,18 +291,18 @@ for (const [device, viewport] of [['desktop', { width:1366, height:950 }], ['mob
     await page.goto(baseUrl + '/produto/31')
     const mainImage = page.locator('.product-main-media img')
     await mainImage.waitFor()
-    assert.equal(await mainImage.getAttribute('src'), aiUrl)
+    assert.equal(sourcePhoto(await mainImage.getAttribute('src')), aiUrl)
     const thumbnails = page.locator('.product-thumb-grid button')
     assert.equal(await thumbnails.count(), 3, 'capa repetida na galeria deve aparecer uma única vez')
-    const urls = await thumbnails.locator('img').evaluateAll(images => images.map(image => image.src))
+    const urls = await thumbnails.locator('img').evaluateAll(images => images.map(image => image.src)).then(list => list.map(sourcePhoto))
     assert.deepEqual(urls, [aiUrl, oldCoverUrl, detailUrl])
     assert.equal(new Set(urls).size, urls.length)
     await thumbnails.nth(1).click()
-    assert.equal(await mainImage.getAttribute('src'), oldCoverUrl)
+    assert.equal(sourcePhoto(await mainImage.getAttribute('src')), oldCoverUrl)
     await thumbnails.nth(2).click()
-    assert.equal(await mainImage.getAttribute('src'), detailUrl)
+    assert.equal(sourcePhoto(await mainImage.getAttribute('src')), detailUrl)
     await thumbnails.first().click()
-    assert.equal(await mainImage.getAttribute('src'), aiUrl)
+    assert.equal(sourcePhoto(await mainImage.getAttribute('src')), aiUrl)
     await checkLayout(page, page.locator('.product-gallery'), device + '-public-gallery')
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({ path:join(reportDirectory, device + '-produto-publico.png'), fullPage:true })

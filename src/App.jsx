@@ -22,6 +22,8 @@ const MercadoPagoCheckout = lazy(() => import('./MercadoPagoCheckout'))
 import { activeProductVariants, compareSizes } from './productVariants'
 import './product-variants.css'
 import { usePageMeta } from './pageMeta'
+import { ResponsiveImage } from './ResponsiveImage'
+import { imageWidths } from './cloudinaryImage'
 
 const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermudas', 'Casacos', 'Calçados', 'Acessórios']
 
@@ -353,7 +355,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
     categories: (editing || categorySection.__visible !== false) && <section data-home-section="categories" className="section-shell section-block">
       <div className="section-heading row-heading" data-reveal><div><h2>{field('categories','title','Título das categorias',text(categorySection.title,'Escolha seu movimento'))}</h2></div><EditorLink sectionKey="categories" labelPath="button_label" urlPath="button_url" className="text-link" to={categorySection.button_url || '/shop'}>{text(categorySection.button_label,'Ver catálogo')} ↗</EditorLink></div>
       <RevealGrid className="category-grid" items={categoryItems} reveal={reveal}>{categoryItems.map((item,index) => {
-        const content = <>{item.media_url && <img className="category-media" src={item.media_url} alt="" loading="lazy" />}<strong>{field('categories',['items',index,'title'],'Nome da categoria ' + (index + 1),text(item.title,'Categoria'))}</strong><small>Explorar ↗</small></>
+        const content = <>{item.media_url && <ResponsiveImage className="category-media" src={item.media_url} widths={imageWidths.card} sizes="(max-width: 700px) 50vw, 25vw" alt="" loading="lazy" decoding="async" />}<strong>{field('categories',['items',index,'title'],'Nome da categoria ' + (index + 1),text(item.title,'Categoria'))}</strong><small>Explorar ↗</small></>
         const className = 'category-card category-card-' + (index % 3)
         return editing ? <article key={item.id || index} className={className} onClick={() => editor.select({sectionKey:'categories',kind:'category',itemIndex:index})}>{content}<EditorMediaButton sectionKey="categories" kind="category" itemIndex={index} label={'Editar categoria ' + (index + 1)} /></article> : <Link key={item.id || index} className={className} data-editor-spa-link={editor ? 'true' : undefined} to={item.url || '/shop'}>{content}</Link>
       })}</RevealGrid>
@@ -428,7 +430,7 @@ function ProductCard({ product }) {
   return (
     <Link className="product-card" to={'/produto/' + product.id} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({sectionKey:'featured_products',kind:'products'}) } : undefined}>
       <div className="product-image">
-        <img src={image} alt="" loading="lazy" />
+        <ResponsiveImage src={image} widths={imageWidths.card} sizes="(max-width: 700px) 50vw, (max-width: 1100px) 33vw, 25vw" alt="" loading="lazy" decoding="async" />
         <span className="product-arrow">↗</span>
       </div>
       <div className="product-meta">

@@ -77,9 +77,24 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   `https://galeo-store.netlify.app/sitemap.xml` depois da publicação. Se a loja
   ganhar domínio próprio, atualizar a URL absoluta da prévia padrão no
   `index.html` e o `APP_URL`.
-- [ ] **Desempenho** (Técnico): ~~a logo `galeo-brand.webp` tem 367 KB (736×1600) e aparece em 32×32 no topo de todas as páginas~~ (06/11: `galeo-logo-128.webp`, 4,5 KB). Usar redimensionamento do Cloudinary (`f_auto`, `q_auto`, largura)
-  nas fotos. Dividir o JavaScript inicial (483 KB) por página. A primeira carga
-  depois de um tempo parado pode levar mais de 10 s pelo início a frio da função.
+- [x] **Desempenho — imagens** (Técnico, 06/11): a logo do topo passou de 367 KB
+  para 4,5 KB; cards, categorias, campanhas, banner, galeria, ampliação e carrinho
+  pedem ao Cloudinary a foto no tamanho exibido (`srcset`) com formato e qualidade
+  automáticos (`f_auto,q_auto`). Se a versão redimensionada falhar, a imagem volta
+  sozinha para a original. URLs que já têm efeito (como a versão sem fundo) não
+  são alteradas, para o Cloudinary não recalcular um efeito pago a cada tamanho.
+- [ ] **Confirmar o redimensionamento no Cloudinary** (Técnico, quando houver a
+  primeira foto real publicada): conferir que a conta não usa transformações
+  restritas; se usar, liberar `f_auto,q_auto,c_limit,w_*` no painel do Cloudinary.
+- [ ] **Fotos sem fundo mais leves** (Técnico): a versão tratada é um PNG no
+  tamanho original; gerar também tamanhos menores no momento do tratamento.
+- [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial tem 472 KB
+  (React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor visual 31 KB, App
+  28 KB, Lenis 18 KB). Carregar GSAP/Lenis depois da página exige revisar as
+  animações, porque elas definem o estado inicial antes da primeira pintura e
+  poderiam piscar; separar o editor visual dos donos rende só cerca de 6 KB
+  comprimidos. A primeira carga depois de um tempo parado pode levar mais de 10 s
+  pelo início a frio da função.
 - [ ] **Acessibilidade** (Técnico): os 11 links "sem texto" eram falso positivo da animação de revelação (todos têm texto depois de aparecer). Falta corrigir o contraste do título da Home no tema claro do editor (2 testes falham desde antes) e revisar o foco do teclado.
 - [ ] **Frete** (Técnico, quando os donos decidirem): compra de etiqueta e
   rastreamento no Melhor Envio, que já cota fretes na produção; opção de

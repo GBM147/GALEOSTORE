@@ -4,6 +4,8 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { campaignSlides, campaignTransitionSeconds, resolveCampaignAnimation } from './campaign-model'
 import './CampaignCarousel.css'
+import { ResponsiveImage, ResponsivePicture } from './ResponsiveImage'
+import { imageWidths } from './cloudinaryImage'
 
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
@@ -33,22 +35,20 @@ function CampaignMedia({ slide, variant, effect, active, paused, reduceMotion })
   const desktopVideo = slide.desktop_type === 'video'
   const mobileVideo = slide.mobile_type === 'video'
   const hasMobile = Boolean(slide.mobile_url)
-  const renderImage = (url, className) => <img src={url} alt="" className={'campaign-media ' + className} loading="lazy" />
+  const renderImage = (url, className, widths = imageWidths.banner) => <ResponsiveImage src={url} widths={widths} sizes="100vw" alt="" className={'campaign-media ' + className} loading="lazy" decoding="async" />
   return <div className={'campaign-visual campaign-visual-' + variant} data-campaign-effect={effect} data-managed-motion="true" aria-hidden="true">
     <div className="campaign-orb" />
     <div className="campaign-line campaign-line-a" />
     <div className="campaign-line campaign-line-b" />
     {!slide.desktop_url ? <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" />
-      : !desktopVideo && (!hasMobile || !mobileVideo) ? <picture>
-        {hasMobile && <source media="(max-width: 700px)" srcSet={slide.mobile_url} />}
-        {renderImage(slide.desktop_url, '')}
-      </picture> : <>
+      : !desktopVideo && (!hasMobile || !mobileVideo) ? <ResponsivePicture src={slide.desktop_url} mobileSrc={hasMobile ? slide.mobile_url : undefined}
+        widths={imageWidths.banner} mobileWidths={imageWidths.bannerMobile} alt="" className="campaign-media " loading="lazy" decoding="async" /> : <>
         {desktopVideo
           ? <CampaignVideo url={slide.desktop_url} visible={active && (!mobile || !hasMobile)} paused={paused} reduceMotion={reduceMotion} className={'campaign-carousel-desktop' + (hasMobile ? ' has-mobile campaign-desktop-video' : '')} />
           : renderImage(slide.desktop_url, 'campaign-carousel-desktop' + (hasMobile ? ' has-mobile' : ''))}
         {hasMobile && (mobileVideo
           ? <CampaignVideo url={slide.mobile_url} visible={active && mobile} paused={paused} reduceMotion={reduceMotion} className="campaign-carousel-mobile" />
-          : renderImage(slide.mobile_url, 'campaign-carousel-mobile campaign-mobile-image'))}
+          : renderImage(slide.mobile_url, 'campaign-carousel-mobile campaign-mobile-image', imageWidths.bannerMobile))}
       </>}
     <div className="campaign-scan" />
     <div className="campaign-carousel-shade" />

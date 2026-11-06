@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { ResponsiveImage, ResponsivePicture } from './ResponsiveImage'
+import { cloudinaryImageUrl, imageWidths } from './cloudinaryImage'
 
 const motions = {
   zoom: [{ scale: 1 }, { scale: 1.055 }],
@@ -115,13 +117,11 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
     <div className="campaign-line campaign-line-b" />
     {videoUrl ? <>
       <video ref={video} className={'campaign-media campaign-video' + (mobileUrl ? ' campaign-desktop-video' : '')}
-        src={videoUrl} poster={mediaUrl || mobileUrl || '/images/galeo-brand.webp'} muted loop playsInline
+        src={videoUrl} poster={cloudinaryImageUrl(mediaUrl || mobileUrl, 1600) || '/images/galeo-brand.webp'} muted loop playsInline
         preload={canPlayVideo ? 'metadata' : 'none'} />
-      {mobileUrl && <img src={mobileUrl} alt={alt} className="campaign-media campaign-mobile-image" loading="eager" fetchPriority="high" decoding="async" />}
-    </> : imageUrl ? <picture>
-      {mobileUrl && <source media="(max-width: 700px)" srcSet={mobileUrl} />}
-      <img src={imageUrl} alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" />
-    </picture> : <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" fetchPriority="high" decoding="async" />}
+      {mobileUrl && <ResponsiveImage src={mobileUrl} widths={imageWidths.bannerMobile} sizes="100vw" alt={alt} className="campaign-media campaign-mobile-image" loading="eager" fetchPriority="high" decoding="async" />}
+    </> : imageUrl ? <ResponsivePicture src={imageUrl} mobileSrc={mobileUrl || undefined} widths={imageWidths.banner} mobileWidths={imageWidths.bannerMobile}
+      alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" /> : <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" fetchPriority="high" decoding="async" />}
     <div className="campaign-scan" />
   </div>
 }

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import gsap from 'gsap'
 import './ProductGallery.css'
+import { ResponsiveImage } from './ResponsiveImage'
+import { imageWidths } from './cloudinaryImage'
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -19,6 +21,8 @@ function GalleryIcon({ kind }) {
 // The photo transition owns the outer plane; zoom/pan owns its inner view.
 // Keeping these transforms separate prevents a swipe from overwriting zoom.
 function PhotoScene({ photo, alt, direction = 1, viewTransform, imageRef, imageClassName, onLoad, onError, animate = true }) {
+  // The zoomable lightbox keeps one large file; the page photo follows its layout size.
+  const photoSources = imageRef ? { fallbackWidth: 2400 } : { widths: imageWidths.gallery, sizes: '(max-width: 900px) 100vw, 50vw', fallbackWidth: 1280 }
   const root = useRef(null)
   const currentImage = useRef(null)
   const committed = useRef({ photo, alt, viewTransform })
@@ -76,12 +80,12 @@ function PhotoScene({ photo, alt, direction = 1, viewTransform, imageRef, imageC
   return <div ref={root} className="product-photo-scene" data-transitioning={Boolean(frame.previous)}>
     <div className="product-photo-slide" data-current="true">
       <div className={viewTransform ? 'product-lightbox-transform' : 'product-photo-view'} style={viewTransform ? { transform: viewTransform } : undefined}>
-        <img ref={node => { currentImage.current = node; if (imageRef) imageRef.current = node }} src={photo.url} alt={alt} className={imageClassName} draggable="false" onLoad={onLoad} onError={onError} onDragStart={event => event.preventDefault()} />
+        <ResponsiveImage ref={node => { currentImage.current = node; if (imageRef) imageRef.current = node }} src={photo.url} {...photoSources} alt={alt} className={imageClassName} draggable="false" onLoad={onLoad} onError={onError} onDragStart={event => event.preventDefault()} />
       </div>
     </div>
     {frame.previous && <div key={frame.previous.photo.url} className="product-photo-slide" data-current="false" aria-hidden="true">
       <div className="product-photo-outgoing-view" style={frame.previous.viewTransform ? { transform: frame.previous.viewTransform } : undefined}>
-        <img src={frame.previous.photo.url} alt="" draggable="false" />
+        <ResponsiveImage src={frame.previous.photo.url} {...photoSources} alt="" draggable="false" />
       </div>
     </div>}
   </div>
@@ -241,7 +245,7 @@ function PhotoLightbox({ photos, initialIndex, name, onSelect, onDismiss }) {
       <div className="product-lightbox-zoom" role="group" aria-label="Ampliação da foto">{[1, 2, 3].map((scale) => <button type="button" key={scale} aria-label={'Zoom ' + scale + 'x'} aria-pressed={Math.abs(zoom - scale) < 0.05} onClick={() => updateView(scale)}>{scale}×</button>)}</div>
       <p className="product-lightbox-help">{zoom > 1 ? 'Arraste para explorar os detalhes' : 'Deslize para trocar de foto'}</p>
     </div>
-    {photos.length > 1 && <div className="product-lightbox-thumbnails" aria-label="Escolher foto">{photos.map((photo, photoIndex) => <button type="button" key={photo.url} className={photoIndex === index ? 'active' : ''} aria-label={'Abrir foto ' + (photoIndex + 1)} aria-pressed={photoIndex === index} onClick={() => choosePhoto(photoIndex)}><img src={photo.url} alt="" draggable="false" loading="lazy" /></button>)}</div>}
+    {photos.length > 1 && <div className="product-lightbox-thumbnails" aria-label="Escolher foto">{photos.map((photo, photoIndex) => <button type="button" key={photo.url} className={photoIndex === index ? 'active' : ''} aria-label={'Abrir foto ' + (photoIndex + 1)} aria-pressed={photoIndex === index} onClick={() => choosePhoto(photoIndex)}><ResponsiveImage src={photo.url} widths={imageWidths.thumbnail} sizes="96px" alt="" draggable="false" loading="lazy" /></button>)}</div>}
   </dialog>, document.body)
 }
 
@@ -268,7 +272,7 @@ export default function ProductGallery({ media = [], name = 'Produto' }) {
           : <img src="/images/product-placeholder.svg" alt={name} className="product-detail-media" />}
       {gallery.length > 1 && <span className="product-media-position" aria-hidden="true">{String(currentIndex + 1).padStart(2, '0')} / {String(gallery.length).padStart(2, '0')}</span>}
     </div>
-    {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((item, index) => <button className={current?.url === item.url ? 'product-thumb active' : 'product-thumb'} type="button" key={item.url} aria-label={(item.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={current?.url === item.url} onClick={() => { setDirection(index < currentIndex ? -1 : 1); setSelectedUrl(item.url) }}>{item.media_type === 'video' ? <span className="product-thumb-video" aria-hidden="true">▶</span> : <img src={item.url} alt="" loading="lazy" draggable="false" />}</button>)}</div>}
+    {gallery.length > 1 && <div className="product-thumb-grid">{gallery.map((item, index) => <button className={current?.url === item.url ? 'product-thumb active' : 'product-thumb'} type="button" key={item.url} aria-label={(item.media_type === 'video' ? 'Ver vídeo ' : 'Ver foto ') + (index + 1)} aria-pressed={current?.url === item.url} onClick={() => { setDirection(index < currentIndex ? -1 : 1); setSelectedUrl(item.url) }}>{item.media_type === 'video' ? <span className="product-thumb-video" aria-hidden="true">▶</span> : <ResponsiveImage src={item.url} widths={imageWidths.thumbnail} sizes="96px" alt="" loading="lazy" draggable="false" />}</button>)}</div>}
     {photos.length > 0 && <p className="product-gallery-caption"><span>Toque na foto para ampliar ↗</span></p>}
     {lightboxIndex !== null && photos.length > 0 && <PhotoLightbox photos={photos} initialIndex={clamp(lightboxIndex, 0, photos.length - 1)} name={name} onSelect={(photo) => setSelectedUrl(photo.url)} onDismiss={() => setLightboxIndex(null)} />}
   </section>
