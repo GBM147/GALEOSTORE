@@ -444,9 +444,12 @@ function StoreFooter({ footer }) {
   const editor = useVisualEditor()
   const lite = useLiteMode()
   return <footer className="site-footer">
-    <span>{footer?.brand || 'GALEO STORE'}</span><span>© {footer?.year || '2026'}</span>
-    <button type="button" className="lite-mode-toggle" onClick={() => setLiteMode(!lite)}
-      title="Sem animações, vídeos automáticos e efeitos de desfoque">Modo leve: {lite ? 'ligado' : 'desligado'}</button>
+    <div className="site-footer-brand"><span>{footer?.brand || 'GALEO STORE'}</span><span>© {footer?.year || '2026'}</span></div>
+    <nav className="site-footer-links" aria-label="Links do rodapé">
+      <Link to="/shop">Catálogo</Link><Link to="/carrinho">Carrinho</Link><Link to="/conta">Minha conta</Link>
+      <button type="button" className="lite-mode-toggle" onClick={() => setLiteMode(!lite)}
+        title="Sem animações, vídeos automáticos e efeitos de desfoque">Modo leve: {lite ? 'ligado' : 'desligado'}</button>
+    </nav>
     {editor?.editing && <button type="button" className="visual-editor-footer-button" onClick={() => editor.select({kind:'settings',tab:'footer'})}>Editar rodapé</button>}
   </footer>
 }
@@ -461,7 +464,7 @@ function ProductCard({ product }) {
         <span className="product-arrow">↗</span>
       </div>
       <div className="product-meta">
-        <span>{product?.category || 'Sem categoria'}</span>
+        {(product?.category || product?.brand) && <span>{product.category || product.brand}</span>}
         <strong>{product?.name || 'Produto'}</strong>
         <b>{formatProductPrice(product?.price)}</b>
       </div>

@@ -23,7 +23,8 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   7 dias; e Entregas. O Decreto 7.962/2013 exige identificação e contato visíveis.
   Hoje `/contato`, `/privacidade`, `/termos` e `/trocas` mostram página vazia.
 - [ ] **Rodapé com links** (Técnico, junto com as páginas acima): políticas, contato, Instagram, WhatsApp e
-  formas de pagamento. O rodapé atual não tem nenhum link.
+  formas de pagamento. Em 06/11 o rodapé ganhou Catálogo, Carrinho, Minha conta e
+  o botão "Modo leve"; faltam os links que dependem das páginas e dos dados acima.
 - [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, publica junto com o próximo deploy.
 - [ ] **Produtos e categorias de teste na vitrine** (Donos): a produção mostra os produtos "teste" e "teste2" (R$ 50, sem categoria e sem foto) e a categoria "Nova categoria". Remover ou substituir antes de divulgar.
 - [ ] **Conteúdo da Home** (Donos): campanhas e categorias no CMS estão sem
@@ -107,6 +108,12 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   salva): mesma loja, sem animações, rolagem suave, vídeo automático (mostra um
   quadro do vídeo), desfoque e brilhos. Telas de toque não baixam mais a rolagem
   suave (Lenis), que só age na roda do mouse.
+- [x] **Visual** (Técnico, 06/11; publica no próximo deploy): textos pequenos da
+  vitrine (menu, etiquetas, "Explorar", rodapé, filtros) passaram de 8–9 px para
+  11 px; a última linha de categorias e campanhas é completada pelos próprios
+  cards (antes sobrava um bloco marrom no computador); produto sem categoria não
+  mostra mais "Sem categoria"; a imagem provisória de produto ganhou o monograma
+  da marca. Identidade, cores e tipografia continuam as mesmas.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

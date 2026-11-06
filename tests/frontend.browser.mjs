@@ -170,7 +170,7 @@ test('cart navigation removes a pending order when the pending query is cleared'
   const { page, pageErrors } = await fixture(t)
   await page.goto(baseUrl + '/carrinho?pedido_pendente=42&codigo=GALEO-TEST&pagar=1')
   await page.getByRole('heading', { name:'Pedido recebido', exact:true }).waitFor()
-  await page.getByRole('link', { name:/^Carrinho/ }).click()
+  await page.locator('.site-header').getByRole('link', { name:/^Carrinho/ }).click()
   await page.getByRole('heading', { name:'Seu carrinho está vazio', exact:true }).waitFor()
   assert.equal(new URL(page.url()).search, '')
   assert.equal(await page.getByRole('button', { name:'Continuar para pagamento ↗', exact:true }).count(), 0)
