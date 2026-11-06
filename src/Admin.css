@@ -10,3 +10,9 @@
 .admin-shipping-status dt { color: var(--muted); font-size: 12px; }
 .admin-shipping-status dd { margin: 6px 0 0; overflow-wrap: anywhere; }
 @media (max-width: 650px) { .admin-shipping-status { grid-template-columns: 1fr; } .admin-shipping-settings { padding: 18px; } }
+
+.admin-error-events-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+.admin-error-events-heading h2 { margin: 0; font-size: 22px; }
+.admin-error-events p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.admin-error-events td { vertical-align: top; overflow-wrap: anywhere; }
+.admin-error-events code { font-size: 12px; }

@@ -17,7 +17,9 @@ const preservedTables = [
   'financial_categories', 'home_sections', 'home_settings', 'home_versions',
   'media_assets', 'media_library_preferences', 'sessions', 'rate_limit_counters',
   // Melhor Envio OAuth connection: configuration, never operational data.
-  'shipping_integrations'
+  'shipping_integrations',
+  // Technical error log for the owners, created by the migration.
+  'error_events'
 ]
 const plainRows = rows => rows.map(row => Object.fromEntries(Object.entries(row).map(([field, value]) => [field, Buffer.isBuffer(value) ? value.toString('hex') : value])))
 const parseJson = value => typeof value === 'string' ? JSON.parse(value) : value
@@ -51,7 +53,8 @@ async function structure(runtime) {
 
 async function preservedContent(runtime) {
   const result = {}
-  for (const table of preservedTables.filter(name => !['audit_logs', 'sessions'].includes(name))) {
+  // Append-only logs change during the run and are compared by structure only.
+  for (const table of preservedTables.filter(name => !['audit_logs', 'sessions', 'error_events'].includes(name))) {
     const order = table === 'home_settings' ? 'setting_key' : table === 'rate_limit_counters' ? 'bucket_key' : table === 'shipping_integrations' ? 'provider' : 'id'
     result[table] = plainRows(await runtime.query('SELECT * FROM `' + table + '` ORDER BY ' + order))
   }
@@ -145,7 +148,7 @@ test('startup recovers the 15 dropped operational tables and removes stale ident
     const ownerSessionBefore = (await runtime.query('SELECT * FROM sessions WHERE session_id=?', [sessionIds.owner]))[0]
     const mixedSessionBefore = (await runtime.query('SELECT * FROM sessions WHERE session_id=?', [sessionIds.mixed]))[0]
 
-    await t.test('the reproduction leaves exactly the thirteen preserved tables without disabling foreign key checks', async () => {
+    await t.test('the reproduction leaves exactly the fourteen preserved tables without disabling foreign key checks', async () => {
       for (const table of removedTables) await runtime.query('DROP TABLE `' + table + '`')
       assert.deepEqual(await tables(runtime), [...preservedTables].sort())
       assert.equal((await runtime.query('SELECT @@FOREIGN_KEY_CHECKS AS enabled'))[0].enabled, 1)

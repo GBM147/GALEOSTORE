@@ -68,6 +68,11 @@ Para hospedagem gratuita com uso comercial, a configuração do Netlify está em
 origem; Aiven, Cloudinary e Resend são preservados. O comando `npm start`
 continua disponível para desenvolvimento e servidores Node tradicionais.
 
+## Monitoramento
+Um workflow do GitHub confere a loja e a API a cada 30 minutos e abre um aviso
+quando algo cai; os erros 5xx da API aparecem em **Admin → Erros recentes**.
+Veja [monitoramento](docs/monitoramento.md).
+
 ## Testes automáticos
 O GitHub Actions (`.github/workflows/ci.yml`) roda verificação de sintaxe,
 unitários, build, integração com MySQL descartável e navegador a cada envio e em

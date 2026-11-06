@@ -13,14 +13,16 @@ export const DELETE_TABLES = Object.freeze([
 ])
 export const PRESERVED_TABLES = Object.freeze([
   'admin_users', 'categories', 'financial_categories', 'financial_accounts',
-  'home_sections', 'home_settings', 'home_versions', 'media_library_preferences', 'media_assets', 'sessions', 'rate_limit_counters'
+  'home_sections', 'home_settings', 'home_versions', 'media_library_preferences', 'media_assets', 'sessions', 'rate_limit_counters',
+  // Melhor Envio connection and technical error log: configuration and diagnostics, never test data.
+  'shipping_integrations', 'error_events'
 ])
 export const OPERATIONAL_AUDIT_ENTITIES = Object.freeze([
   'produto', 'estoque', 'venda', 'pedido_online',
   'lancamento_financeiro', 'despesa_recorrente', 'gasto', 'gasto_recorrente'
 ])
 
-const optionalTables = new Set(['media_assets', 'home_versions', 'media_library_preferences', 'newsletter_subscriptions'])
+const optionalTables = new Set(['media_assets', 'home_versions', 'media_library_preferences', 'newsletter_subscriptions', 'shipping_integrations', 'error_events'])
 const expectedForeignKeys = Object.freeze([
   ['fk_home_version_user', 'home_versions', 'published_by', 'admin_users', 'id', 'SET NULL'],
   ['fk_products_category', 'products', 'category_id', 'categories', 'id', 'SET NULL'],
@@ -252,7 +254,7 @@ async function inspectSchema(connection, targetDatabase) {
     if (!primaryKeys.has(key.TABLE_NAME) || !/^[a-z_]+$/.test(key.COLUMN_NAME)) fail('CLEANUP_SCHEMA_INVALID', 'Chave primária não prevista.')
     primaryKeys.get(key.TABLE_NAME).push(key.COLUMN_NAME)
   }
-  const expectedPrimary = { sessions: 'session_id', home_settings: 'setting_key', customer_email_verifications: 'token_hash', rate_limit_counters: 'bucket_key' }
+  const expectedPrimary = { sessions: 'session_id', home_settings: 'setting_key', customer_email_verifications: 'token_hash', rate_limit_counters: 'bucket_key', shipping_integrations: 'provider' }
   if ([...primaryKeys].some(([table, list]) => list.length !== 1 || list[0] !== (expectedPrimary[table] || 'id'))) {
     fail('CLEANUP_SCHEMA_INVALID', 'Todas as tabelas devem ter a chave primária simples prevista pelo schema.')
   }

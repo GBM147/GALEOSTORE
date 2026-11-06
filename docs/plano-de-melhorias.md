@@ -64,8 +64,14 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   extra dos dados pessoais e limpar os dados de teste. Dependem de acesso válido
   ao Aiven, backup conferido e janela sem escritas.
 - [ ] **Backups do Aiven** (Donos): confirmar que existem e testar uma restauração.
-- [ ] **Monitoramento** (Técnico): aviso gratuito de site fora do ar e registro
-  de erros da API.
+- [x] **Monitoramento** (Técnico, 06/11): aviso de loja fora do ar a cada 30 minutos
+  pelo GitHub (issue com e-mail e notificação, fechada sozinha quando volta) e
+  registro dos erros 5xx da API no MySQL da loja, em **Admin → Erros recentes**,
+  sem dados de clientes. Detalhes em `docs/monitoramento.md`. As checagens
+  agendadas começam quando a branch for para a `main`.
+- [x] **Ferramenta de limpeza** (Técnico, 06/11): passou a conhecer
+  `shipping_integrations`, criada para o Melhor Envio; antes ela se recusaria a
+  rodar na produção.
 
 ## 3. Melhorias de vendas, desempenho e acessibilidade
 

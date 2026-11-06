@@ -1,0 +1,37 @@
+name: Monitoramento
+
+on:
+  # Scheduled runs use the workflow on the default branch (main).
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, 'fix/**', 'feature/**']
+    paths: ['.github/workflows/uptime.yml', 'scripts/uptime-check.mjs']
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Loja no ar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Conferir a loja e a API
+        run: node scripts/uptime-check.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pushes to work branches only check; they never open or close the alert.
+          UPTIME_REPORT: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}

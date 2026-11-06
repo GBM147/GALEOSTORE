@@ -10,6 +10,7 @@ import { adminApi as api, clearAdminCsrfToken, getAdminCsrfToken } from './admin
 import { directUploadsEnabled, uploadDirectMedia } from './directUpload'
 import { activeProductVariants, productHasVariants } from './productVariants'
 import ShippingServiceIdentity from './ShippingServiceIdentity'
+import AdminErrorEvents from './AdminErrorEvents'
 import './product-variants.css'
 import './Admin.css'
 import './shipping.css'
@@ -1194,7 +1195,7 @@ function Admin({ user, onLogout }) {
   const location = useLocation()
   const navigate = useNavigate()
   const requestedTab = new URLSearchParams(location.search).get('tab')
-  const tab = requestedTab === 'movements' ? 'products' : ['dashboard','editor','products','pdv','sales','online-orders','finance','recurring','library', ...(user?.role === 'owner' ? ['shipping'] : [])].includes(requestedTab) ? requestedTab : 'dashboard'
+  const tab = requestedTab === 'movements' ? 'products' : ['dashboard','editor','products','pdv','sales','online-orders','finance','recurring','library', ...(user?.role === 'owner' ? ['shipping', 'errors'] : [])].includes(requestedTab) ? requestedTab : 'dashboard'
   const advancedEditor = new URLSearchParams(location.search).get('mode') === 'advanced'
   const [dash, setDash] = useState(null)
   const [products, setProducts] = useState([])
@@ -1384,7 +1385,7 @@ function Admin({ user, onLogout }) {
           ['finance', 'Gastos da loja'],
           ['recurring', 'Gastos recorrentes'],
           ['library', 'Biblioteca de mídia'],
-          ...(user?.role === 'owner' ? [['shipping', 'Entregas']] : [])
+          ...(user?.role === 'owner' ? [['shipping', 'Entregas'], ['errors', 'Erros recentes']] : [])
         ].map(([key, label]) => (
           <button className={tab === key ? 'admin-nav active' : 'admin-nav'} onClick={() => selectTab(key)} key={key}>{label}</button>
         ))}
@@ -1405,6 +1406,7 @@ function Admin({ user, onLogout }) {
         {loadError && <div className="admin-panel" role="alert"><p>{loadError}</p><button type="button" onClick={() => load(false)}>Tentar novamente</button></div>}
         {!loading && tab === 'editor' && user?.role === 'owner' && (advancedEditor ? <HomeEditor user={user} /> : <VisualEditorLaunch />)}
         {!loading && tab === 'shipping' && user?.role === 'owner' && <ShippingSettings search={location.search} />}
+        {!loading && tab === 'errors' && user?.role === 'owner' && <AdminErrorEvents />}
         {!loading && tab === 'library' && <MediaLibrary api={api} csrf={getAdminCsrfToken} role={user?.role} />}
         {!loading && tab === 'pdv' && <PointOfSale api={api} operatorId={user.id} onSaleCreated={() => load(true)} />}
         {!loading && tab === 'dashboard' && dash && (

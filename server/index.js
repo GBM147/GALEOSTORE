@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
 import { registerSeoRoutes } from './seo.js'
+import { captureConsoleErrors, createErrorLog, ERROR_EVENTS_DDL } from './error-log.js'
 import { createDataProtection } from './data-protection.js'
 import { createDatabasePrivacy } from './database-privacy.js'
 import { protectSessionStore } from './protected-session-store.js'
@@ -167,6 +168,11 @@ function moneyBR(value) {
   return Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 }
 
+
+// Server errors (5xx) are kept for the owners' Admin, without personal data.
+const errorLog = createErrorLog({ query, defer: deferBackgroundPromise })
+captureConsoleErrors()
+app.use(errorLog.middleware)
 
 app.use(express.json({ limit: '1mb' }))
 app.use(express.urlencoded({ extended: true, limit: '256kb' }))
@@ -728,6 +734,7 @@ async function init({ preserveCategories = false } = {}) {
       } finally { connection.release() }
     }
   }
+  await query(ERROR_EVENTS_DDL)
   if (recovery.missingTables.length) console.log('OPERATIONAL SCHEMA RECOVERED:', JSON.stringify({ tables: recovery.missingTables, nextId: recovery.nextId, ...recoveryResult }))
   return recovery
 }
@@ -834,6 +841,11 @@ function shippingError(res, error) {
   console.error('Erro na integração de entregas:', error?.code || 'SHIPPING_FAILED')
   return res.status(503).json({ error: 'Não foi possível consultar as entregas agora. Tente novamente em instantes.', code: 'SHIPPING_UNAVAILABLE' })
 }
+
+app.get('/api/admin/error-events', exigirLogin, exigirOwner, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json(await errorLog.list(req.query.limit))
+})
 
 app.get('/api/admin/shipping', exigirLogin, exigirOwner, async (req, res) => {
   res.set('Cache-Control', 'no-store')
@@ -2816,7 +2828,8 @@ export async function runMaintenance() {
   const [sessions] = await db.execute('DELETE FROM sessions WHERE expires<UNIX_TIMESTAMP()')
   const rateLimits = await pruneRateLimits(db)
   const paymentReservations = mercadoPagoOnlineConfigured() ? await paymentReservationExpiry.expire() : null
-  return { success: true, expired_sessions: Number(sessions.affectedRows || 0), expired_rate_limits: rateLimits, payment_reservations: paymentReservations }
+  const errorEvents = await errorLog.prune()
+  return { success: true, expired_sessions: Number(sessions.affectedRows || 0), expired_rate_limits: rateLimits, payment_reservations: paymentReservations, error_events: errorEvents }
 }
 
 export async function closeRuntime() {
