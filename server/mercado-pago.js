@@ -366,9 +366,11 @@ function buyerSupplement(context) {
     const last = context.previous_purchases > 0 && date(context.last_purchase_at_ms)
     if (last) value.last_purchase = last
   }
-  // This is our actual authenticated password flow, using the SDK's example.
-  if (context.authentication_type === 'password') value.authentication_type = 'senha'
-  return Object.keys(value).length ? { payer: value } : null
+  // Orders accepts only MOBILE or WEB; customers sign in on the web store.
+  if (context.authentication_type === 'password') value.authentication_type = 'WEB'
+  // Orders rejects a nested additional_info.payer object (unsupported_properties);
+  // its buyer fields use flat dotted keys such as "payer.registration_date".
+  return Object.keys(value).length ? Object.fromEntries(Object.entries(value).map(([key, item]) => ['payer.' + key, item])) : null
 }
 
 export async function createMercadoPagoOnlineOrder({ order, items, payment, idempotencyKey, buyerContext = {} }) {

@@ -16,6 +16,8 @@ O código tem testes automatizados locais com MySQL isolado e respostas do prove
 
 As ferramentas MCP do Mercado Pago não estão conectadas a esta sessão. Foram consultados os guias e o OpenAPI públicos do fornecedor; nenhuma aplicação ou conta foi criada por essas ferramentas.
 
+Em 06/11/2026, a primeira compra com o payload completo foi recusada pela API de Orders (`unsupported_properties`): `additional_info` não aceita o objeto `payer` aninhado, e `payer.authentication_type` aceita somente `MOBILE` ou `WEB`. O código agora envia chaves planas (`payer.registration_date`, `payer.is_first_purchase_online`, `payer.last_purchase`, `payer.authentication_type: WEB`) e o `statement_descriptor` no meio de pagamento do cartão. Com o vendedor de teste, o SDK real (identificador do dispositivo no token) e o código da loja, a Order `ORDTST01M6RNZV61TNFH6P0ERADD2ZBK` foi aprovada (`processed/accredited`). Essa compra foi criada fora do site de homologação, porque os créditos do Netlify estavam esgotados; publicar a correção e repetir a compra pelo site continua pendente, assim como a entrega real do webhook.
+
 ## Configuração
 
 Tudo começa desativado: `MERCADO_PAGO_MODE=disabled`. Apenas salvar um Access Token não habilita pagamentos.

@@ -235,8 +235,9 @@ test('authenticated buyer metadata and explicit checkout-address choice reach Or
   assert.deepEqual(body.payer, { email: buyerContext.email, first_name: 'Ana', last_name: 'Maria Silva',
     identification: { type: 'CPF', number: '12345678909' }, phone: { area_code: '11', number: '987654321' },
     address: { state: 'SP', zip_code: '01001000', street_number: '17 A', street_name: 'Rua da entrega', city: 'São Paulo', neighborhood: 'Centro', complement: 'Sala 2' } })
-  assert.deepEqual(body.additional_info, { payer: { registration_date: new Date(registered).toISOString(),
-    is_first_purchase_online: false, last_purchase: new Date(lastPurchase).toISOString(), authentication_type: 'senha' } })
+  // Orders accepts only flat "payer.*" keys here and MOBILE/WEB authentication.
+  assert.deepEqual(body.additional_info, { 'payer.registration_date': new Date(registered).toISOString(),
+    'payer.is_first_purchase_online': false, 'payer.last_purchase': new Date(lastPurchase).toISOString(), 'payer.authentication_type': 'WEB' })
   assert.equal(body.items[0].quantity, 2)
   assert.equal(body.items[0].unit_price, '50.00')
   assert.deepEqual({ order, items, buyerContext, payment }, previous)
@@ -251,7 +252,7 @@ test('a separately supplied billing address is validated, and delivery is never 
   assert.equal(body.payer.last_name, undefined)
   assert.equal(body.payer.address, undefined)
   assert.equal(body.payer.phone, undefined)
-  assert.deepEqual(body.additional_info, { payer: { is_first_purchase_online: true } })
+  assert.deepEqual(body.additional_info, { 'payer.is_first_purchase_online': true })
   const otherAddress = { zip_code: '20040-020', state: 'rj', street_name: 'Rua do comprador', street_number: '99', city: 'Rio de Janeiro' }
   const selection = normalizeMercadoPagoPayment({ ...card(), use_shipping_address: false, billing_address: otherAddress })
   assert.deepEqual(normalizeMercadoPagoPayment(selection), selection, 'route and adapter normalization must preserve the same address')

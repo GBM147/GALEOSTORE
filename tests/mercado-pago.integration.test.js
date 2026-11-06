@@ -894,10 +894,10 @@ test('cartão tokenizado usa valor e comprador do pedido, com aprovação persis
   assert.equal(creation.body.capture_mode, 'automatic')
   assert.deepEqual(creation.body.items, [{ external_code: 'galeo-' + fixture.productId,
     title: 'Teste MP ' + suffix + '-' + (fixtures.products.length - 1), quantity: 2, unit_price: '20.00', category_id: 'fashion' }])
-  assert.equal(creation.body.additional_info.payer.authentication_type, 'senha')
-  assert.equal(typeof creation.body.additional_info.payer.is_first_purchase_online, 'boolean')
+  assert.equal(creation.body.additional_info['payer.authentication_type'], 'WEB')
+  assert.equal(typeof creation.body.additional_info['payer.is_first_purchase_online'], 'boolean')
   const [registered] = await execute('SELECT UNIX_TIMESTAMP(created_at)*1000 AS epoch FROM customers WHERE id=?', [customerId])
-  assert.equal(creation.body.additional_info.payer.registration_date, new Date(Number(registered.epoch)).toISOString())
+  assert.equal(creation.body.additional_info['payer.registration_date'], new Date(Number(registered.epoch)).toISOString())
   assert.equal(creation.device_id, 'device-session-from-local-sdk')
   assert.equal(creation.official_sdk, true)
   assert.equal(Object.hasOwn(result.data.payment, 'api_response'), false)
