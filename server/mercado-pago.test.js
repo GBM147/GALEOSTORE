@@ -652,6 +652,14 @@ test('webhook signature normalizes alphanumeric Orders IDs and rejects malformed
   assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId, dataId: 'ORDOTHER', secret }), false)
   assert.equal(validateMercadoPagoWebhookSignature({ signature: signature.slice(0, -1), requestId, dataId, secret }), false)
   assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId: '', dataId, secret }), false)
+  // Values missing from a notification are left out of the documented manifest.
+  const sign = manifest => 'ts=' + timestamp + ',v1=' + createHmac('sha256', secret).update(manifest).digest('hex')
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: sign('id:ordlocal123;ts:' + timestamp + ';'), requestId: '', dataId, secret }), true)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: sign('request-id:' + requestId + ';ts:' + timestamp + ';'), requestId, dataId: '', secret }), true)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: sign('request-id:' + requestId + ';ts:' + timestamp + ';'), requestId, dataId, secret }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: sign('id:ordlocal123;request-id:a;b;ts:' + timestamp + ';'), requestId: 'a;b', dataId, secret }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId, dataId: 'ORD/../x', secret }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature, requestId, dataId, secret: '' }), false)
 })
 
 test('Point configuration and token remain independent of online test credentials', async () => fixture(async calls => {

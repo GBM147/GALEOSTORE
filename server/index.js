@@ -1701,10 +1701,15 @@ app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
   const requestId=req.get('x-request-id')||''
   const queryId=req.query['data.id']
   const bodyId=req.body?.data?.id
-  if (queryId != null && bodyId != null && String(queryId)!==String(bodyId)) return res.status(400).json({error:'Identificador de notificação inválido.'})
+  if (queryId != null && bodyId != null && String(queryId).toLowerCase()!==String(bodyId).toLowerCase()) return res.status(400).json({error:'Identificador de notificação inválido.'})
   const dataId=String(queryId||bodyId||'')
-  const valid=validateMercadoPagoWebhookSignature({signature,requestId,dataId,secret})
-  if(!valid) return res.status(401).json({error:'Assinatura de webhook inválida.'})
+  // The signature covers the URL's data.id only; the body is not signed.
+  const valid=validateMercadoPagoWebhookSignature({signature,requestId,dataId:String(queryId||''),secret})
+  if(!valid) {
+    // Test mode only: which parts arrived, never their values or the secret.
+    if (process.env.MERCADO_PAGO_MODE==='test') console.warn('Webhook Mercado Pago recusado:',JSON.stringify({url_id:queryId!=null,body_id:bodyId!=null,request_id:Boolean(requestId),signature:Boolean(signature)}))
+    return res.status(401).json({error:'Assinatura de webhook inválida.'})
+  }
   const eventId=String(req.body?.id||req.get('x-request-id')||('mp-'+dataId+'-'+String(req.body?.date_created||Date.now())))
   const eventType=String(req.body?.type||req.query.type||'order')
   if (!['order','orders'].includes(eventType)) return res.status(200).json({received:true,ignored:true})
