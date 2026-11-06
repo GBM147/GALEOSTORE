@@ -39,6 +39,8 @@ Pares estáticos `TEST-`, misturados ou desconhecidos ficam indisponíveis antes
 
 Em homologação, uma recusa definitiva na criação do pagamento pode registrar o status HTTP, códigos limitados e nomes de campos reconhecidos do pedido no payload cifrado da tentativa. Os nomes são derivados somente das chaves realmente enviadas; mensagens do provedor servem para reconhecer essas referências e não são armazenadas. Esse diagnóstico não inclui valores dos campos, dados do cartão ou credenciais, não aparece nas respostas ao cliente e não modifica o tratamento de respostas ambíguas. O registro permanece desativado em produção.
 
+A homologação usa uma conta de cliente de teste definida por `GALEO_STAGE_CUSTOMER_EMAIL` e `GALEO_STAGE_CUSTOMER_PASSWORD` (segredo). Ao iniciar, a API garante que essa conta exista, esteja ativa e confirmada e use essa senha, somente quando o banco termina em `_test` e `MERCADO_PAGO_MODE=test`; em qualquer outro ambiente a rotina não faz nada. Para trocar a senha, altere a variável e publique de novo. O Netlify não devolve valores secretos pela API.
+
 Para testar cartões na Web, a documentação atual permite um **e-mail válido do comprador**. Na GALEO, esse e-mail vem da conta autenticada no ambiente de homologação, não de um valor arbitrário enviado pelo navegador. A exigência de uma conta virtual vendedora para Orders permanece independente desse e-mail.
 
 O backend disponibiliza somente a Public Key e as opções permitidas em `GET /api/store/payments/config`, com `Cache-Control: no-store`. Access Token e segredo de webhook permanecem no servidor ou nas rotinas privadas de configuração; nunca devem entrar no HTML, nos assets ou no código do frontend. Não use prefixo `VITE_` para essas credenciais.
