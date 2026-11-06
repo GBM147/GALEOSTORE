@@ -127,7 +127,7 @@ async function setPayment(fixture, status, amount = fixture.order.total) {
 
 function paymentBody(fixture, extra = {}) {
   // Official Brazil test CPF from the Mercado Pago plugin's checkout-api guide.
-  return { method: 'pix', identification: { type: 'CPF', number: '12345678909' }, attempt_id: fixture.attemptId, ...extra }
+  return { method: 'pix', identification: { type: 'CPF', number: '12345678909' }, use_shipping_address: true, attempt_id: fixture.attemptId, ...extra }
 }
 
 async function startPayment(fixture, extra = {}) {
@@ -814,7 +814,7 @@ test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa ex
   assert.equal(before.payments.length, 1)
   assert.equal(before.payments[0].status, 'REJECTED')
   assert.equal(before.payments[0].provider_reference, null)
-  assert.deepEqual(before.payments[0].raw_payload, { test_provider_error: { http_status: 400, codes: ['local_invalid_payment', '3001', 'invalid_field'], fields: ['transactions.payments.0.payment_method.id'] } })
+  assert.deepEqual(before.payments[0].raw_payload, { test_provider_error: { http_status: 400, codes: ['local_invalid_payment', 'invalid_field'], fields: ['transactions.payments.0.payment_method.id'] } })
   assert.equal(JSON.stringify(rejected.data).includes('test_provider_error'), false)
   assert.equal(JSON.stringify(rejected.data).includes('local_invalid_payment'), false)
   assert.equal(JSON.stringify(rejected.data).includes('transactions.payments.0.payment_method.id'), false)
@@ -872,7 +872,9 @@ test('cartão tokenizado usa valor e comprador do pedido, com aprovação persis
   mpFixtures.creations[fixture.order.code] = providerOrder
   await saveMpFixtures()
   const result = await startPayment(fixture, { method: 'credit_card', token: 'local-card-token-123456789', payment_method_id: 'visa', installments: 1,
-    total_amount: '0.01', payer: { email: 'untrusted@example.invalid' } })
+    device_id: 'device-session-from-local-sdk',
+    total_amount: '0.01', payer: { email: 'untrusted@example.invalid', first_name: 'Untrusted' },
+    buyerContext: { email: 'untrusted@example.invalid', name: 'Untrusted', previous_purchases: 0 } })
   assert.equal(result.response.status, 200, result.data.error)
   assert.equal(result.data.order.payment_status, 'APPROVED')
   assert.equal(result.data.paid, true)
@@ -880,6 +882,24 @@ test('cartão tokenizado usa valor e comprador do pedido, com aprovação persis
   const creation = (await calls()).find(call => call.method === 'POST' && call.external_reference === fixture.order.code)
   assert.equal(creation.body.total_amount, '40.00')
   assert.notEqual(creation.body.payer.email, 'untrusted@example.invalid')
+  assert.equal(creation.body.payer.first_name, 'Cliente')
+  assert.equal(creation.body.payer.last_name, 'teste MP')
+  assert.deepEqual(creation.body.payer.identification, { type: 'CPF', number: '12345678909' })
+  assert.deepEqual(creation.body.payer.phone, { area_code: '11', number: '999999999' })
+  assert.deepEqual(creation.body.payer.address, { state: 'SP', zip_code: '01001000', street_number: '1',
+    street_name: 'Rua de teste', city: 'São Paulo', neighborhood: 'Centro' })
+  assert.deepEqual(creation.body.config, { statement_descriptor: 'GALEO', online: {
+    transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } })
+  assert.equal(creation.body.capture_mode, 'automatic')
+  assert.deepEqual(creation.body.items, [{ external_code: 'galeo-' + fixture.productId,
+    title: 'Teste MP ' + suffix + '-' + (fixtures.products.length - 1), quantity: 2, unit_price: '20.00', category_id: 'fashion' }])
+  assert.equal(creation.body.additional_info.payer.authentication_type, 'senha')
+  assert.equal(typeof creation.body.additional_info.payer.is_first_purchase_online, 'boolean')
+  const [registered] = await execute('SELECT UNIX_TIMESTAMP(created_at)*1000 AS epoch FROM customers WHERE id=?', [customerId])
+  assert.equal(creation.body.additional_info.payer.registration_date, new Date(Number(registered.epoch)).toISOString())
+  assert.equal(creation.device_id, 'device-session-from-local-sdk')
+  assert.equal(creation.official_sdk, true)
+  assert.equal(Object.hasOwn(result.data.payment, 'api_response'), false)
   assert.equal(creation.body.transactions.payments[0].payment_method.token, 'local-card-token-123456789')
   assert.equal(creation.body.transactions.payments[0].payment_method.installments, 1)
   const current = await state(fixture)
@@ -898,6 +918,33 @@ test('dados brutos de cartão não são aceitos e não iniciam cobrança', async
   const current = await state(fixture)
   assert.equal(current.payments.length, 0)
   assert.equal(current.sales.length, 0)
+})
+
+test('endereço do comprador pode ser diferente da entrega e fica restrito ao pedido do provedor', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  mpFixtures.creations[fixture.order.code] = mpFixtures.orders[fixture.providerId]
+  await saveMpFixtures()
+  const billing = { zip_code: '20040020', street_name: 'Rua do comprador', street_number: '25',
+    city: 'Rio de Janeiro', state: 'RJ', complement: 'Sala 2' }
+  const result = await startPayment(fixture, { use_shipping_address: false, billing_address: billing })
+  assert.equal(result.response.status, 200, result.data.error)
+  const creation = (await calls()).find(call => call.method === 'POST' && call.external_reference === fixture.order.code)
+  assert.deepEqual(creation.body.payer.address, billing)
+  const current = await state(fixture)
+  assert.equal(current.order.street, 'Rua de teste')
+  assert.equal(current.order.state, 'SP')
+  assert.equal(JSON.stringify(result.data).includes('Rua do comprador'), false)
+  assert.equal(Object.hasOwn(current.payments[0].raw_payload, 'api_response'), false)
+})
+
+test('endereço de cobrança inválido não cria tentativa nem chama o provedor', async () => {
+  const fixture = await orderFixture(2, { bind: false })
+  const before = (await calls()).length
+  const result = await startPayment(fixture, { use_shipping_address: false,
+    billing_address: { zip_code: '1', street_name: 'Rua', street_number: '1', state: 'ZZ', city: 'Cidade' } })
+  assert.equal(result.response.status, 400)
+  assert.equal((await calls()).length, before)
+  assert.equal((await state(fixture)).payments.length, 0)
 })
 
 test('assinatura inválida e identificadores conflitantes não consultam nem alteram pagamentos', async () => {

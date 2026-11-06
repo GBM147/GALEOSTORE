@@ -24,7 +24,9 @@ globalThis.fetch = async (input, options = {}) => {
   appendFileSync(fixturePath + '.calls', JSON.stringify({ phase: 'started', method, path: url.pathname,
     external_reference: body?.external_reference || url.searchParams.get('external_reference') || undefined,
     ...(method === 'GET' && url.pathname === '/v1/orders' ? { query: Object.fromEntries(url.searchParams) } : {}),
-    idempotency_key: headers.get('X-Idempotency-Key'), body }) + '\n')
+    idempotency_key: headers.get('X-Idempotency-Key'),
+    device_id: headers.get('X-Meli-Session-Id'),
+    official_sdk: (headers.get('User-Agent') || '').startsWith('MercadoPago Node.js SDK '), body }) + '\n')
   const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8'))
   let payload
   if (method === 'GET' && url.pathname === '/users/me') {
@@ -40,12 +42,21 @@ globalThis.fetch = async (input, options = {}) => {
   } else if (method === 'GET' && url.pathname.startsWith('/v1/orders/')) {
     payload = fixtures.orders[decodeURIComponent(url.pathname.slice('/v1/orders/'.length))]
   } else if (method === 'POST' && url.pathname === '/v1/orders') {
-    // Reject the previous hosted Checkout Pro-shaped request. These are the
-    // official Orders API fields exercised by this isolated local suite.
+    // Current SDK Orders contract, including the fields required by the
+    // real quality evaluation. No external request leaves this fixture.
     const payment = body?.transactions?.payments?.[0]
+    const card = payment?.payment_method?.type !== 'bank_transfer'
     const valid = body?.type === 'online' && body?.processing_mode === 'automatic' &&
-      Object.keys(body).every(key => ['type', 'processing_mode', 'total_amount', 'external_reference', 'payer', 'transactions'].includes(key)) &&
-      Object.keys(body?.payer || {}).length === 1 && typeof body?.payer?.email === 'string' &&
+      body.capture_mode === 'automatic' &&
+      Object.keys(body).every(key => ['type', 'processing_mode', 'capture_mode', 'total_amount', 'external_reference', 'payer', 'transactions', 'config', 'items', 'additional_info'].includes(key)) &&
+      typeof body?.payer?.email === 'string' && typeof body.payer.first_name === 'string' &&
+      body.config?.statement_descriptor === 'GALEO' &&
+      Array.isArray(body.items) && body.items.length > 0 && body.items.every(item =>
+        Number.isSafeInteger(item.quantity) && item.quantity > 0 && /^\d+\.\d{2}$/.test(item.unit_price) &&
+        typeof item.unit_price === 'string' && typeof item.title === 'string' &&
+        typeof item.external_code === 'string' && item.category_id === 'fashion') &&
+      (!card || (body.config.online?.transaction_security?.validation === 'on_fraud_risk' &&
+        body.config.online.transaction_security.liability_shift === 'required')) &&
       /^\d+\.\d{2}$/.test(body?.total_amount) && payment?.amount === body.total_amount &&
       ['pix', 'visa', 'master'].includes(payment?.payment_method?.id) &&
       ['bank_transfer', 'credit_card', 'debit_card'].includes(payment?.payment_method?.type) &&

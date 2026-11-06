@@ -179,7 +179,7 @@ test('APP_USR virtual test credentials also require a Brazilian profile', async 
   assert.equal(calls.some(call => call.options.method === 'POST'), false)
 }))
 
-test('Pix uses minimal Orders fields with transaction expiry and server-owned total including freight', async () => fixture(async calls => {
+test('Pix uses the official SDK and sends item quantities, decimal prices and the server-owned total including freight', async () => fixture(async calls => {
   const idempotencyKey = randomUUID()
   const result = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix', amount: '0.01', email: 'forged@example.invalid' }, idempotencyKey })
   assert.equal(result.id, 'ORDLOCAL123')
@@ -192,25 +192,101 @@ test('Pix uses minimal Orders fields with transaction expiry and server-owned to
   const body = JSON.parse(post.options.body)
   assert.equal(body.type, 'online')
   assert.equal(body.processing_mode, 'automatic')
+  assert.equal(body.capture_mode, 'automatic')
   assert.equal(body.total_amount, '121.35')
   assert.deepEqual(body.payer, { email: order.customer_email })
   assert.deepEqual(body.transactions.payments, [{ amount: '121.35', expiration_time: 'PT30M', payment_method: { id: 'pix', type: 'bank_transfer' } }])
   assert.equal(body.expiration_time, undefined)
-  assert.equal(body.config, undefined)
-  assert.deepEqual(Object.keys(body).sort(), ['external_reference', 'payer', 'processing_mode', 'total_amount', 'transactions', 'type'])
-  for (const key of ['items', 'shipment', 'capture_mode', 'description']) assert.equal(body[key], undefined)
+  assert.deepEqual(body.config, { statement_descriptor: 'GALEO' })
+  assert.deepEqual(body.items, [{ external_code: 'galeo-11-21', title: 'Peça local — M', quantity: 2, unit_price: '50.00', category_id: 'fashion' }])
+  assert.equal(body.shipment, undefined)
+  assert.match(post.options.headers['User-Agent'], /^MercadoPago Node\.js SDK v3\.6\.1 /)
+  assert.match(post.options.headers['X-Tracking-Id'], /SDK3\.6\.1/)
+  assert.ok(post.options.headers['X-Product-Id'])
+  assert.equal(result.api_response, undefined)
 }))
 
-test('card payments use the documented minimal tokenized transaction and retain CPF input validation', async () => fixture(async calls => {
+test('card payments send validated identification and the documented capture, statement and 3DS policy', async () => fixture(async calls => {
   const payment = card()
   await createMercadoPagoOnlineOrder({ order, items, payment: { ...payment, issuer_id: 'ignored', installments: 1 }, idempotencyKey: randomUUID() })
   const body = JSON.parse(calls.find(call => call.options.method === 'POST').options.body)
   assert.deepEqual(body.transactions.payments[0].payment_method, { id: 'visa', type: 'credit_card', token: payment.token, installments: 1 })
-  assert.deepEqual(body, { type: 'online', processing_mode: 'automatic', total_amount: '121.35', external_reference: order.code,
-    payer: { email: order.customer_email }, transactions: { payments: [{ amount: '121.35', payment_method: { id: 'visa', type: 'credit_card', token: payment.token, installments: 1 } }] } })
+  assert.equal(body.capture_mode, 'automatic')
+  assert.deepEqual(body.payer, { email: order.customer_email, identification: { type: 'CPF', number: '12345678909' } })
+  assert.deepEqual(body.config, { statement_descriptor: 'GALEO', online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } })
   assert.equal(JSON.stringify(body).includes('issuer_id'), false)
-  assert.equal(JSON.stringify(body).includes('12345678909'), false)
   assert.deepEqual(normalizeMercadoPagoPayment(normalizeMercadoPagoPayment(payment)), normalizeMercadoPagoPayment(payment))
+}))
+
+test('authenticated buyer metadata and explicit checkout-address choice reach Orders while device ID stays in its SDK header', async () => fixture(async calls => {
+  const registered = Date.parse('2025-01-10T12:30:00Z'), lastPurchase = Date.parse('2025-06-12T14:00:00Z')
+  const buyerContext = { id: 9, name: '  Ana Maria Silva  ', email: 'account@example.invalid', phone: '+55 (11) 98765-4321',
+    registered_at_ms: registered, previous_purchases: 1, last_purchase_at_ms: lastPurchase, authentication_type: 'password',
+    address_source: 'checkout_delivery', checkout_address: { postal_code: '01001-000', street: 'Rua da entrega', number: '17 A', city: 'São Paulo', state: 'sp', neighborhood: 'Centro', complement: 'Sala 2' } }
+  const deviceId = 'sdk-device-local-' + randomUUID()
+  const payment = { ...card(), device_id: deviceId, use_shipping_address: true, email: 'forged@example.invalid',
+    payer: { first_name: 'Forged', address: { city: 'Forged' } }, items: [{ quantity: 99, unit_price: '0.01' }] }
+  const previous = structuredClone({ order, items, buyerContext, payment })
+  await createMercadoPagoOnlineOrder({ order, items, buyerContext, payment, idempotencyKey: randomUUID() })
+  const posted = calls.find(call => call.options.method === 'POST'), body = JSON.parse(posted.options.body)
+  assert.equal(posted.options.headers['X-Meli-Session-Id'], deviceId)
+  assert.equal(calls[0].options.headers['X-Meli-Session-Id'], undefined)
+  assert.equal(JSON.stringify(body).includes(deviceId), false)
+  assert.deepEqual(body.payer, { email: buyerContext.email, first_name: 'Ana', last_name: 'Maria Silva',
+    identification: { type: 'CPF', number: '12345678909' }, phone: { area_code: '11', number: '987654321' },
+    address: { state: 'SP', zip_code: '01001000', street_number: '17 A', street_name: 'Rua da entrega', city: 'São Paulo', neighborhood: 'Centro', complement: 'Sala 2' } })
+  assert.deepEqual(body.additional_info, { payer: { registration_date: new Date(registered).toISOString(),
+    is_first_purchase_online: false, last_purchase: new Date(lastPurchase).toISOString(), authentication_type: 'senha' } })
+  assert.equal(body.items[0].quantity, 2)
+  assert.equal(body.items[0].unit_price, '50.00')
+  assert.deepEqual({ order, items, buyerContext, payment }, previous)
+}))
+
+test('a separately supplied billing address is validated, and delivery is never silently declared as the buyer address', async () => fixture(async calls => {
+  const buyerContext = { name: 'Ana', email: order.customer_email, phone: 'invalid phone', registered_at_ms: Date.now() + 86400000,
+    previous_purchases: 0, last_purchase_at_ms: Date.now() - 1000, checkout_address: { ...order }, address_source: 'checkout_delivery' }
+  await createMercadoPagoOnlineOrder({ order, items, buyerContext, payment: { method: 'pix' } })
+  let body = JSON.parse(calls.find(call => call.options.method === 'POST').options.body)
+  assert.equal(body.payer.first_name, 'Ana')
+  assert.equal(body.payer.last_name, undefined)
+  assert.equal(body.payer.address, undefined)
+  assert.equal(body.payer.phone, undefined)
+  assert.deepEqual(body.additional_info, { payer: { is_first_purchase_online: true } })
+  const otherAddress = { zip_code: '20040-020', state: 'rj', street_name: 'Rua do comprador', street_number: '99', city: 'Rio de Janeiro' }
+  const selection = normalizeMercadoPagoPayment({ ...card(), use_shipping_address: false, billing_address: otherAddress })
+  assert.deepEqual(normalizeMercadoPagoPayment(selection), selection, 'route and adapter normalization must preserve the same address')
+  await createMercadoPagoOnlineOrder({ order, items, buyerContext, payment: selection })
+  body = JSON.parse(calls.filter(call => call.options.method === 'POST')[1].options.body)
+  assert.deepEqual(body.payer.address, { zip_code: '20040020', state: 'RJ', street_name: 'Rua do comprador', street_number: '99', city: 'Rio de Janeiro' })
+}))
+
+test('unsafe device identifiers and invalid explicit buyer addresses fail before a provider request', async () => fixture(async calls => {
+  const address = { zip_code: '01001000', state: 'SP', street_name: 'Rua local', street_number: '1', city: 'São Paulo' }
+  for (const payment of [
+    { ...card(), device_id: '' }, { ...card(), device_id: 'short' }, { ...card(), device_id: 'device\r\nAuthorization: secret' },
+    { ...card(), device_id: 'x'.repeat(257) }, { ...card(), use_shipping_address: 'true' },
+    { ...card(), use_shipping_address: false }, { ...card(), use_shipping_address: false, billing_address: { ...address, zip_code: '012' } },
+    { ...card(), use_shipping_address: false, billing_address: { ...address, state: 'BRA' } },
+    { ...card(), use_shipping_address: false, billing_address: { ...address, street_name: 'Rua\u0000privada' } }
+  ]) await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment }), { code: 'PAYMENT_INVALID' })
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { ...card(), use_shipping_address: true },
+    buyerContext: { checkout_address: address, address_source: 'unverified' } }), { code: 'PAYMENT_INVALID' })
+  assert.equal(calls.length, 0)
+}))
+
+test('the SDK never retries a failed creation and never exposes its response metadata', async () => fixture(async calls => {
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response({ message: 'private provider response' }, 503)
+  }
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card(), idempotencyKey: randomUUID() }),
+    { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 1)
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+    : new Response(JSON.stringify(rawOrder()), { status: 201, headers: { 'X-Private-Response': 'must-not-be-retained' } })
+  const value = await createMercadoPagoOnlineOrder({ order, items, payment: card() })
+  assert.equal(value.api_response, undefined)
+  assert.equal(JSON.stringify(value).includes('must-not-be-retained'), false)
 }))
 
 test('payment validation rejects raw card data and malformed payment requests before any provider call', async () => fixture(async calls => {
@@ -261,7 +337,9 @@ test('test rejection retains only private structured codes and removes request d
   globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(noisy, 400)
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment, idempotencyKey: attempt }), error => {
     assert.equal(error.outcomeUnknown, false)
-    assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 400, codes: ['invalid_order', 'bad_request', '3001', 'missing_property'] })
+    // The official SDK retains error/cause, but discards the provider's
+    // top-level errorKey/code/errors. Never invent missing diagnostic values.
+    assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 400, codes: ['bad_request', 'invalid_order'] })
     assert.equal(JSON.stringify(error).includes('invalid_order'), false, 'diagnostic must not appear in automatic exception logs')
     const copy = mercadoPagoTestFailureDiagnostic(error)
     copy.codes.push('mutated')
@@ -272,9 +350,44 @@ test('test rejection retains only private structured codes and removes request d
   })
 }))
 
+test('SDK test diagnostics exclude the device identifier even if reflected inside a provider machine code', async () => fixture(async () => {
+  const deviceId = 'sdk-device-private-value'
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+    : response({ error: 'bad_request', message: 'private ' + deviceId, cause: [
+      { code: 'invalid_' + deviceId }, { code: deviceId }, { code: 'field_error', field: 'device_id' }
+    ] }, 400)
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { ...card(), device_id: deviceId } }), error => {
+    const diagnostic = mercadoPagoTestFailureDiagnostic(error)
+    assert.deepEqual(diagnostic, { http_status: 400, codes: ['bad_request', 'field_error'] })
+    assert.equal(JSON.stringify(diagnostic).includes(deviceId), false)
+    assert.equal(error.stack.includes(deviceId), false)
+    return true
+  })
+}))
+
+test('SDK test diagnostics drop buyer names, phone and postal codes reflected inside machine codes', async () => fixture(async () => {
+  const lastName = 'Oliveira', phone = '987654321', postalCode = '01001000'
+  const buyerContext = { name: 'Ana ' + lastName, email: order.customer_email, phone: '11' + phone,
+    address_source: 'checkout_delivery', checkout_address: { ...order } }
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+    : response({ error: 'bad_request', cause: [
+      { code: 'invalid_phone_' + phone }, { code: 'invalid_zip_' + postalCode },
+      { code: 'invalid_name_' + lastName }, { code: 'field_error', field: 'payer.phone.number' }
+    ] }, 400)
+  await assert.rejects(createMercadoPagoOnlineOrder({ order, items, buyerContext, payment: { ...card(), use_shipping_address: true } }), error => {
+    const diagnostic = mercadoPagoTestFailureDiagnostic(error)
+    assert.deepEqual(diagnostic, { http_status: 400, codes: ['bad_request', 'field_error'], fields: ['payer.phone.number'] })
+    for (const privateValue of [lastName, phone, postalCode]) {
+      assert.equal(JSON.stringify(diagnostic).includes(privateValue), false)
+      assert.equal(error.stack.includes(privateValue), false)
+    }
+    return true
+  })
+}))
+
 test('test diagnostics bound code count and malformed or oversized bodies never change definitive rejection', async () => fixture(async () => {
   const values = [
-    () => response({ errors: Array.from({ length: 100 }, (_, i) => ({ code: 'error_' + i })) }, 422),
+    () => response({ cause: Array.from({ length: 100 }, (_, i) => ({ code: 'error_' + i })) }, 422),
     () => new Response('not-json private body', { status: 422 }),
     () => response({ code: 'not_retained', message: 'a'.repeat(33000) }, 422),
     () => new Response(new ReadableStream({ start(controller) { controller.error(new Error('private-stream-error')) } }), { status: 422 })
@@ -292,15 +405,15 @@ test('test diagnostics bound code count and malformed or oversized bodies never 
 
 test('test diagnostics retain only outgoing schema paths mentioned by structured provider errors', async () => fixture(async () => {
   const payment = card()
-  const noisy = { code: 'property_type', description: 'Wrong total_amount and transactions.payments[0].payment_method.type; expected type string. ' + payment.token,
-    message: 'Private payer ' + order.customer_email + ' CPF 12345678909', errors: [
+  const noisy = { error: 'property_type',
+    message: 'Wrong total_amount and transactions.payments[0].payment_method.type; expected type string. Private ' + payment.token + ' ' + order.customer_email + ' CPF 12345678909', cause: [
       { code: 'unsupported_properties', field: 'body.payer.email' },
       { path: '/transactions/payments/0/payment_method/id' },
       { instancePath: '#/transactions/payments/0/payment_method/token' },
       { json_path: '$.transactions.payments[0].amount' },
       { field: 'transactions.payments[99].payment_method.id' },
       { path: 'payer.email_extra' }, { field: 'city_extra' },
-      { message: 'items[0].unit_price shipment.address payer.first_name nottotal_amount' },
+      { message: 'shipment.address payer.first_name nottotal_amount' },
       { field: payment.token, message: process.env.GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN },
       { description: 'Duplicate /transactions/payments/0/payment_method/id and transactions.payments.0.amount' }
     ] }
@@ -322,7 +435,7 @@ test('test diagnostics retain only outgoing schema paths mentioned by structured
 
 test('test diagnostic path matching ignores oversized prose and unquoted generic words', async () => fixture(async () => {
   for (const message of ['expected type string for unknown properties', 'x'.repeat(8200) + ' total_amount']) {
-    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response({ code: 'field_error', message }, 400)
+    globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response({ error: 'field_error', message }, 400)
     await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card() }), error => {
       assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 400, codes: ['field_error'] })
       return true
@@ -330,21 +443,26 @@ test('test diagnostic path matching ignores oversized prose and unquoted generic
   }
 }))
 
-test('production rejections never read or retain a test diagnostic body', async () => fixture(async () => {
+test('production SDK rejections never retain or expose provider bodies or a test diagnostic', async () => fixture(async () => {
   Object.assign(process.env, { MERCADO_PAGO_MODE: 'production', MERCADO_PAGO_LIVE_PAYMENTS_ENABLED: 'true',
     MERCADO_PAGO_ACCESS_TOKEN: 'production-private-token', MERCADO_PAGO_PUBLIC_KEY: 'production-public-key',
     MERCADO_PAGO_WEBHOOK_SECRET: 'production-webhook-secret', APP_URL: 'https://galeo-store.netlify.app' })
-  let bodyReads = 0
-  globalThis.fetch = async () => ({ ok: false, status: 400, get body() { bodyReads++; throw new Error('must not read production error body') } })
+  const privateValue = 'private-card-token-12345678909'
+  globalThis.fetch = async () => response({ error: 'private_provider_error', message: privateValue,
+    cause: [{ code: 'private_machine_code', description: privateValue }] }, 400)
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card() }), error => {
     assert.equal(error.code, 'PAYMENT_PROVIDER_REJECTED')
     assert.equal(error.outcomeUnknown, false)
+    assert.equal(error.message.includes(privateValue), false)
+    assert.equal(error.stack.includes(privateValue), false)
+    assert.equal(JSON.stringify(error).includes('private_'), false)
+    assert.equal(error.cause, undefined)
+    assert.equal(error.causes, undefined)
     assert.equal(mercadoPagoTestFailureDiagnostic(error), null)
     process.env.MERCADO_PAGO_MODE = 'test'
     assert.equal(mercadoPagoTestFailureDiagnostic(error), null, 'production error must not populate the private diagnostic map')
     return true
   })
-  assert.equal(bodyReads, 0)
 }))
 
 test('timeouts, throttling and provider failures preserve an ambiguous attempt for idempotent retry', async () => fixture(async () => {
@@ -374,6 +492,29 @@ test('a stalled charge is aborted by the transport deadline and retains an unkno
   t.mock.timers.tick(10001)
   await result
   assert.equal(calls.at(-1).options.signal.aborted, true)
+  t.mock.timers.reset()
+}))
+
+test('a stalled SDK response body still reaches the outer deadline without accepting a late result', async t => fixture(async calls => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let finishBody
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    if (url.endsWith('/users/me')) return response({ id: 42, site_id: 'MLB', tags: ['test_user'] })
+    const value = response(rawOrder(), 201)
+    value.json = () => new Promise(resolve => { finishBody = resolve })
+    return value
+  }
+  const outcome = createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
+  const rejected = assert.rejects(outcome, { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(typeof finishBody, 'function')
+  t.mock.timers.tick(10001)
+  await rejected
+  finishBody(rawOrder())
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(outcome, { code: 'MERCADO_PAGO_UNAVAILABLE', outcomeUnknown: true })
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 1)
   t.mock.timers.reset()
 }))
 

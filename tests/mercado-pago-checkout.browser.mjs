@@ -15,15 +15,16 @@ const order = { id: 42, code: 'PED-LOCAL-42', total: 129.9, status: 'RECEIVED', 
 const configuration = { available: true, mode: 'test', public_key: 'PUBLIC-LOCAL-FIXTURE', methods: ['pix', 'credit_card', 'debit_card'] }
 const pixPayment = { provider_reference: 'ORDLOCAL42', status: 'PENDING', provider_status: 'action_required', method: 'pix', qr_code: '000201PIX-LOCAL-ONLY', qr_code_base64: 'iVBORw0KGgo=', expires_at: '2030-01-01T12:00:00Z' }
 
-async function fixture(t, { available = true, initialPayment = null, initialStatus = 'PENDING', sdk = true, handle, width = 390, clock = false } = {}) {
+async function fixture(t, { available = true, initialPayment = null, initialStatus = 'PENDING', sdk = true, deviceId, deviceScriptId, handle, width = 390, clock = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 950 }, reducedMotion: 'reduce' })
   t.after(() => context.close())
+  if (deviceId !== undefined) await context.addInitScript(value => { window.MP_DEVICE_SESSION_ID = value }, deviceId)
   if (sdk) await context.addInitScript(({ sdkReady }) => {
     window.__mpSdkConfigurations = []
     window.MercadoPago = class {
-      constructor(key) { this.key = key }
+      constructor(key, options) { this.key = key; this.options = options }
       cardForm(config) {
-        window.__mpSdkConfigurations.push({ key: this.key, iframe: config.iframe, amount: config.amount, fields: Object.keys(config.form), secureFieldStyles: ['cardNumber', 'expirationDate', 'securityCode'].map(field => config.form[field].style) })
+        window.__mpSdkConfigurations.push({ key: this.key, advancedFraudPrevention: this.options.advancedFraudPrevention, iframe: config.iframe, amount: config.amount, fields: Object.keys(config.form), secureFieldStyles: ['cardNumber', 'expirationDate', 'securityCode'].map(field => config.form[field].style) })
         for (const field of ['cardNumber', 'expirationDate', 'securityCode']) {
           const frame = document.createElement('iframe')
           frame.title = field
@@ -44,13 +45,17 @@ async function fixture(t, { available = true, initialPayment = null, initialStat
       }
     }
   }, { sdkReady: sdk !== 'stalled' })
-  const page = await context.newPage(), calls = [], errors = []
+  const page = await context.newPage(), calls = [], errors = [], deviceRequests = []
   if (clock) await page.clock.install()
   let snapshot = { order: { ...order, payment_status: initialStatus }, payment: initialPayment }
   page.setDefaultTimeout(7000)
   page.on('pageerror', error => errors.push(error.message))
   t.after(() => assert.deepEqual(errors, []))
   await page.route('https://sdk.mercadopago.com/**', route => route.abort())
+  await page.route('https://www.mercadopago.com/v2/security.js', route => {
+    deviceRequests.push(route.request().url())
+    return deviceScriptId === undefined ? route.abort() : route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.MP_DEVICE_SESSION_ID = ' + JSON.stringify(deviceScriptId) })
+  })
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname, method = request.method()
     const call = { path, method, body: method === 'POST' ? request.postDataJSON() : null, headers: request.headers() }
@@ -60,6 +65,7 @@ async function fixture(t, { available = true, initialPayment = null, initialStat
     if (response) return json(response.data, response.status || 200)
     if (path === '/api/customer/me') return json({ authenticated: true, user: { id: 7, email: order.customer_email, name: 'Cliente local' }, csrfToken: 'csrf-local-fixture' })
     if (path === '/api/store/payments/config') return json({ ...configuration, available })
+    if (path === '/api/store/postal-codes/01001000') return json({ postal_code: '01001000', street: 'Praça da Sé', neighborhood: 'Sé', city: 'São Paulo', state: 'SP' })
     if (path === '/api/store/orders/42/payment' && method === 'GET') return json({ success: true, ...snapshot })
     if (path === '/api/store/orders/42/payment' && method === 'POST') {
       snapshot = { order: { ...order }, payment: { ...pixPayment } }
@@ -73,7 +79,7 @@ async function fixture(t, { available = true, initialPayment = null, initialStat
   })
   await page.goto(origin + '/pagamento/42')
   await page.getByRole('heading', { name: 'Pagamento', exact: true }).waitFor()
-  return { page, calls, setSnapshot: value => { snapshot = value } }
+  return { page, calls, deviceRequests, setSnapshot: value => { snapshot = value } }
 }
 
 const paymentPosts = calls => calls.filter(call => call.path === '/api/store/orders/42/payment' && call.method === 'POST')
@@ -94,7 +100,8 @@ test('Pix usa CPF e tentativa estável; confirmação vem de consulta autenticad
   await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
   assert.equal(await page.getByLabel('Pix copia e cola').inputValue(), pixPayment.qr_code)
   const body = paymentPosts(calls)[0].body
-  assert.deepEqual(Object.keys(body).sort(), ['attempt_id', 'identification', 'method'])
+  assert.deepEqual(Object.keys(body).sort(), ['attempt_id', 'identification', 'method', 'use_shipping_address'])
+  assert.equal(body.use_shipping_address, true)
   assert.equal(body.method, 'pix')
   assert.equal(body.identification.number, '12345678909')
   assert.match(body.attempt_id, /^[a-f\d-]{36}$/)
@@ -120,6 +127,73 @@ test('falha HTTP ambígua retoma mesmo corpo e attempt_id, sem nova cobrança l�
   assert.deepEqual(paymentPosts(calls)[0].body, paymentPosts(calls)[1].body)
 })
 
+test('identificador real do script oficial é encaminhado sem entrar no armazenamento do navegador', async t => {
+  const deviceId = 'LOCAL_PROVIDER_DEVICE_SESSION_42'
+  const { page, calls, deviceRequests } = await fixture(t, { deviceScriptId: deviceId })
+  await page.waitForFunction(value => window.MP_DEVICE_SESSION_ID === value, deviceId)
+  const script = await page.locator('script[src="https://www.mercadopago.com/v2/security.js"]').evaluate(element => ({ view: element.getAttribute('view'), async: element.async, defer: element.defer }))
+  assert.deepEqual(script, { view: 'checkout', async: true, defer: true })
+  assert.equal(deviceRequests.length, 1)
+  await page.getByLabel('CPF do comprador').fill('12345678909')
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
+  assert.equal(paymentPosts(calls)[0].body.device_id, deviceId)
+  const stored = await page.evaluate(() => [...Object.values(localStorage), ...Object.values(sessionStorage)].join(' '))
+  assert.equal(stored.includes(deviceId), false)
+  assert.equal(stored.includes('12345678909'), false)
+})
+
+test('identificador inválido não é encaminhado nem substituído por um valor inventado', async t => {
+  const { page, calls } = await fixture(t, { deviceId: 'invalid session\nvalue' })
+  await page.getByLabel('CPF do comprador').fill('12345678909')
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
+  assert.equal(Object.hasOwn(paymentPosts(calls)[0].body, 'device_id'), false)
+})
+
+test('endereço próprio usa o CEP e só permite envio depois de completar os dados do comprador', async t => {
+  const { page, calls } = await fixture(t)
+  await page.getByRole('checkbox', { name: 'Endereço do comprador é o mesmo da entrega' }).uncheck()
+  await page.getByLabel('CPF do comprador').fill('12345678909')
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'Confira o endereço do comprador antes de pagar.' }).waitFor()
+  assert.equal(paymentPosts(calls).length, 0)
+  await page.getByLabel('CEP do comprador', { exact: true }).fill('01001000')
+  await page.getByText('CEP localizado. Confira o endereço e complete o número e o complemento, se houver.', { exact: true }).waitFor()
+  assert.equal(await page.getByLabel('Rua do comprador', { exact: true }).inputValue(), 'Praça da Sé')
+  assert.equal(await page.getByLabel('Cidade do comprador', { exact: true }).inputValue(), 'São Paulo')
+  assert.equal(await page.getByLabel('Estado do comprador', { exact: true }).inputValue(), 'SP')
+  await page.getByLabel('Número do comprador', { exact: true }).fill('15')
+  await page.getByLabel('Complemento do comprador', { exact: true }).fill('Loja 2')
+  const geometry = await page.getByLabel('Rua do comprador', { exact: true }).evaluate(element => ({ font: parseFloat(getComputedStyle(element).fontSize), height: element.getBoundingClientRect().height, width: document.documentElement.scrollWidth, viewport: innerWidth }))
+  assert.ok(geometry.font >= 16 && geometry.height >= 50 && geometry.width <= geometry.viewport)
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
+  assert.equal(paymentPosts(calls)[0].body.use_shipping_address, false)
+  assert.deepEqual(paymentPosts(calls)[0].body.billing_address, { zip_code: '01001000', street_name: 'Praça da Sé', street_number: '15', city: 'São Paulo', state: 'SP', neighborhood: 'Sé', complement: 'Loja 2' })
+})
+
+test('retomada incerta mantém endereço e dispositivo originais mesmo depois de atualizar o SDK', async t => {
+  let requests = 0
+  const { page, calls } = await fixture(t, { deviceId: 'LOCAL_DEVICE_BEFORE_RETRY', handle: ({ path, method }) => {
+    if (path === '/api/store/orders/42/payment' && method === 'POST' && ++requests === 1) return { status: 503, data: { error: 'Confirmação ainda pendente.' } }
+  } })
+  await page.getByRole('checkbox', { name: 'Endereço do comprador é o mesmo da entrega' }).uncheck()
+  await page.getByLabel('CEP do comprador', { exact: true }).fill('01001000')
+  await page.getByText('CEP localizado. Confira o endereço e complete o número e o complemento, se houver.', { exact: true }).waitFor()
+  await page.getByLabel('Número do comprador', { exact: true }).fill('15')
+  await page.getByLabel('CPF do comprador').fill('12345678909')
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'Confirmação ainda pendente.' }).waitFor()
+  assert.equal(await page.getByRole('checkbox', { name: 'Endereço do comprador é o mesmo da entrega' }).isDisabled(), true)
+  assert.equal(await page.getByLabel('Rua do comprador', { exact: true }).isDisabled(), true)
+  await page.evaluate(() => { window.MP_DEVICE_SESSION_ID = 'LOCAL_DEVICE_AFTER_RETRY' })
+  await page.getByRole('button', { name: 'Retomar pagamento Pix', exact: true }).click()
+  await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
+  assert.deepEqual(paymentPosts(calls)[0].body, paymentPosts(calls)[1].body)
+  assert.equal(paymentPosts(calls)[1].body.device_id, 'LOCAL_DEVICE_BEFORE_RETRY')
+})
+
 test('recusa definitiva permite nova tentativa com outro identificador', async t => {
   let requests = 0
   const { page, calls } = await fixture(t, { handle: ({ path, method }) => {
@@ -133,8 +207,8 @@ test('recusa definitiva permite nova tentativa com outro identificador', async t
   assert.notEqual(paymentPosts(calls)[0].body.attempt_id, paymentPosts(calls)[1].body.attempt_id)
 })
 
-test('cartão monta três iframes e envia somente token, método e identificação', async t => {
-  const { page, calls } = await fixture(t)
+test('cartão monta três iframes e envia token e metadados sem dados brutos do cartão', async t => {
+  const { page, calls } = await fixture(t, { deviceId: 'LOCAL_PROVIDER_CARD_DEVICE' })
   await page.getByRole('button', { name: 'Cartão', exact: true }).click()
   await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).waitFor()
   await page.getByLabel('Nome no cartão', { exact: true }).fill('APRO')
@@ -147,9 +221,12 @@ test('cartão monta três iframes e envia somente token, método e identificaç�
   assert.equal(body.payment_method_id, 'visa')
   assert.equal(body.installments, 1)
   assert.equal(body.identification.number, '12345678909')
+  assert.equal(body.device_id, 'LOCAL_PROVIDER_CARD_DEVICE')
+  assert.equal(body.use_shipping_address, true)
   assert.equal(['card_number', 'security_code', 'expiration_month', 'expiration_year', 'amount', 'email', 'issuer_id'].some(key => Object.hasOwn(body, key)), false)
   const configuration = await page.evaluate(() => window.__mpSdkConfigurations.at(-1))
   assert.equal(configuration.iframe, true)
+  assert.equal(configuration.advancedFraudPrevention, true)
   assert.equal(configuration.amount, '129.90')
   for (const field of ['issuer', 'installments', 'identificationType']) assert.ok(configuration.fields.includes(field))
   for (const style of configuration.secureFieldStyles) {
@@ -168,11 +245,12 @@ test('falha do SDK é visível e impede envio de cartão', async t => {
 })
 
 test('configuração desativada não monta SDK nem oferece cobrança', async t => {
-  const { page, calls } = await fixture(t, { available: false })
+  const { page, calls, deviceRequests } = await fixture(t, { available: false })
   await page.getByText('O pagamento online ainda está sendo preparado pela loja. Você pode acompanhar seu pedido na sua conta.', { exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Gerar Pix' }).count(), 0)
   assert.equal(paymentPosts(calls).length, 0)
   assert.deepEqual(await page.evaluate(() => window.__mpSdkConfigurations), [])
+  assert.equal(deviceRequests.length, 0)
 })
 
 test('SDK com iframes incompletos exibe falha em vez de carregar indefinidamente', async t => {

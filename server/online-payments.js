@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { paymentBuyerContext } from './payment-buyer-context.js'
 import {
   createMercadoPagoOnlineOrder,
   findMercadoPagoOrderForAttempt,
@@ -56,6 +57,13 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
   }
   async function payments(id, connection, lock = false) {
     return query("SELECT *,UNIX_TIMESTAMP(created_at)*1000 AS created_at_ms FROM payments WHERE store_order_id=? AND provider='MERCADO_PAGO' ORDER BY id DESC" + (lock ? ' FOR UPDATE' : ''), [id], connection)
+  }
+  async function buyerForPayment(order, customerId, connection) {
+    const customers = await query('SELECT id,name,email,phone,active,email_verified_at,private_data,UNIX_TIMESTAMP(created_at)*1000 AS registered_at_ms FROM customers WHERE id=? LIMIT 1', [customerId], connection)
+    // Refunding a past purchase does not make the buyer a first-time customer.
+    // Its cleared paid_at remains unknown; do not substitute another date.
+    const history = await query("SELECT COUNT(*) AS previous_purchases,UNIX_TIMESTAMP(MAX(paid_at))*1000 AS last_purchase_at_ms FROM store_orders WHERE customer_id=? AND id<>? AND payment_status IN ('APPROVED','REFUNDED')", [customerId, order.id], connection)
+    return paymentBuyerContext({ customer: customers[0], customerId, order, history: history[0] })
   }
   function view(order, payment) {
     const config = getMercadoPagoPublicConfig()
@@ -194,6 +202,7 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
         await privacy.updateFields('payments', stubId, { raw_payload: '{}' }, transaction)
       }
       const items = await query('SELECT product_id,variant_id,size_label,product_name,quantity,unit_price,line_total FROM store_order_items WHERE order_id=? ORDER BY id', [orderId], transaction)
+      const buyerContext = await buyerForPayment(order, req.customer.id, transaction)
       await transaction.commit()
 
       // The stub is committed before the external operation. Lock the order
@@ -216,7 +225,7 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
       // No card token or CPF is saved in our database. If this request times
       // out, the pending UUID remains durable and must be reused on retry.
       let result
-      try { result = await createMercadoPagoOnlineOrder({ order, items, payment: paymentInput, idempotencyKey: attempt }) }
+      try { result = await createMercadoPagoOnlineOrder({ order, items, payment: paymentInput, idempotencyKey: attempt, buyerContext }) }
       catch (error) {
         // A retry may receive a definitive 4xx only because the original
         // ambiguous call already created an order with a different token.

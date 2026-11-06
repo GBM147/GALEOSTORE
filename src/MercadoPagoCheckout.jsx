@@ -1,11 +1,40 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { customerApi } from './storeApi'
+import usePostalCodeAddress from './usePostalCodeAddress'
 import './mercado-pago-checkout.css'
 
 const money = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const sdkUrl = 'https://sdk.mercadopago.com/js/v2'
+const deviceSdkUrl = 'https://www.mercadopago.com/v2/security.js'
+const states = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+const emptyBuyerAddress = () => ({ postal_code: '', street: '', number: '', neighborhood: '', city: '', state: '', complement: '' })
 let sdkPromise
+let deviceScript
+
+function currentDeviceId() {
+  const value = window.MP_DEVICE_SESSION_ID
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{6,256}$/.test(value) ? value : ''
+}
+
+function loadDeviceProfile() {
+  if (currentDeviceId() || deviceScript?.isConnected) return
+  // The official security script owns this identifier. Never manufacture a
+  // replacement when fingerprint collection is unavailable or still loading.
+  const existing = [...document.scripts].find(script => script.src === deviceSdkUrl)
+  if (existing) { deviceScript = existing; return }
+  const script = document.createElement('script')
+  script.src = deviceSdkUrl
+  script.async = true
+  script.defer = true
+  script.setAttribute('view', 'checkout')
+  script.onerror = () => {
+    script.remove()
+    if (deviceScript === script) deviceScript = null
+  }
+  deviceScript = script
+  document.head.append(script)
+}
 
 function loadCardSdk() {
   if (window.MercadoPago) return Promise.resolve(window.MercadoPago)
@@ -66,6 +95,40 @@ function safeChallengeUrl(value) {
   } catch { return '' }
 }
 
+function buyerAddressPayload(useShippingAddress, form) {
+  if (useShippingAddress) return { use_shipping_address: true }
+  const address = {
+    zip_code: form.postal_code.replace(/\D/g, ''), street_name: form.street.trim(),
+    street_number: form.number.trim(), city: form.city.trim(), state: form.state.toUpperCase(),
+    ...(form.neighborhood.trim() ? { neighborhood: form.neighborhood.trim() } : {}),
+    ...(form.complement.trim() ? { complement: form.complement.trim() } : {})
+  }
+  if (!/^\d{8}$/.test(address.zip_code) || !address.street_name || !address.street_number || !address.city || !states.includes(address.state)) return null
+  return { use_shipping_address: false, billing_address: address }
+}
+
+function BuyerAddressFields({ useShipping, changeUseShipping, form, setForm, disabled }) {
+  const postalAddress = usePostalCodeAddress(form, setForm)
+  return <fieldset className="mp-buyer-address" disabled={disabled}>
+    <legend>Endereço do comprador</legend>
+    <label className="mp-address-choice"><input type="checkbox" checked={useShipping} onChange={event => changeUseShipping(event.target.checked)} />Endereço do comprador é o mesmo da entrega</label>
+    {!useShipping && <div className="mp-buyer-address-fields">
+      <label>CEP do comprador<input value={form.postal_code} onChange={event => postalAddress.changePostalCode(event.target.value)} autoComplete="billing postal-code" inputMode="numeric" maxLength={9} aria-describedby="mp-buyer-postal-message" required /></label>
+      <p className="mp-payment-note" id="mp-buyer-postal-message" role="status">{postalAddress.message}</p>
+      <label>Rua do comprador<input value={form.street} onChange={event => postalAddress.changeAddressField('street', event.target.value)} autoComplete="billing address-line1" maxLength={200} required /></label>
+      <div className="mp-field-row">
+        <label>Número do comprador<input value={form.number} onChange={event => setForm(current => ({ ...current, number: event.target.value }))} autoComplete="off" maxLength={30} required /></label>
+        <label>Complemento do comprador<input value={form.complement} onChange={event => setForm(current => ({ ...current, complement: event.target.value }))} autoComplete="billing address-line2" maxLength={100} /></label>
+      </div>
+      <label>Bairro do comprador<input value={form.neighborhood} onChange={event => postalAddress.changeAddressField('neighborhood', event.target.value)} autoComplete="billing address-level3" maxLength={100} /></label>
+      <div className="mp-field-row">
+        <label>Cidade do comprador<input value={form.city} onChange={event => postalAddress.changeAddressField('city', event.target.value)} autoComplete="billing address-level2" maxLength={100} required /></label>
+        <label>Estado do comprador<select aria-label="Estado do comprador" value={form.state} onChange={event => postalAddress.changeAddressField('state', event.target.value)} autoComplete="billing address-level1" required><option value="">Selecione</option>{states.map(state => <option key={state} value={state}>{state}</option>)}</select></label>
+      </div>
+    </div>}
+  </fieldset>
+}
+
 function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialMethod, lockedMethod }) {
   const id = 'galeo-mp-' + useId().replace(/[^\w-]/g, '')
   const cardForm = useRef(null)
@@ -99,7 +162,7 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
       try {
         const MercadoPago = await loadCardSdk()
         if (disposed) return
-        const mp = new MercadoPago(publicKey, { locale: 'pt-BR' })
+        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: true })
         controller = mp.cardForm({
           amount: Number(order.total).toFixed(2),
           iframe: true,
@@ -195,6 +258,8 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
   const [pollError, setPollError] = useState('')
   const [method, setMethod] = useState('pix')
   const [cpf, setCpf] = useState('')
+  const [useShippingAddress, setUseShippingAddress] = useState(true)
+  const [buyerAddress, setBuyerAddress] = useState(emptyBuyerAddress)
   const [submitting, setSubmitting] = useState(false)
   const [uncertain, setUncertain] = useState(false)
   const attempt = useRef(savedAttempt(attemptKey))
@@ -233,6 +298,10 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
   }, [attemptKey])
 
   useEffect(() => {
+    if (config?.available && snapshot && !terminal && !waiting) loadDeviceProfile()
+  }, [config?.available, snapshot, terminal, waiting])
+
+  useEffect(() => {
     const current = ++lifecycle.current
     const controller = new AbortController()
     setLoading(true)
@@ -242,6 +311,8 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
     setPollError('')
     setUncertain(false)
     setSubmitting(false)
+    setUseShippingAddress(true)
+    setBuyerAddress(emptyBuyerAddress())
     attempt.current = savedAttempt(attemptKey)
     pendingBody.current = null
     inFlight.current = false
@@ -302,12 +373,20 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
       setError('Confira o pagamento anterior antes de escolher outra forma de pagamento.')
       return
     }
+    const address = uncertain && pendingBody.current ? null : buyerAddressPayload(useShippingAddress, buyerAddress)
+    if (!(uncertain && pendingBody.current) && !address) {
+      setError('Confira o endereço do comprador antes de pagar.')
+      return
+    }
     if (!selected) {
       selected = { id: newAttemptId(), method: body.method }
       attempt.current = selected
       try { sessionStorage.setItem(attemptKey, JSON.stringify(selected)) } catch {}
     }
-    const requestBody = uncertain && pendingBody.current ? pendingBody.current : { ...body, attempt_id: selected.id }
+    const deviceId = currentDeviceId()
+    const requestBody = uncertain && pendingBody.current ? pendingBody.current : {
+      ...body, ...address, ...(deviceId ? { device_id: deviceId } : {}), attempt_id: selected.id
+    }
     pendingBody.current = requestBody
     inFlight.current = true
     setSubmitting(true)
@@ -362,6 +441,7 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
         </div> : <>
           {status === 'REJECTED' && <p className="form-error" role="status">O pagamento não foi aprovado. Confira os dados ou escolha outra forma de pagamento.</p>}
           {status === 'CANCELLED' && <p role="status">A tentativa anterior foi cancelada. Escolha a forma de pagamento para tentar novamente.</p>}
+          <BuyerAddressFields useShipping={useShippingAddress} changeUseShipping={setUseShippingAddress} form={buyerAddress} setForm={setBuyerAddress} disabled={submitting || uncertain} />
           <div className="mp-method-tabs" role="group" aria-label="Forma de pagamento">
             {config.methods?.includes('pix') && <button type="button" aria-pressed={method === 'pix'} disabled={submitting || uncertain} onClick={() => setMethod('pix')}>Pix</button>}
             {cardMethods.length > 0 && <button type="button" aria-pressed={method === 'card'} disabled={submitting || uncertain} onClick={() => setMethod('card')}>Cartão</button>}

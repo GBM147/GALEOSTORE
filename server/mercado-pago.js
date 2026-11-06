@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { MercadoPagoConfig, Order } from 'mercadopago'
 
 const BASE_URL = 'https://api.mercadopago.com'
 const REQUEST_TIMEOUT_MS = 10000
@@ -117,9 +118,10 @@ async function testFailureDiagnostic(response, config, body, idempotencyKey) {
   collect(config.privateValues)
   collect(body)
   const forbidden = new Set(privateValues.map(value => value.toLowerCase()))
-  const secrets = [config.accessToken, config.publicKey, config.webhookSecret,
-    body?.transactions?.payments?.[0]?.payment_method?.token, body?.payer?.identification?.number]
-    .filter(value => typeof value === 'string' && value.length >= 6).map(value => value.toLowerCase())
+  // A provider may reflect request data inside a machine-code-shaped value.
+  // Prefer dropping a diagnostic code over retaining buyer or device data.
+  const secrets = [...new Set([...privateValues, config.deviceId]
+    .filter(value => typeof value === 'string' && value.length >= 6).map(value => value.toLowerCase()))]
   const add = value => {
     if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) value = String(value)
     if (typeof value !== 'string' || value.length > 64 ||
@@ -204,6 +206,47 @@ async function request(path, { accessToken, method = 'GET', body = null, idempot
   } finally { clearTimeout(timer) }
 }
 
+// Use the official SDK without retries or raw SDK errors escaping this boundary.
+// Its own timeout covers response headers; the outer deadline also bounds body
+// parsing. A late SDK result has no continuation that writes business state.
+async function orderRequest({ config, operation, body = null, orderId = '', parameters = null, idempotencyKey = '', deviceId = '', diagnosticConfig = null }) {
+  const client = new Order(new MercadoPagoConfig({ accessToken: config.accessToken,
+    options: { timeout: REQUEST_TIMEOUT_MS, maxRetries: 0, redirect: 'error',
+      ...(idempotencyKey ? { idempotencyKey } : {}), ...(deviceId ? { meliSessionId: deviceId } : {}) } }))
+  let timer
+  try {
+    const operationPromise = operation === 'create' ? client.create({ body })
+      : operation === 'search' ? client.search({ options: parameters }) : client.get({ id: orderId })
+    const result = await Promise.race([operationPromise, new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(unavailable()), REQUEST_TIMEOUT_MS)
+    })])
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw unavailable()
+    // Response headers and SDK tracking metadata are not payment business data.
+    const { api_response: _metadata, ...value } = result
+    return value
+  } catch (error) {
+    if (error instanceof MercadoPagoError) throw error
+    const status = Number(error?.status)
+    if (Number.isInteger(status) && status >= 400 && status < 500 && ![408, 409, 423, 429].includes(status)) {
+      const safe = new MercadoPagoError('PAYMENT_PROVIDER_REJECTED', [400, 422].includes(status) ? 400 : 503,
+        'O Mercado Pago não aceitou os dados deste pagamento. Confira os dados ou escolha outra forma de pagamento.')
+      safe.providerStatus = status
+      if (operation === 'create' && diagnosticConfig?.mode === 'test' && diagnosticConfig.available) {
+        // SDK errors preserve error/message/cause, but discard some other raw
+        // provider attributes. Keep only the bounded diagnostic actually known.
+        let diagnostic = { http_status: status, codes: [] }
+        try {
+          const raw = JSON.stringify({ error: error.error, message: error.message, cause: error.causes })
+          if (Buffer.byteLength(raw) <= 32768) diagnostic = await testFailureDiagnostic(new Response(raw, { status }), diagnosticConfig, body, idempotencyKey)
+        } catch { /* A diagnostic cannot change a definitive 4xx result. */ }
+        testFailureDiagnostics.set(safe, diagnostic)
+      }
+      throw safe
+    }
+    throw unavailable()
+  } finally { clearTimeout(timer) }
+}
+
 async function assertTestSeller(config) {
   if (config.mode !== 'test') return
   const key = createHash('sha256').update(JSON.stringify([config.mode, config.testCredentialKind, config.accessToken, config.publicKey, config.sellerId])).digest('hex')
@@ -255,14 +298,25 @@ export function normalizeMercadoPagoPayment(input) {
     if (input.identification.type !== 'CPF') throw invalid('Informe o CPF do titular.')
     identification = { type: 'CPF', number: cpf(input.identification.number) }
   }
-  if (method === 'pix') return { method, ...(identification ? { identification } : {}) }
+  const extra = {}
+  if (input.device_id != null) {
+    const deviceId = text(input.device_id)
+    if (!/^[A-Za-z0-9_-]{6,256}$/.test(deviceId)) throw invalid('Não foi possível identificar o dispositivo do pagamento.')
+    extra.device_id = deviceId
+  }
+  if (input.use_shipping_address != null) {
+    if (typeof input.use_shipping_address !== 'boolean') throw invalid('Confira o endereço do comprador.')
+    extra.use_shipping_address = input.use_shipping_address
+    if (!input.use_shipping_address) extra.billing_address = payerAddress(input.billing_address)
+  }
+  if (method === 'pix') return { method, ...extra, ...(identification ? { identification } : {}) }
   const token = text(input.token)
   const paymentMethodId = text(input.payment_method_id)
   if (!/^[A-Za-z0-9_-]{20,256}$/.test(token) || /^\d{13,19}$/.test(token)) throw invalid('Preencha novamente os campos seguros do cartão.')
   if (!/^[a-z][a-z0-9_]{1,39}$/.test(paymentMethodId) || ['pix', 'bolbradesco'].includes(paymentMethodId)) throw invalid('Não foi possível identificar a bandeira do cartão.')
   if (!identification) throw invalid('Informe o CPF do titular.')
   if (input.installments != null && Number(input.installments) !== 1) throw invalid('O pagamento com cartão está disponível em uma parcela.')
-  return { method, payment_method_id: paymentMethodId, token, installments: 1, identification }
+  return { method, ...extra, payment_method_id: paymentMethodId, token, installments: 1, identification }
 }
 
 function moneyCents(value, { allowZero = false } = {}) {
@@ -287,7 +341,37 @@ function validateProviderOrder(order, config) {
   return order
 }
 
-export async function createMercadoPagoOnlineOrder({ order, items, payment, idempotencyKey }) {
+const BRAZIL_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'])
+function payerAddress(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('Informe o endereço do comprador.')
+  const state = text(input.state).toUpperCase(), zip = text(input.zip_code ?? input.postal_code).replace(/[-\s]/g, '')
+  if (!BRAZIL_STATES.has(state) || !/^\d{8}$/.test(zip)) throw invalid('Confira o CEP e o estado do comprador.')
+  return { state, zip_code: zip, street_number: string(input.street_number ?? input.number, 30),
+    street_name: string(input.street_name ?? input.street, 160), city: string(input.city, 100),
+    ...(text(input.neighborhood) ? { neighborhood: string(input.neighborhood, 100) } : {}),
+    ...(text(input.complement) ? { complement: string(input.complement, 100) } : {}) }
+}
+function buyerPhone(value) {
+  let digits = text(value).replace(/[()\s+.-]/g, '')
+  if (/^55\d{10,11}$/.test(digits)) digits = digits.slice(2)
+  return /^\d{10,11}$/.test(digits) ? { area_code: digits.slice(0, 2), number: digits.slice(2) } : null
+}
+function buyerSupplement(context) {
+  const value = {}, now = Date.now()
+  const date = input => Number.isSafeInteger(input) && input > 0 && input <= now + 60000 ? new Date(input).toISOString() : null
+  const registered = date(context.registered_at_ms)
+  if (registered) value.registration_date = registered
+  if (Number.isSafeInteger(context.previous_purchases) && context.previous_purchases >= 0) {
+    value.is_first_purchase_online = context.previous_purchases === 0
+    const last = context.previous_purchases > 0 && date(context.last_purchase_at_ms)
+    if (last) value.last_purchase = last
+  }
+  // This is our actual authenticated password flow, using the SDK's example.
+  if (context.authentication_type === 'password') value.authentication_type = 'senha'
+  return Object.keys(value).length ? { payer: value } : null
+}
+
+export async function createMercadoPagoOnlineOrder({ order, items, payment, idempotencyKey, buyerContext = {} }) {
   const config = onlineConfiguration()
   if (!config.available) throw notConfigured()
   const selection = normalizeMercadoPagoPayment(payment)
@@ -295,32 +379,51 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
   const total = moneyCents(order?.total)
   const shipping = order.shipping_fee == null ? 0 : moneyCents(order.shipping_fee, { allowZero: true })
   const reference = string(order.code, 128)
-  const email = string(order.customer_email, 254)
+  const email = string(buyerContext.email ?? order.customer_email, 254)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalid('O e-mail do comprador é inválido.')
   if (!Array.isArray(items) || !items.length || items.length > 50) throw invalid('O pedido não possui itens válidos.')
   let itemTotal = 0
-  for (const item of items) {
-    const quantity = Number(item.quantity)
-    const unit = moneyCents(item.unit_price)
+  const providerItems = items.map(item => {
+    const quantity = Number(item.quantity), unit = moneyCents(item.unit_price)
     if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50 || moneyCents(item.line_total) !== unit * quantity) throw invalid('O valor dos itens do pedido é inválido.')
     itemTotal += unit * quantity
-    string(item.product_name, 180)
-    if (item.size_label) string(item.size_label, 40)
-  }
+    const title = string(item.product_name, 180), size = item.size_label ? string(item.size_label, 40) : ''
+    if (!Number.isSafeInteger(Number(item.product_id)) || Number(item.product_id) < 1 ||
+        (item.variant_id != null && (!Number.isSafeInteger(Number(item.variant_id)) || Number(item.variant_id) < 1))) throw invalid('O produto do pedido é inválido.')
+    return { external_code: 'galeo-' + item.product_id + (item.variant_id ? '-' + item.variant_id : ''),
+      title: size ? title + ' — ' + size : title, quantity, unit_price: (unit / 100).toFixed(2), category_id: 'fashion' }
+  })
   if (itemTotal + shipping !== total) throw invalid('O total do pedido não corresponde aos itens e ao frete.')
+  const payer = { email, ...(selection.identification ? { identification: selection.identification } : {}) }
+  if (text(buyerContext.name)) {
+    const [first, ...last] = string(buyerContext.name, 180).split(/\s+/)
+    payer.first_name = first
+    if (last.length) payer.last_name = last.join(' ')
+  }
+  const phone = buyerPhone(buyerContext.phone)
+  if (phone) payer.phone = phone
+  if (selection.use_shipping_address === true) {
+    if (buyerContext.address_source !== 'checkout_delivery') throw invalid('Confira o endereço do comprador.')
+    payer.address = payerAddress(buyerContext.checkout_address)
+  } else if (selection.use_shipping_address === false) payer.address = selection.billing_address
   const paymentMethod = selection.method === 'pix'
     ? { id: 'pix', type: 'bank_transfer' }
     : { id: selection.payment_method_id, type: selection.method, token: selection.token, installments: 1 }
+  const additional = buyerSupplement(buyerContext)
   const payload = {
-    type: 'online', processing_mode: 'automatic', total_amount: (total / 100).toFixed(2), external_reference: reference,
-    payer: { email },
+    type: 'online', processing_mode: 'automatic', capture_mode: 'automatic', total_amount: (total / 100).toFixed(2), external_reference: reference,
+    payer, items: providerItems, config: { statement_descriptor: 'GALEO', ...(selection.method === 'pix' ? {} : {
+      online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } }) },
+    ...(additional ? { additional_info: additional } : {}),
     transactions: { payments: [{ amount: (total / 100).toFixed(2), ...(selection.method === 'pix' ? { expiration_time: 'PT30M' } : {}), payment_method: paymentMethod }] }
   }
-  // Keep our full order metadata in GALEO. Orders receives the documented
-  // minimal request; its defaults govern capture/security behavior.
-  const diagnosticConfig = config.mode === 'test' ? { ...config, privateValues: [...Object.values(order), ...text(order.customer_name).split(/\s+/), selection.identification?.number] } : null
+  // Buyer metadata comes only from our authenticated account and owned order.
+  // A different billing address/CPF and real SDK device ID are validated input.
+  const diagnosticConfig = config.mode === 'test' ? { ...config, deviceId: selection.device_id || '', privateValues: [order, buyerContext, selection,
+    ...text(order.customer_name).split(/\s+/), ...text(buyerContext.name).split(/\s+/)] } : null
   await assertTestSeller(config)
-  const result = validateProviderOrder(await request('/v1/orders', { accessToken: config.accessToken, method: 'POST', body: payload, idempotencyKey: key, diagnosticConfig }), config)
+  const result = validateProviderOrder(await orderRequest({ config, operation: 'create', body: payload, idempotencyKey: key,
+    deviceId: selection.device_id || '', diagnosticConfig }), config)
   if (result.external_reference !== reference || moneyCents(result.total_amount) !== total) throw unavailable()
   return result
 }
@@ -330,7 +433,7 @@ export async function getMercadoPagoOrder(orderId) {
   if (!config.available) throw notConfigured()
   if (!/^[A-Za-z0-9_-]{1,160}$/.test(String(orderId))) throw invalid('O pagamento informado é inválido.')
   await assertTestSeller(config)
-  const result = validateProviderOrder(await request('/v1/orders/' + encodeURIComponent(String(orderId)), { accessToken: config.accessToken }), config)
+  const result = validateProviderOrder(await orderRequest({ config, operation: 'get', orderId: String(orderId) }), config)
   if (String(result.id) !== String(orderId)) throw unavailable()
   return result
 }
@@ -368,7 +471,7 @@ export async function findMercadoPagoOrderForAttempt({ order, attempt }) {
   await assertTestSeller(config)
   const parameters = new URLSearchParams({ begin_date: new Date(earliest).toISOString(), end_date: new Date(latest).toISOString(),
     external_reference: reference, page: '1', page_size: '50', sort_by: 'created_date', sort_order: 'desc' })
-  const result = await request('/v1/orders?' + parameters, { accessToken: config.accessToken })
+  const result = await orderRequest({ config, operation: 'search', parameters: Object.fromEntries(parameters) })
   const values = result.data
   const count = result.paging?.total, pages = result.paging?.total_pages
   const integer = value => /^(?:0|[1-9]\d{0,8})$/.test(String(value))

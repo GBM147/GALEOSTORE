@@ -1,14 +1,18 @@
 # Mercado Pago — Checkout Transparente via Orders
 
-O código da GALEO implementa Checkout Transparente via Orders, usando a aplicação existente da loja. O pagamento possui uma tela própria em `/pagamento/:orderId`, acessível após registrar o pedido no carrinho e pela área do cliente. A captura atual do painel mostra a aplicação como **Loja Integrada / CheckoutPro**; esses metadados e a compatibilidade da modalidade precisam ser conferidos na homologação antes de ativar os pagamentos. O código não altera esse cadastro nem cria outra aplicação automaticamente.
+O código da GALEO implementa Checkout Transparente via Orders. O pagamento possui uma tela própria em `/pagamento/:orderId`, acessível após registrar o pedido no carrinho e pela área do cliente. A homologação usa a aplicação **GALEO Homologacao** de um vendedor virtual, com banco separado. A aplicação e os pagamentos reais da loja permanecem separados; o código não cria aplicações automaticamente.
 
 O adaptador anterior misturava Orders com redirecionamento do Checkout Pro. O contrato atual utiliza `POST /v1/orders`, processamento automático e uma transação de Pix ou cartão tokenizado. Não espera `checkout_url` nem envia `config.online.success_url`.
 
-O pedido enviado ao Mercado Pago segue o exemplo mínimo documentado: tipo online, processamento automático, total, referência, e-mail do comprador e transação. Produtos, nomes, endereço e demais metadados completos permanecem na GALEO. O total enviado continua sendo conferido contra os itens e o frete do pedido; os padrões do provedor regem captura e segurança da transação.
+O pedido é criado pelo SDK oficial de backend, versão 3.6.1, com captura automática, referência, itens e identificação da loja na fatura. Quantidade, preço unitário decimal em texto, nome e código dos itens vêm do pedido calculado no servidor. A categoria `fashion` foi conferida no catálogo do Mercado Pago. O total continua sendo validado contra os itens e o frete.
+
+Nome, e-mail, telefone, data de cadastro e histórico do comprador vêm da conta autenticada. O CPF vem do formulário validado. O comprador escolhe usar o endereço de entrega como seu endereço ou informa um endereço de cobrança diferente. Esse endereço não altera o destinatário da entrega. Dados desconhecidos, como sobrenome de um nome único ou data de compra indisponível, são omitidos.
+
+Cartões usam `config.online.transaction_security.validation=on_fraud_risk` e `liability_shift=required`; os testes precisam conferir os resultados e eventuais desafios do emissor. A política pode recusar transações para as quais a rede não oferece a transferência de responsabilidade exigida. Pix não recebe essa configuração de cartão.
 
 ## Estado da validação
 
-O código tem testes automatizados locais com MySQL isolado e APIs/SDK simulados. Isso verifica a lógica da GALEO, mas **não comprova uma compra no Mercado Pago**, a entrega real do webhook, a tokenização com as chaves da loja ou a qualidade oficial da integração. Essas etapas dependem das credenciais e da conta de teste. Não houve cobrança real durante o desenvolvimento.
+O código tem testes automatizados locais com MySQL isolado e respostas do provedor simuladas, usando o SDK oficial para construir as chamadas. Uma compra anterior pelo ambiente virtual foi aprovada e conciliada em uma única venda e receita; sua avaliação oficial ficou em 12/100 com o pedido mínimo anterior. Isso não valida os dados dos pedidos futuros, o navegador ou a entrega automática do webhook. Alterar o código não acrescenta campos retroativamente ao pedido já avaliado: a nova avaliação exige outra compra de teste. Não houve cobrança real durante o desenvolvimento.
 
 As ferramentas MCP do Mercado Pago não estão conectadas a esta sessão. Foram consultados os guias e o OpenAPI públicos do fornecedor; nenhuma aplicação ou conta foi criada por essas ferramentas.
 
@@ -56,6 +60,7 @@ Ativar pagamentos reais e fazer uma compra real são etapas distintas do teste a
 
 - O servidor calcula os itens, o frete e o total, e obtém o comprador da sessão autenticada. Valores e e-mail enviados pelo navegador não substituem esses dados.
 - Cartão utiliza o CardForm oficial com `iframe: true`. Número, validade e CVV são coletados pelo Mercado Pago; a API da GALEO rejeita campos brutos de cartão. Crédito e débito estão preparados para pagamento em uma parcela.
+- O script oficial de segurança do checkout pode fornecer `MP_DEVICE_SESSION_ID`. Quando disponível e válido, esse identificador é enviado pelo cabeçalho oficial `X-Meli-Session-Id`. A aplicação não inventa um identificador, não o armazena e não transforma testes com um SDK simulado em prova de coleta real no navegador.
 - Pix exibe QR Code e copia e cola retornados pelo provedor, com expiração de 30 minutos. A imagem é validada e mostrada localmente; não é enviada a geradores de QR externos.
 - Cada tentativa possui UUID persistida antes da chamada externa. Uma resposta incerta preserva a mesma tentativa; não permite abrir uma segunda cobrança até esclarecer a primeira. A sessão do navegador guarda apenas UUID e forma de pagamento, nunca token do cartão ou CPF.
 - A confirmação é consultada no servidor. A página de retorno e os parâmetros da URL não aprovam pagamentos. Status de autorização, revisão e desafio permanecem pendentes.
@@ -64,6 +69,7 @@ Ativar pagamentos reais e fazer uma compra real são etapas distintas do teste a
 - A consulta do cliente também pode recuperar essa tentativa por leitura autenticada da Orders API. A busca precisa estar completa e conter um único recurso com vendedor, referência, valor, método e horário correspondentes; depois o servidor consulta esse ID novamente e revalida tudo. O vínculo é conferido sob lock com o mesmo ID e UUID da tentativa. Resultado vazio, incompleto, ambíguo ou indisponível mantém a tentativa pendente. Essa recuperação é registrada como conciliação e não comprova entrega do webhook.
 - Eventos repetidos não criam outra venda ou receita. Estorno da tentativa vencedora restitui estoque e cancela a receita uma vez. Aprovação depois de cancelamento exige conciliação, sem recriar venda ou retirar estoque já restituído.
 - Todos os locks e conexões são liberados antes da resposta HTTP, inclusive em erros, para compatibilidade com Functions da Netlify. A confirmação durável é concluída antes de responder; não depende de trabalho solto após `res.json()`.
+- O SDK opera sem retries automáticos e recebe a UUID já persistida. Há um prazo externo de dez segundos que inclui a leitura da resposta; um resultado tardio não executa gravações de negócio. O timeout interno do SDK cobre os cabeçalhos, portanto uma leitura de rede iniciada pode continuar internamente após o prazo externo. Ela não inicia outra cobrança. Erros e cabeçalhos brutos do SDK não são persistidos nem enviados ao cliente.
 
 ## Reservas e financeiro
 
