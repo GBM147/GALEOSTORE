@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto'
 // injects its device-profile collector as an inline script and accepts the
 // nonce through `deviceProfileCspNonce`. Every other page stays static.
 const paymentPath = /^\/pagamento\/[^/]+\/?$/
-const forwardedHeaders = ['x-content-type-options', 'x-frame-options', 'referrer-policy', 'permissions-policy', 'strict-transport-security']
+// Netlify applies _headers to static files only, so copy them from the shell.
+const forwardedHeaders = ['x-content-type-options', 'x-frame-options', 'referrer-policy', 'permissions-policy', 'strict-transport-security', 'x-robots-tag']
 
 export const isPaymentShellPath = pathname => paymentPath.test(pathname)
 

@@ -6,7 +6,7 @@ const policy = "default-src 'self'; script-src 'self' https://sdk.mercadopago.co
 const html = '<!doctype html><html><head><script type="module" crossorigin src="/assets/index-abc.js"></script></head><body><div id="root"></div></body></html>'
 const staticShell = (headers = {}, body = html, status = 200) => async () => new Response(body, {
   status,
-  headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': policy, 'X-Frame-Options': 'DENY', 'Set-Cookie': 'leak=1', ETag: '"static"', ...headers }
+  headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': policy, 'X-Frame-Options': 'DENY', 'X-Robots-Tag': 'noindex, nofollow, noarchive', 'Set-Cookie': 'leak=1', ETag: '"static"', ...headers }
 })
 
 test('somente a rota de pagamento recebe o shell com nonce', () => {
@@ -32,6 +32,7 @@ test('shell copia o index estático com CSP do nonce e sem cache', async () => {
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('cache-control'), 'no-store')
   assert.equal(response.headers.get('x-frame-options'), 'DENY')
+  assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive')
   assert.equal(response.headers.get('set-cookie'), null)
   assert.equal(response.headers.get('etag'), null)
   assert.match(response.headers.get('content-security-policy'), /script-src 'self' https:\/\/sdk\.mercadopago\.com 'nonce-TestNonce1234567890ab'/)
