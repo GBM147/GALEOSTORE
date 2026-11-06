@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import Lenis from 'lenis'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -13,6 +12,7 @@ import { formatProductPrice, productHasPrice } from './productAvailability'
 import { loadStorefrontJson } from './storefrontData'
 import { editorialSegments, editorialType, textHighlightPath } from './editorialText'
 import { useHeroTitleFit } from './useHeroTitleFit'
+import { setLiteMode, useLiteMode } from './liteMode'
 
 const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
@@ -29,8 +29,10 @@ const MALE_CATEGORIES = ['Camisetas', 'Calças', 'Camisas', 'Moletons', 'Bermuda
 
 const fallbackProducts = []
 
-function PageLoading({ message = 'Carregando página…' }) {
-  return <main className="section-shell page-space" style={{ minHeight:'70svh' }} aria-busy="true"><p className="page-note" role="status">{message}</p></main>
+// The Home placeholder fills the screen so the footer stays below it and does
+// not jump when the banner appears.
+function PageLoading({ message = 'Carregando página…', minHeight = '70svh' }) {
+  return <main className="section-shell page-space" style={{ minHeight }} aria-busy="true"><p className="page-note" role="status">{message}</p></main>
 }
 
 function RouteScroll() {
@@ -62,6 +64,7 @@ const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(valu
 
 function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
   const { pathname } = useLocation()
+  const lite = useLiteMode()
   const introducedHeroes = useRef(new WeakSet())
   useLayoutEffect(() => {
     gsap.registerPlugin(ScrollTrigger)
@@ -74,16 +77,27 @@ function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
     const campaign = { ...(campaignSection?.content?.defaults || {}), ...(campaignDefaults || {}) }
     const effect = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns'].includes(campaign.effect) ? campaign.effect : 'zoom'
     const header = root.querySelector('.site-header')
-    const updateScrollChrome = ({ scroll }) => {
+    const progressBar = root.querySelector('.scroll-progress')
+    const updateScrollChrome = () => {
+      const scroll = window.scrollY
+      if (header) header.classList.toggle('is-scrolled', scroll > 24)
+      if (!progressBar || lite) return
       const documentHeight = document.documentElement.scrollHeight - window.innerHeight
       const progress = documentHeight > 0 ? Math.min(1, Math.max(0, scroll / documentHeight)) : 0
-      if (header) header.classList.toggle('is-scrolled', scroll > 24)
-      document.documentElement.style.setProperty('--scroll-progress', String(progress))
+      // Set on the bar itself: a custom property on <html> restyles the whole page.
+      progressBar.style.setProperty('--scroll-progress', String(progress))
     }
 
-    const nativeScroll = () => updateScrollChrome({ scroll:window.scrollY })
+    let scrollFrame = null
+    const nativeScroll = () => {
+      if (scrollFrame != null) return
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = null
+        updateScrollChrome()
+      })
+    }
     window.addEventListener('scroll', nativeScroll, { passive:true })
-    nativeScroll()
+    updateScrollChrome()
 
     let active = true
     let refreshFrame = null
@@ -93,7 +107,7 @@ function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
         refreshFrame = null
         if (active) {
           ScrollTrigger.refresh()
-          nativeScroll()
+          updateScrollChrome()
         }
       })
     }
@@ -102,18 +116,25 @@ function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
     document.fonts?.ready.then(refreshAfterLoad).catch(() => {})
 
     const media = gsap.matchMedia()
-    media.add('(prefers-reduced-motion: no-preference)', () => {
-      const lenis = smoothScroll.enabled === false ? null : new Lenis({
-        duration: boundedNumber(smoothScroll.duration, 1.05, 0.1, 3),
-        wheelMultiplier: boundedNumber(smoothScroll.wheel_multiplier, 0.95, 0.1, 3),
-        smoothWheel: true,
-        autoRaf: false
-      })
-      const raf = (time) => lenis?.raf(time * 1000)
-      if (lenis) {
-        lenis.on('scroll', ScrollTrigger.update)
-        gsap.ticker.add(raf)
-        gsap.ticker.lagSmoothing(0)
+    // The light version keeps every element in place, without motion.
+    if (!lite) media.add('(prefers-reduced-motion: no-preference)', () => {
+      let lenis = null, raf = null, disposed = false
+      // Smooth scrolling only changes the mouse wheel. Touch screens keep the
+      // native scroll and never download it.
+      if (smoothScroll.enabled !== false && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+        import('lenis').then(({ default: Lenis }) => {
+          if (disposed) return
+          lenis = new Lenis({
+            duration: boundedNumber(smoothScroll.duration, 1.05, 0.1, 3),
+            wheelMultiplier: boundedNumber(smoothScroll.wheel_multiplier, 0.95, 0.1, 3),
+            smoothWheel: true,
+            autoRaf: false
+          })
+          raf = (time) => lenis.raf(time * 1000)
+          lenis.on('scroll', ScrollTrigger.update)
+          gsap.ticker.add(raf)
+          gsap.ticker.lagSmoothing(0)
+        }).catch(() => {})
       }
 
       if (reveal.enabled !== false) gsap.utils.toArray('[data-reveal]').forEach((element) => {
@@ -164,21 +185,24 @@ function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
 
       ScrollTrigger.refresh()
       return () => {
-        lenis?.off('scroll', ScrollTrigger.update)
-        if (lenis) gsap.ticker.remove(raf)
-        lenis?.destroy()
+        disposed = true
+        if (!lenis) return
+        lenis.off('scroll', ScrollTrigger.update)
+        gsap.ticker.remove(raf)
+        lenis.destroy()
       }
     }, root)
 
     return () => {
       active = false
       if (refreshFrame != null) window.cancelAnimationFrame(refreshFrame)
+      if (scrollFrame != null) window.cancelAnimationFrame(scrollFrame)
       root.removeEventListener('load', refreshAfterLoad, true)
       root.removeEventListener('loadedmetadata', refreshAfterLoad, true)
       media.revert()
       window.removeEventListener('scroll', nativeScroll)
     }
-  }, [pathname, homeSections, visualDefaults, campaignDefaults])
+  }, [pathname, homeSections, visualDefaults, campaignDefaults, lite])
 
   return null
 }
@@ -418,8 +442,11 @@ function NotFound() {
 
 function StoreFooter({ footer }) {
   const editor = useVisualEditor()
+  const lite = useLiteMode()
   return <footer className="site-footer">
     <span>{footer?.brand || 'GALEO STORE'}</span><span>© {footer?.year || '2026'}</span>
+    <button type="button" className="lite-mode-toggle" onClick={() => setLiteMode(!lite)}
+      title="Sem animações, vídeos automáticos e efeitos de desfoque">Modo leve: {lite ? 'ligado' : 'desligado'}</button>
     {editor?.editing && <button type="button" className="visual-editor-footer-button" onClick={() => editor.select({kind:'settings',tab:'footer'})}>Editar rodapé</button>}
   </footer>
 }
@@ -804,7 +831,7 @@ export default function App() {
       />}
       <Suspense fallback={<PageLoading />}><Routes>
         <Route path="/admin/*" element={<AdminGate />} />
-        <Route path="/" element={homeReady ? <Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} visualDefaults={siteSettings.storefront_visual_defaults} /> : homeError ? <main className="section-shell page-space" style={{ minHeight:'70svh' }}><p className="page-note" role="alert">{homeError}</p><button type="button" className="button button-primary" onClick={() => setHomeAttempt(attempt => attempt + 1)}>Tentar novamente</button></main> : <PageLoading message="Carregando loja…" />} />
+        <Route path="/" element={homeReady ? <Home products={catalog} homeSections={homeSections} homeLoaded={homeLoaded} campaignDefaults={siteSettings.campaign_defaults} visualDefaults={siteSettings.storefront_visual_defaults} /> : homeError ? <main className="section-shell page-space" style={{ minHeight:'70svh' }}><p className="page-note" role="alert">{homeError}</p><button type="button" className="button button-primary" onClick={() => setHomeAttempt(attempt => attempt + 1)}>Tentar novamente</button></main> : <PageLoading message="Carregando loja…" minHeight="100svh" />} />
         <Route path="/shop" element={<Shop products={catalog} categories={categories} visualDefaults={siteSettings.storefront_visual_defaults} />} />
         <Route path="/produto/:id" element={<ProductPage />} />
         <Route path="/conta" element={<AccountPage />} />

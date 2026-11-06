@@ -3,6 +3,7 @@ import { apiPath, lambdaEvent, webResponse } from '../lib/http.mjs'
 import { isPaymentShellPath, paymentShellResponse } from '../lib/payment-shell.mjs'
 import { productIdFromPath, productShellResponse } from '../lib/product-shell.mjs'
 import { publicOrigin } from '../../server/seo.js'
+import { PURGE_HEADER, purgeStorefrontCache } from '../../server/storefront-cache.js'
 
 // This must precede the dynamic import: the classic server also supports npm start.
 process.env.GALEO_SERVERLESS = 'true'
@@ -33,6 +34,17 @@ async function loadPublicProduct(request, context, productId) {
   })
 }
 
+// An Admin change must show on the store right away. A failed purge is only
+// logged: the cached copies still expire within a minute.
+async function refreshStorefront(context) {
+  try {
+    const result = await purgeStorefrontCache({ siteId: context?.site?.id || process.env.SITE_ID, token: process.env.NETLIFY_PURGE_API_TOKEN })
+    if (!result.purged && result.status) console.error('Cache da loja não renovado:', 'HTTP_' + result.status)
+  } catch (error) {
+    console.error('Cache da loja não renovado:', typeof error?.name === 'string' ? error.name : 'PURGE_FAILED')
+  }
+}
+
 export default async function apiRequest(request, context) {
   const path = apiPath(new URL(request.url).pathname)
   // The payment page shell needs no database or Express runtime.
@@ -48,7 +60,12 @@ export default async function apiRequest(request, context) {
       try {
         await api.initializeRuntime()
         const result = await api.handle(await lambdaEvent(request, context), { callbackWaitsForEmptyEventLoop: false })
-        return webResponse(result)
+        const response = webResponse(result)
+        if (response.headers.has(PURGE_HEADER)) {
+          response.headers.delete(PURGE_HEADER)
+          await refreshStorefront(context)
+        }
+        return response
       } finally {
         await api.drainBackgroundTasks()
       }

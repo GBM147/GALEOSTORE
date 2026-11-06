@@ -5,7 +5,9 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { campaignSlides, campaignTransitionSeconds, resolveCampaignAnimation } from './campaign-model'
 import './CampaignCarousel.css'
 import { ResponsiveImage, ResponsivePicture } from './ResponsiveImage'
-import { imageWidths } from './cloudinaryImage'
+import { cloudinaryVideoPoster, imageWidths } from './cloudinaryImage'
+import { useLiteMode } from './liteMode'
+import { BrandImage } from './BrandImage'
 
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
@@ -32,23 +34,28 @@ function CampaignVideo({ url, visible, paused, reduceMotion, className }) {
 
 function CampaignMedia({ slide, variant, effect, active, paused, reduceMotion }) {
   const mobile = useMediaQuery('(max-width: 700px)')
-  const desktopVideo = slide.desktop_type === 'video'
-  const mobileVideo = slide.mobile_type === 'video'
-  const hasMobile = Boolean(slide.mobile_url)
+  const lite = useLiteMode()
+  // The light version shows a still frame of each video instead of playing it.
+  const still = (url, video) => video && lite ? cloudinaryVideoPoster(url, 1600) : url
+  const desktopUrl = still(slide.desktop_url, slide.desktop_type === 'video')
+  const mobileUrl = still(slide.mobile_url, slide.mobile_type === 'video')
+  const desktopVideo = slide.desktop_type === 'video' && !lite
+  const mobileVideo = slide.mobile_type === 'video' && !lite
+  const hasMobile = Boolean(mobileUrl)
   const renderImage = (url, className, widths = imageWidths.banner) => <ResponsiveImage src={url} widths={widths} sizes="100vw" alt="" className={'campaign-media ' + className} loading="lazy" decoding="async" />
   return <div className={'campaign-visual campaign-visual-' + variant} data-campaign-effect={effect} data-managed-motion="true" aria-hidden="true">
     <div className="campaign-orb" />
     <div className="campaign-line campaign-line-a" />
     <div className="campaign-line campaign-line-b" />
-    {!slide.desktop_url ? <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" />
-      : !desktopVideo && (!hasMobile || !mobileVideo) ? <ResponsivePicture src={slide.desktop_url} mobileSrc={hasMobile ? slide.mobile_url : undefined}
+    {!desktopUrl ? <BrandImage loading="lazy" />
+      : !desktopVideo && (!hasMobile || !mobileVideo) ? <ResponsivePicture src={desktopUrl} mobileSrc={hasMobile ? mobileUrl : undefined}
         widths={imageWidths.banner} mobileWidths={imageWidths.bannerMobile} alt="" className="campaign-media " loading="lazy" decoding="async" /> : <>
         {desktopVideo
-          ? <CampaignVideo url={slide.desktop_url} visible={active && (!mobile || !hasMobile)} paused={paused} reduceMotion={reduceMotion} className={'campaign-carousel-desktop' + (hasMobile ? ' has-mobile campaign-desktop-video' : '')} />
-          : renderImage(slide.desktop_url, 'campaign-carousel-desktop' + (hasMobile ? ' has-mobile' : ''))}
+          ? <CampaignVideo url={desktopUrl} visible={active && (!mobile || !hasMobile)} paused={paused} reduceMotion={reduceMotion} className={'campaign-carousel-desktop' + (hasMobile ? ' has-mobile campaign-desktop-video' : '')} />
+          : renderImage(desktopUrl, 'campaign-carousel-desktop' + (hasMobile ? ' has-mobile' : ''))}
         {hasMobile && (mobileVideo
-          ? <CampaignVideo url={slide.mobile_url} visible={active && mobile} paused={paused} reduceMotion={reduceMotion} className="campaign-carousel-mobile" />
-          : renderImage(slide.mobile_url, 'campaign-carousel-mobile campaign-mobile-image', imageWidths.bannerMobile))}
+          ? <CampaignVideo url={mobileUrl} visible={active && mobile} paused={paused} reduceMotion={reduceMotion} className="campaign-carousel-mobile" />
+          : renderImage(mobileUrl, 'campaign-carousel-mobile campaign-mobile-image', imageWidths.bannerMobile))}
       </>}
     <div className="campaign-scan" />
     <div className="campaign-carousel-shade" />
@@ -58,7 +65,11 @@ function CampaignMedia({ slide, variant, effect, active, paused, reduceMotion })
 export default function CampaignCarousel({ item, variant = 1, defaults, sectionDefaults, children, editorPaused = false, editorNavigation = false, onEdit }) {
   const slides = useMemo(() => campaignSlides(item), [item])
   const settings = resolveCampaignAnimation(item, defaults, sectionDefaults)
-  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+  const lite = useLiteMode()
+  // The light version behaves like reduced motion: no automatic rotation,
+  // movement or video; the arrows still change the media.
+  const reduceMotion = prefersReducedMotion || lite
   const root = useRef(null)
   const motion = useRef(null)
   const [current, setCurrent] = useState(0)

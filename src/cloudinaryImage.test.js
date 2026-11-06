@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cloudinaryImageUrl, cloudinarySrcSet } from './cloudinaryImage.js'
+import { cloudinaryImageUrl, cloudinarySrcSet, cloudinaryVideoPoster } from './cloudinaryImage.js'
 
 const upload = 'https://res.cloudinary.com/galeo/image/upload/v1730000000/produtos/camisa-azul.jpg'
 
@@ -26,4 +26,12 @@ test('srcset só existe quando a foto pode ser redimensionada', () => {
   assert.equal(cloudinarySrcSet(upload, [320, 640]), 'https://res.cloudinary.com/galeo/image/upload/f_auto,q_auto,c_limit,w_320/v1730000000/produtos/camisa-azul.jpg 320w, https://res.cloudinary.com/galeo/image/upload/f_auto,q_auto,c_limit,w_640/v1730000000/produtos/camisa-azul.jpg 640w')
   assert.equal(cloudinarySrcSet('/images/galeo-brand.webp', [320, 640]), undefined)
   assert.equal(cloudinarySrcSet('https://res.cloudinary.com/galeo/image/upload/e_background_removal/v1/a.png', [320]), undefined)
+})
+
+test('vídeo simples do Cloudinary vira um quadro JPG para o modo leve', () => {
+  assert.equal(cloudinaryVideoPoster('https://res.cloudinary.com/galeo/video/upload/v1730000000/campanhas/verao.mp4?_a=1', 1600),
+    'https://res.cloudinary.com/galeo/video/upload/q_auto,c_limit,w_1600/v1730000000/campanhas/verao.jpg')
+  assert.equal(cloudinaryVideoPoster('https://res.cloudinary.com/galeo/video/upload/verao', 640), 'https://res.cloudinary.com/galeo/video/upload/q_auto,c_limit,w_640/verao.jpg')
+  for (const url of ['https://res.cloudinary.com/galeo/video/upload/e_boomerang/v1/verao.mp4', 'https://res.cloudinary.com/galeo/image/upload/v1/foto.jpg',
+    'https://cdn.exemplo.test/video/upload/v1/verao.mp4', '/videos/local.mp4', '', null]) assert.equal(cloudinaryVideoPoster(url, 1600), '', String(url))
 })

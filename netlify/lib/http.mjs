@@ -37,7 +37,14 @@ export function webResponse(result) {
     headers.delete(name)
     for (const value of values) headers.append(name, value)
   }
-  headers.set('Cache-Control', 'no-store')
+  // Only the public storefront routes opt in to the CDN (server/storefront-cache.js);
+  // everything else, and any response that carries a cookie, stays private.
+  const shared = result.statusCode === 200 && headers.has('netlify-cdn-cache-control') && !headers.has('set-cookie')
+  if (!shared) {
+    headers.set('Cache-Control', 'no-store')
+    headers.delete('netlify-cdn-cache-control')
+    headers.delete('netlify-cache-tag')
+  }
   const empty = [204, 205, 304].includes(result.statusCode)
   const body = empty ? null : result.isBase64Encoded ? Buffer.from(result.body || '', 'base64') : result.body
   return new Response(body, { status: result.statusCode, headers })

@@ -81,6 +81,8 @@ export async function productShellResponse(request, { productId, origin, loadPro
     // Shared links are fetched in bursts; let the CDN reuse the page briefly.
     headers.set('Cache-Control', 'public, max-age=0, must-revalidate')
     headers.set('Netlify-CDN-Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600')
+    // Product edits in the Admin purge this tag (server/storefront-cache.js).
+    headers.set('Netlify-Cache-Tag', 'galeo-storefront')
   } else if (!failed) {
     html = html.replace(/<\/head>/i, '    <meta name="robots" content="noindex" />\n  </head>')
   }

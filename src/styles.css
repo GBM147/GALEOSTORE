@@ -1659,3 +1659,38 @@ body {
   opacity: 1 !important;
   mix-blend-mode: normal;
 }
+
+/* Light version: weak phones, slow or metered connections, or the footer
+   switch. Same layout and colors, without decorative motion, blend and blur. */
+:root[data-lite="true"] .campaign-visual *,
+:root[data-lite="true"] .campaign-visual::before,
+:root[data-lite="true"] .hero-campaign-logo-a { animation: none !important; }
+:root[data-lite="true"] .campaign-orb,
+:root[data-lite="true"] .campaign-line,
+:root[data-lite="true"] .campaign-scan,
+:root[data-lite="true"] .campaign-visual::after,
+:root[data-lite="true"] .hero-campaign-glow,
+:root[data-lite="true"] .hero-campaign-logo-b,
+:root[data-lite="true"] .hero-campaign-scroll,
+:root[data-lite="true"] .utility-strip::before,
+:root[data-lite="true"] .scroll-progress { display: none; }
+:root[data-lite="true"] .site-header { background: var(--bg); backdrop-filter: none; }
+:root[data-lite="true"] .header-search { background: var(--surface); backdrop-filter: none; }
+:root[data-lite="true"] .product-arrow { backdrop-filter: none; }
+:root[data-lite="true"] .campaign-brand-image,
+:root[data-lite="true"] .hero-campaign-logo { filter: none; will-change: auto; }
+
+.lite-mode-toggle {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  min-height: 24px;
+}
+.lite-mode-toggle:hover { color: var(--text); }
+.lite-mode-toggle:focus-visible { outline: 1px solid var(--accent-soft); outline-offset: 4px; }

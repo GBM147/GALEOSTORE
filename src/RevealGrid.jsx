@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { useLiteMode } from './liteMode'
 
 const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(value))
   ? Math.min(max, Math.max(min, Number(value))) : fallback
@@ -8,9 +9,10 @@ const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(valu
 export default function RevealGrid({ as: Tag = 'div', className, items, reveal, children, ...attributes }) {
   const container = useRef(null)
   const revealed = useRef(new WeakSet())
+  const lite = useLiteMode()
 
   useLayoutEffect(() => {
-    if (reveal?.enabled === false) return undefined
+    if (reveal?.enabled === false || lite) return undefined
     gsap.registerPlugin(ScrollTrigger)
     const media = gsap.matchMedia()
     media.add('(prefers-reduced-motion: no-preference)', (context) => {
@@ -47,7 +49,7 @@ export default function RevealGrid({ as: Tag = 'div', className, items, reveal, 
       return () => { active = false }
     }, container)
     return () => media.revert()
-  }, [items, reveal])
+  }, [items, reveal, lite])
 
   return <Tag ref={container} className={className} {...attributes}>{children}</Tag>
 }

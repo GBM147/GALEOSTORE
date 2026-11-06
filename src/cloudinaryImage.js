@@ -22,6 +22,26 @@ export function cloudinaryImageUrl(url, width) {
   return parsed.href
 }
 
+// A still frame (Cloudinary's default, the middle of the video) of a plain
+// video upload, used as a poster and by the light version instead of the video.
+const videoMarker = '/video/upload/'
+export function cloudinaryVideoPoster(url, width) {
+  if (typeof url !== 'string' || !url) return ''
+  let parsed
+  try { parsed = new URL(url) } catch { return '' }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'res.cloudinary.com') return ''
+  const index = parsed.pathname.indexOf(videoMarker)
+  if (index < 0) return ''
+  const rest = parsed.pathname.slice(index + videoMarker.length)
+  const first = rest.split('/')[0]
+  if (!first || first.split(',').every(part => transformationPart.test(part)) && rest.includes('/')) return ''
+  const size = Math.min(4000, Math.max(16, Math.round(Number(width) || 0)))
+  const still = /\.[a-z0-9]{2,5}$/i.test(rest) ? rest.replace(/\.[a-z0-9]{2,5}$/i, '.jpg') : rest + '.jpg'
+  parsed.pathname = parsed.pathname.slice(0, index + videoMarker.length) + 'q_auto,c_limit,w_' + size + '/' + still
+  parsed.search = ''
+  return parsed.href
+}
+
 export function cloudinarySrcSet(url, widths = []) {
   const entries = widths.map(width => [cloudinaryImageUrl(url, width), Math.round(width)]).filter(([candidate]) => candidate && candidate !== url)
   return entries.length ? entries.map(([candidate, width]) => candidate + ' ' + width + 'w').join(', ') : undefined

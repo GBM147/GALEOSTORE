@@ -34,7 +34,8 @@ export default function ProductPage() {
     let alive = true
     setLoading(true)
     setError('')
-    fetch(STORE_API_BASE + '/api/store/products/' + encodeURIComponent(id) + '?ts=' + Date.now(), { cache:'no-store', headers:{ Accept:'application/json' } })
+    // No cache-busting query: the CDN may share this public response for a minute.
+    fetch(STORE_API_BASE + '/api/store/products/' + encodeURIComponent(id), { cache:'no-store', headers:{ Accept:'application/json' } })
       .then(async (response) => {
         const data = await response.json()
         if (!response.ok) throw new Error(data?.error || 'Produto não encontrado.')

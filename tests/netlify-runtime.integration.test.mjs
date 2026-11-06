@@ -75,7 +75,7 @@ test('cold initialization is read-only; public routes, query strings and JSON 40
     const result = await call(path)
     assert.equal(result.status, 200)
     assert.ok(result.data.products.some(product => product.id === productId))
-    assert.equal(result.headers.get('cache-control'), 'no-store')
+    assert.equal(result.headers.get('cache-control'), 'public, max-age=0, must-revalidate')
   }
   assert.equal((await call('/health')).status, 200)
   assert.equal((await call('/.netlify/functions/api/health')).status, 200)
@@ -245,4 +245,42 @@ test('server errors are logged for the owners without personal data', async () =
   // Customers and visitors never see the log.
   assert.notEqual((await call('/api/admin/error-events', { client: customer })).status, 200)
   assert.notEqual((await call('/api/admin/error-events')).status, 200)
+})
+
+test('public storefront data is shared by the CDN and only successful Admin writes purge it', async () => {
+  const purges = [], realFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).startsWith('https://api.netlify.com/')) return realFetch(url, options)
+    purges.push({ url: String(url), auth: options.headers.Authorization, body: JSON.parse(options.body) })
+    return new Response(null, { status: 202 })
+  }
+  Object.assign(process.env, { SITE_ID: 'site-fixture', NETLIFY_PURGE_API_TOKEN: 'purge-fixture-token' })
+  try {
+    for (const path of ['/api/store', '/api/store/home', '/api/store/home/settings', '/api/store/products/' + productId]) {
+      const result = await call(path, { client: customer })
+      assert.equal(result.status, 200, path)
+      assert.equal(result.headers.get('cache-control'), 'public, max-age=0, must-revalidate', path)
+      assert.equal(result.headers.get('netlify-cdn-cache-control'), 'public, durable, s-maxage=60, stale-while-revalidate=300', path)
+      assert.equal(result.headers.get('netlify-cache-tag'), 'galeo-storefront', path)
+      assert.equal(result.headers.getSetCookie().length, 0, path)
+    }
+    // Missing, private and Admin-only data is never shared.
+    for (const [path, status, client] of [['/api/store/products/999999999', 404], ['/api/store/categories', 200], ['/api/customer/me', 401], ['/api/customer/me', 200, customer], ['/api/admin/home', 200, owner]]) {
+      const result = await call(path, { client })
+      assert.equal(result.status, status, path)
+      assert.equal(result.headers.get('cache-control'), 'no-store', path)
+      assert.equal(result.headers.has('netlify-cdn-cache-control'), false, path)
+    }
+    assert.equal((await call('/api/admin/media-upload/sign', { method: 'POST', body: {}, client: owner, csrf: false })).status, 403)
+    assert.ok((await call('/api/store/orders', { method: 'POST', body: {}, client: customer })).status >= 400)
+    assert.equal(purges.length, 0)
+    const signed = await call('/api/admin/media-upload/sign', { method: 'POST', client: owner, body: { purpose: 'library', target_id: null, files: [{ name: 'camiseta.jpg', type: 'image/jpeg', size: 8000000 }] } })
+    assert.equal(signed.status, 200)
+    assert.equal(signed.headers.has('x-galeo-cache-purge'), false)
+    assert.deepEqual(purges, [{ url: 'https://api.netlify.com/api/v1/purge', auth: 'Bearer purge-fixture-token', body: { site_id: 'site-fixture', cache_tags: ['galeo-storefront'] } }])
+  } finally {
+    globalThis.fetch = realFetch
+    delete process.env.SITE_ID
+    delete process.env.NETLIFY_PURGE_API_TOKEN
+  }
 })

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import gsap from 'gsap'
+import { liteModeActive } from './liteMode'
 import './ProductGallery.css'
 import { ResponsiveImage } from './ResponsiveImage'
 import { imageWidths } from './cloudinaryImage'
@@ -48,7 +49,7 @@ function PhotoScene({ photo, alt, direction = 1, viewTransform, imageRef, imageC
 
     const motion = gsap.matchMedia()
     motion.add({ reduced: '(prefers-reduced-motion: reduce)', full: '(prefers-reduced-motion: no-preference)' }, context => {
-      if (context.conditions.reduced) { finish(); return }
+      if (context.conditions.reduced || liteModeActive()) { finish(); return }
       const incoming = root.current.querySelector('[data-current="true"]')
       const outgoing = root.current.querySelector('[data-current="false"]')
       const image = currentImage.current

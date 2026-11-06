@@ -123,8 +123,18 @@ uma cópia da Home pública pode usar fixtures locais no desenvolvimento.
 - A função `maintenance` roda diariamente às 06:10 UTC / 03:10 de São Paulo:
   gera recorrências de forma idempotente e remove sessões/limites expirados e
   auditoria antiga. É invocada pelo agendamento privado do Netlify.
-- APIs retornam JSON e `Cache-Control: no-store`. Rotas da interface usam a
-  mesma SPA; arquivos estáticos com hash têm cache longo.
+- APIs retornam JSON e `Cache-Control: no-store`, exceto os dados públicos da
+  vitrine (`/api/store`, `/api/store/home`, `/api/store/home/settings` e
+  `/api/store/products/:id`): o CDN do Netlify guarda essas respostas por 60 s e
+  continua entregando a cópia anterior enquanto renova
+  (`Netlify-CDN-Cache-Control: public, durable, s-maxage=60, stale-while-revalidate=300`),
+  então a maioria das visitas não espera a função nem o banco. Só respostas 200
+  sem cookie são guardadas. Qualquer gravação bem-sucedida no Admin limpa esse
+  cache na hora (etiqueta `galeo-storefront`, API de purge do Netlify com o
+  token que a própria função recebe); se a limpeza falhar, as cópias expiram em
+  até um minuto. O carrinho confere preço e estoque sem cache antes do pedido, e
+  o servidor valida o estoque de novo ao criar o pedido. Rotas da interface usam
+  a mesma SPA; arquivos estáticos com hash têm cache longo.
 
 ## Validação antes de publicar
 

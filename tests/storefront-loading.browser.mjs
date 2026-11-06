@@ -22,8 +22,8 @@ before(async () => {
 })
 after(async () => { await browser?.close() })
 
-async function fixture(t, { handle, width = 1280 } = {}) {
-  const context = await browser.newContext({ viewport:{ width, height:900 }, reducedMotion:'reduce' })
+async function fixture(t, { handle, width = 1280, reducedMotion = 'reduce', touch = false } = {}) {
+  const context = await browser.newContext({ viewport:{ width, height:900 }, reducedMotion, ...(touch ? { hasTouch:true, isMobile:true } : {}) })
   t.after(() => context.close())
   await context.addInitScript(() => {
     window.headingHistory = []
@@ -186,4 +186,44 @@ test('a logo do cabeçalho usa a versão leve de 128 px', async t => {
   await logo.waitFor()
   assert.equal(await logo.getAttribute('src'), '/images/galeo-logo-128.webp')
   assert.equal(await logo.evaluate(image => image.naturalWidth), 128)
+})
+
+const motionSettings = [{ key:'storefront_visual_defaults', value:{ interaction:{ smooth_scroll:{ enabled:true }, scroll_reveal:{ enabled:false }, hero_text_reveal:{ enabled:false } } } }]
+const withMotion = async ({ path }) => path === '/api/store/home/settings' ? { data:{ settings:motionSettings } } : null
+const motionState = page => page.evaluate(() => ({
+  lite:document.documentElement.dataset.lite ?? null,
+  effect:document.querySelector('.hero-full .campaign-visual')?.dataset.campaignEffect,
+  orb:getComputedStyle(document.querySelector('.hero-full .campaign-orb')).display,
+  blur:getComputedStyle(document.querySelector('.site-header')).backdropFilter,
+  progress:getComputedStyle(document.querySelector('.scroll-progress')).display,
+  smoothScroll:document.documentElement.classList.contains('lenis')
+}))
+
+test('light version drops motion, blur and smooth scrolling; the footer switch turns it off and is remembered', async t => {
+  const { page, scripts } = await fixture(t, { reducedMotion:'no-preference', handle:withMotion })
+  await page.goto(baseUrl + '/?lite=1')
+  await page.getByRole('heading', { level:1, name:'Nova frase da loja' }).waitFor()
+  await page.waitForLoadState('networkidle')
+  assert.deepEqual(await motionState(page), { lite:'true', effect:'static', orb:'none', blur:'none', progress:'none', smoothScroll:false })
+  assert.equal(scripts.some(path => path.includes('lenis')), false)
+  await page.getByRole('button', { name:'Modo leve: ligado' }).click()
+  await page.getByRole('button', { name:'Modo leve: desligado' }).waitFor()
+  await page.waitForFunction(() => document.documentElement.classList.contains('lenis'))
+  const full = await motionState(page)
+  assert.deepEqual({ ...full, blur:full.blur !== 'none' }, { lite:null, effect:'zoom', orb:'block', blur:true, progress:'block', smoothScroll:true })
+  assert.equal(await page.evaluate(() => localStorage.getItem('galeo-lite')), '0')
+  await page.goto(baseUrl + '/')
+  await page.getByRole('heading', { level:1, name:'Nova frase da loja' }).waitFor()
+  assert.equal((await motionState(page)).lite, null)
+  await page.getByRole('button', { name:'Modo leve: desligado' }).waitFor()
+})
+
+test('touch screens keep the native scroll and never download smooth scrolling', async t => {
+  const { page, scripts } = await fixture(t, { width:390, reducedMotion:'no-preference', touch:true, handle:withMotion })
+  await page.goto(baseUrl + '/')
+  await page.getByRole('heading', { level:1, name:'Nova frase da loja' }).waitFor()
+  await page.waitForLoadState('networkidle')
+  const state = await motionState(page)
+  assert.deepEqual({ lite:state.lite, effect:state.effect, smoothScroll:state.smoothScroll }, { lite:null, effect:'zoom', smoothScroll:false })
+  assert.equal(scripts.some(path => path.includes('lenis')), false)
 })

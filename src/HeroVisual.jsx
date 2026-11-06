@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { ResponsiveImage, ResponsivePicture } from './ResponsiveImage'
-import { cloudinaryImageUrl, imageWidths } from './cloudinaryImage'
+import { cloudinaryImageUrl, cloudinaryVideoPoster, imageWidths } from './cloudinaryImage'
+import { useLiteMode } from './liteMode'
+import { BrandImage } from './BrandImage'
 
 const motions = {
   zoom: [{ scale: 1 }, { scale: 1.055 }],
@@ -35,13 +37,17 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
   const [pageVisible, setPageVisible] = useState(() => !document.hidden)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const mobile = useMediaQuery('(max-width: 700px)')
+  const lite = useLiteMode()
   const paused = editorPaused || !visible || !pageVisible || reduceMotion
   const mobileFallback = mobile && Boolean(mobileUrl)
-  const canPlayVideo = Boolean(videoUrl) && !paused && !mobileFallback
-  const motionEffect = effect === 'static' || Object.hasOwn(motions, effect) ? effect : 'zoom'
+  // The light version shows a still frame instead of downloading the video.
+  const liteVideoPoster = lite && videoUrl && !mediaUrl && !mobileUrl ? cloudinaryVideoPoster(videoUrl, 1600) : ''
+  const activeVideoUrl = lite ? '' : videoUrl
+  const canPlayVideo = Boolean(activeVideoUrl) && !paused && !mobileFallback
+  const motionEffect = lite ? 'static' : effect === 'static' || Object.hasOwn(motions, effect) ? effect : 'zoom'
   const speedFactor = speed === 'fast' ? 0.7 : speed === 'normal' ? 1 : 1.4
   const duration = boundedDuration(durationSeconds)
-  const imageUrl = mediaUrl || mobileUrl
+  const imageUrl = mediaUrl || mobileUrl || liteVideoPoster
 
   useEffect(() => {
     const observed = root.current?.closest('.hero-full') || root.current
@@ -108,20 +114,20 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
       } catch {}
     }
     return () => { element.pause() }
-  }, [videoUrl, canPlayVideo])
+  }, [activeVideoUrl, canPlayVideo])
 
   return <div ref={root} className="campaign-visual campaign-visual-0" data-campaign-effect={motionEffect}
     data-managed-motion="true" data-paused={paused} aria-hidden={alt ? undefined : 'true'}>
     <div className="campaign-orb" />
     <div className="campaign-line campaign-line-a" />
     <div className="campaign-line campaign-line-b" />
-    {videoUrl ? <>
+    {activeVideoUrl ? <>
       <video ref={video} className={'campaign-media campaign-video' + (mobileUrl ? ' campaign-desktop-video' : '')}
-        src={videoUrl} poster={cloudinaryImageUrl(mediaUrl || mobileUrl, 1600) || '/images/galeo-brand.webp'} muted loop playsInline
+        src={activeVideoUrl} poster={cloudinaryImageUrl(mediaUrl || mobileUrl, 1600) || cloudinaryVideoPoster(activeVideoUrl, 1600) || '/images/galeo-brand.webp'} muted loop playsInline
         preload={canPlayVideo ? 'metadata' : 'none'} />
       {mobileUrl && <ResponsiveImage src={mobileUrl} widths={imageWidths.bannerMobile} sizes="100vw" alt={alt} className="campaign-media campaign-mobile-image" loading="eager" fetchPriority="high" decoding="async" />}
     </> : imageUrl ? <ResponsivePicture src={imageUrl} mobileSrc={mobileUrl || undefined} widths={imageWidths.banner} mobileWidths={imageWidths.bannerMobile}
-      alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" /> : <img src="/images/galeo-brand.webp" alt="" className="campaign-brand-image" fetchPriority="high" decoding="async" />}
+      alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" /> : <BrandImage fetchPriority="high" />}
     <div className="campaign-scan" />
   </div>
 }

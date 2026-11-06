@@ -95,13 +95,25 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   restritas; se usar, liberar `f_auto,q_auto,c_limit,w_*` no painel do Cloudinary.
 - [ ] **Fotos sem fundo mais leves** (Técnico): a versão tratada é um PNG no
   tamanho original; gerar também tamanhos menores no momento do tratamento.
-- [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial tem 472 KB
-  (React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor visual 31 KB, App
-  28 KB, Lenis 18 KB). Carregar GSAP/Lenis depois da página exige revisar as
+- [x] **Desempenho — Home e modo leve** (Técnico, 06/11; publica no próximo
+  deploy): no Lighthouse de celular, rodando local antes e depois, a Home foi de
+  73 para 88 (92 no modo leve), o LCP de 4,7 s para 3,2 s, o peso de 648 KB para
+  332 KB e o "pulo" do rodapé (CLS 0,075) zerou. Na produção, a Home de 06/11
+  marcou 64; o maior atraso eram as 3 chamadas da API (~3 s no início a frio da
+  função), que agora ficam no CDN (ver hospedagem-netlify.md) e começam antes do
+  React. A arte do topo caiu de 367 KB para 46 KB sem perda visível. O
+  **modo leve** liga sozinho com economia de dados, conexão 2G/3G ou aparelho com
+  até 3 GB de RAM, e também pelo botão "Modo leve" no rodapé (a escolha fica
+  salva): mesma loja, sem animações, rolagem suave, vídeo automático (mostra um
+  quadro do vídeo), desfoque e brilhos. Telas de toque não baixam mais a rolagem
+  suave (Lenis), que só age na roda do mouse.
+- [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
+  (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
+  visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as
   animações, porque elas definem o estado inicial antes da primeira pintura e
   poderiam piscar; separar o editor visual dos donos rende só cerca de 6 KB
-  comprimidos. A primeira carga depois de um tempo parado pode levar mais de 10 s
-  pelo início a frio da função.
+  comprimidos. O próximo ganho grande seria a função entregar a Home já com os
+  dados no HTML.
 - [ ] **Acessibilidade** (Técnico): os 11 links "sem texto" eram falso positivo da animação de revelação (todos têm texto depois de aparecer). O "contraste baixo" do título no tema claro do editor também era falso: o teste lia cores no formato `color(srgb …)` como se fossem 0–255; o contraste real é de cerca de 15:1 e o teste foi corrigido em 06/11. Falta revisar o foco do teclado.
 - [ ] **Frete** (Técnico, quando os donos decidirem): compra de etiqueta e
   rastreamento no Melhor Envio, que já cota fretes na produção; opção de

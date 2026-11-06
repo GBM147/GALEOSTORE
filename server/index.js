@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
 import { registerSeoRoutes } from './seo.js'
+import { cachePublicResponse, markStorefrontChanges } from './storefront-cache.js'
 import { captureConsoleErrors, createErrorLog, ERROR_EVENTS_DDL } from './error-log.js'
 import { createDataProtection } from './data-protection.js'
 import { createDatabasePrivacy } from './database-privacy.js'
@@ -272,6 +273,7 @@ app.use(session({
 }))
 
 app.use(validarCsrf)
+if (serverless) app.use(['/api/admin', '/api/integrations/distributor'], markStorefrontChanges)
 
 async function query(sql, params = [], executor = db) {
   const [rows] = await executor.execute(sql, params)
@@ -1355,7 +1357,7 @@ app.patch('/api/auth/password', exigirLogin, limitarAlteracaoSenha, async (req, 
   }
 })
 
-app.get('/api/store/products/:id', async (req,res) => {
+app.get('/api/store/products/:id', cachePublicResponse, async (req,res) => {
   const productId=Number(req.params.id)
   if(!Number.isInteger(productId)||productId<=0) return res.status(400).json({error:'Produto inválido.'})
   try {
@@ -1371,7 +1373,7 @@ app.get('/api/store/products/:id', async (req,res) => {
   }
 })
 
-app.get('/api/store/home', async (req, res) => {
+app.get('/api/store/home', cachePublicResponse, async (req, res) => {
   try {
     const rows = await query('SELECT section_key,section_type,published_sort_order AS sort_order,published_visible AS visible,published_content,published_at FROM home_sections WHERE published_visible=1 ORDER BY published_sort_order,id')
     res.json({ sections: rows.map((row) => ({ key: row.section_key, type: row.section_type, order: Number(row.sort_order), visible: Boolean(row.visible), content: typeof row.published_content === 'string' ? JSON.parse(row.published_content) : row.published_content, published_at: row.published_at })) })
@@ -1381,7 +1383,7 @@ app.get('/api/store/home', async (req, res) => {
   }
 })
 
-app.get('/api/store/home/settings', async (req, res) => {
+app.get('/api/store/home/settings', cachePublicResponse, async (req, res) => {
   try {
     const rows = await query('SELECT setting_key,setting_value FROM home_settings ORDER BY setting_key')
     res.json({ settings: rows.map((row) => ({ key: row.setting_key, value: typeof row.setting_value === 'string' ? JSON.parse(row.setting_value) : row.setting_value })) })
@@ -1394,7 +1396,7 @@ app.get('/api/store/categories', async (req, res) => {
   res.json(await query('SELECT id,name,sort_order FROM categories ORDER BY sort_order,id'))
 })
 
-app.get('/api/store', async (req, res) => {
+app.get('/api/store', cachePublicResponse, async (req, res) => {
   try {
     const [products, categories] = await Promise.all([
       query(`
