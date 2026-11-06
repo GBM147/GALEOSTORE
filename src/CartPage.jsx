@@ -164,7 +164,8 @@ export default function CartPage() {
   }
 
   async function startPayment(order) {
-    if (order.paymentConfigured) navigate('/pagamento/' + order.id, { replace:true })
+    // A full page load receives the payment page CSP nonce from the server.
+    if (order.paymentConfigured) window.location.replace('/pagamento/' + encodeURIComponent(order.id))
   }
 
   async function retryPayment() {

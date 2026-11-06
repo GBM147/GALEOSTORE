@@ -36,6 +36,14 @@
   status = 200
   force = true
 
+# The payment page receives a per-request CSP nonce for the Mercado Pago
+# device-profile collector; the shell is copied from the static index.html.
+[[redirects]]
+  from = "/pagamento/*"
+  to = "/.netlify/functions/api/pagamento/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -48,7 +56,7 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; base-uri 'self'; script-src 'self' https://sdk.mercadopago.com https://www.mercadopago.com https://www.mercadopago.com.br https://http2.mlstatic.com; style-src 'self' https: 'unsafe-inline'; font-src 'self' https: data:; img-src 'self' data: blob: https://res.cloudinary.com; media-src 'self' blob: https://res.cloudinary.com; connect-src 'self' https://api.cloudinary.com https://api.mercadopago.com https://api.mercadolibre.com https://secure-fields.mercadopago.com https://api-static.mercadopago.com https://events.mercadopago.com https://http2.mlstatic.com; frame-src https://sdk.mercadopago.com https://secure-fields.mercadopago.com https://www.mercadopago.com https://www.mercadopago.com.br https://http2.mlstatic.com; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+    Content-Security-Policy = "default-src 'self'; base-uri 'self'; script-src 'self' https://sdk.mercadopago.com https://www.mercadopago.com https://www.mercadopago.com.br https://http2.mlstatic.com; style-src 'self' https: 'unsafe-inline'; font-src 'self' https: data:; img-src 'self' data: blob: https://res.cloudinary.com https://www.mercadolibre.com https://www.mercadolivre.com https://www.mercadopago.com.br; media-src 'self' blob: https://res.cloudinary.com; connect-src 'self' https://api.cloudinary.com https://api.mercadopago.com https://api.mercadolibre.com https://www.mercadolibre.com https://www.mercadolivre.com https://www.mercadopago.com.br https://secure-fields.mercadopago.com https://api-static.mercadopago.com https://events.mercadopago.com https://http2.mlstatic.com; frame-src https://sdk.mercadopago.com https://secure-fields.mercadopago.com https://www.mercadopago.com https://www.mercadopago.com.br https://http2.mlstatic.com; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
 
 [[headers]]
   for = "/index.html"

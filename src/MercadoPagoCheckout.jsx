@@ -6,34 +6,20 @@ import './mercado-pago-checkout.css'
 
 const money = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const sdkUrl = 'https://sdk.mercadopago.com/js/v2'
-const deviceSdkUrl = 'https://www.mercadopago.com/v2/security.js'
 const states = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
 const emptyBuyerAddress = () => ({ postal_code: '', street: '', number: '', neighborhood: '', city: '', state: '', complement: '' })
 let sdkPromise
-let deviceScript
 
 function currentDeviceId() {
   const value = window.MP_DEVICE_SESSION_ID
   return typeof value === 'string' && /^[A-Za-z0-9_-]{6,256}$/.test(value) ? value : ''
 }
 
-function loadDeviceProfile() {
-  if (currentDeviceId() || deviceScript?.isConnected) return
-  // The official security script owns this identifier. Never manufacture a
-  // replacement when fingerprint collection is unavailable or still loading.
-  const existing = [...document.scripts].find(script => script.src === deviceSdkUrl)
-  if (existing) { deviceScript = existing; return }
-  const script = document.createElement('script')
-  script.src = deviceSdkUrl
-  script.async = true
-  script.defer = true
-  script.setAttribute('view', 'checkout')
-  script.onerror = () => {
-    script.remove()
-    if (deviceScript === script) deviceScript = null
-  }
-  deviceScript = script
-  document.head.append(script)
+// The payment page is served with a per-request CSP nonce on its scripts.
+// Browsers hide the attribute value, but the `nonce` property keeps it.
+function cspNonce() {
+  const value = document.querySelector('script[nonce]')?.nonce
+  return typeof value === 'string' && /^[A-Za-z0-9+/_-]{16,128}={0,2}$/.test(value) ? value : ''
 }
 
 function loadCardSdk() {
@@ -162,9 +148,10 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
       try {
         const MercadoPago = await loadCardSdk()
         if (disposed) return
-        // The official standalone security script owns device collection.
-        // Avoid a second SDK widget that needs an inline script under CSP.
-        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: false })
+        // The SDK collects the device profile and attaches its session to the
+        // card token. Its inline collector runs under CSP only with the nonce.
+        const nonce = cspNonce()
+        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: true, ...(nonce ? { deviceProfileCspNonce: nonce } : {}) })
         controller = mp.cardForm({
           amount: Number(order.total).toFixed(2),
           iframe: true,
@@ -298,10 +285,6 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
       if (data.payment.awaiting_confirmation) setUncertain(true)
     }
   }, [attemptKey])
-
-  useEffect(() => {
-    if (config?.available && snapshot && !terminal && !waiting) loadDeviceProfile()
-  }, [config?.available, snapshot, terminal, waiting])
 
   useEffect(() => {
     const current = ++lifecycle.current

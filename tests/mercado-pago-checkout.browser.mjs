@@ -15,7 +15,7 @@ const order = { id: 42, code: 'PED-LOCAL-42', total: 129.9, status: 'RECEIVED', 
 const configuration = { available: true, mode: 'test', public_key: 'PUBLIC-LOCAL-FIXTURE', methods: ['pix', 'credit_card', 'debit_card'] }
 const pixPayment = { provider_reference: 'ORDLOCAL42', status: 'PENDING', provider_status: 'action_required', method: 'pix', qr_code: '000201PIX-LOCAL-ONLY', qr_code_base64: 'iVBORw0KGgo=', expires_at: '2030-01-01T12:00:00Z' }
 
-async function fixture(t, { available = true, initialPayment = null, initialStatus = 'PENDING', sdk = true, deviceId, deviceScriptId, handle, width = 390, clock = false } = {}) {
+async function fixture(t, { available = true, initialPayment = null, initialStatus = 'PENDING', sdk = true, deviceId, nonce, handle, width = 390, clock = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 950 }, reducedMotion: 'reduce' })
   t.after(() => context.close())
   if (deviceId !== undefined) await context.addInitScript(value => { window.MP_DEVICE_SESSION_ID = value }, deviceId)
@@ -24,7 +24,7 @@ async function fixture(t, { available = true, initialPayment = null, initialStat
     window.MercadoPago = class {
       constructor(key, options) { this.key = key; this.options = options }
       cardForm(config) {
-        window.__mpSdkConfigurations.push({ key: this.key, advancedFraudPrevention: this.options.advancedFraudPrevention, iframe: config.iframe, amount: config.amount, fields: Object.keys(config.form), secureFieldStyles: ['cardNumber', 'expirationDate', 'securityCode'].map(field => config.form[field].style) })
+        window.__mpSdkConfigurations.push({ key: this.key, advancedFraudPrevention: this.options.advancedFraudPrevention, deviceProfileCspNonce: this.options.deviceProfileCspNonce, iframe: config.iframe, amount: config.amount, fields: Object.keys(config.form), secureFieldStyles: ['cardNumber', 'expirationDate', 'securityCode'].map(field => config.form[field].style) })
         for (const field of ['cardNumber', 'expirationDate', 'securityCode']) {
           const frame = document.createElement('iframe')
           frame.title = field
@@ -52,9 +52,15 @@ async function fixture(t, { available = true, initialPayment = null, initialStat
   page.on('pageerror', error => errors.push(error.message))
   t.after(() => assert.deepEqual(errors, []))
   await page.route('https://sdk.mercadopago.com/**', route => route.abort())
+  // The SDK owns device collection; a second standalone collector must not load.
   await page.route('https://www.mercadopago.com/v2/security.js', route => {
     deviceRequests.push(route.request().url())
-    return deviceScriptId === undefined ? route.abort() : route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.MP_DEVICE_SESSION_ID = ' + JSON.stringify(deviceScriptId) })
+    return route.abort()
+  })
+  // Simulates the Netlify payment shell, which adds a per-request nonce to scripts.
+  if (nonce) await page.route(origin + '/pagamento/42', async route => {
+    const response = await route.fetch()
+    return route.fulfill({ response, body: (await response.text()).replace(/<script\b/g, '<script nonce="' + nonce + '"') })
   })
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname, method = request.method()
@@ -127,13 +133,11 @@ test('falha HTTP ambígua retoma mesmo corpo e attempt_id, sem nova cobrança l�
   assert.deepEqual(paymentPosts(calls)[0].body, paymentPosts(calls)[1].body)
 })
 
-test('identificador real do script oficial é encaminhado sem entrar no armazenamento do navegador', async t => {
+test('identificador real do dispositivo é encaminhado sem entrar no armazenamento do navegador', async t => {
   const deviceId = 'LOCAL_PROVIDER_DEVICE_SESSION_42'
-  const { page, calls, deviceRequests } = await fixture(t, { deviceScriptId: deviceId })
-  await page.waitForFunction(value => window.MP_DEVICE_SESSION_ID === value, deviceId)
-  const script = await page.locator('script[src="https://www.mercadopago.com/v2/security.js"]').evaluate(element => ({ view: element.getAttribute('view'), async: element.async, defer: element.defer }))
-  assert.deepEqual(script, { view: 'checkout', async: true, defer: true })
-  assert.equal(deviceRequests.length, 1)
+  const { page, calls, deviceRequests } = await fixture(t, { deviceId })
+  assert.equal(await page.locator('script[src="https://www.mercadopago.com/v2/security.js"]').count(), 0)
+  assert.equal(deviceRequests.length, 0)
   await page.getByLabel('CPF do comprador').fill('12345678909')
   await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
   await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
@@ -141,6 +145,17 @@ test('identificador real do script oficial é encaminhado sem entrar no armazena
   const stored = await page.evaluate(() => [...Object.values(localStorage), ...Object.values(sessionStorage)].join(' '))
   assert.equal(stored.includes(deviceId), false)
   assert.equal(stored.includes('12345678909'), false)
+})
+
+test('coletor de dispositivo do SDK recebe o nonce da página de pagamento', async t => {
+  const nonce = 'TestNonceFromPaymentShell01'
+  const { page, deviceRequests } = await fixture(t, { nonce })
+  await page.getByRole('button', { name: 'Cartão', exact: true }).click()
+  await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).waitFor()
+  const configuration = await page.evaluate(() => window.__mpSdkConfigurations.at(-1))
+  assert.equal(configuration.advancedFraudPrevention, true)
+  assert.equal(configuration.deviceProfileCspNonce, nonce)
+  assert.equal(deviceRequests.length, 0)
 })
 
 test('identificador inválido não é encaminhado nem substituído por um valor inventado', async t => {
@@ -226,7 +241,8 @@ test('cartão monta três iframes e envia token e metadados sem dados brutos do 
   assert.equal(['card_number', 'security_code', 'expiration_month', 'expiration_year', 'amount', 'email', 'issuer_id'].some(key => Object.hasOwn(body, key)), false)
   const configuration = await page.evaluate(() => window.__mpSdkConfigurations.at(-1))
   assert.equal(configuration.iframe, true)
-  assert.equal(configuration.advancedFraudPrevention, false)
+  assert.equal(configuration.advancedFraudPrevention, true)
+  assert.equal(configuration.deviceProfileCspNonce, undefined)
   assert.equal(configuration.amount, '129.90')
   for (const field of ['issuer', 'installments', 'identificationType']) assert.ok(configuration.fields.includes(field))
   for (const style of configuration.secureFieldStyles) {

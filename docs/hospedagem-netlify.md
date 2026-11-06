@@ -84,6 +84,7 @@ Publicações enviadas pela API com arquivos já compilados precisam também
 incluir `dist/_redirects` e `dist/_headers` equivalentes ao TOML e o agendamento
 da função `maintenance` no manifesto. Nesse fluxo o Netlify não executa o
 processamento habitual de `netlify.toml` de um build por Git.
+O `_redirects` precisa manter a regra `/pagamento/*` para a função `api` antes da regra `/*`: ela entrega a página de pagamento com o nonce de CSP exigido pelo coletor de dispositivo do Mercado Pago.
 
 Não expor as credenciais de produção a deploy previews de branches não
 confiáveis. Previews com API precisam de banco e segredos próprios de testes;

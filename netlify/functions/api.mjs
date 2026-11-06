@@ -1,5 +1,6 @@
 import serverless from 'serverless-http'
-import { lambdaEvent, webResponse } from '../lib/http.mjs'
+import { apiPath, lambdaEvent, webResponse } from '../lib/http.mjs'
+import { isPaymentShellPath, paymentShellResponse } from '../lib/payment-shell.mjs'
 
 // This must precede the dynamic import: the classic server also supports npm start.
 process.env.GALEO_SERVERLESS = 'true'
@@ -13,6 +14,8 @@ const runtime = () => (runtimePromise ??= import('../../server/index.js').then(m
 }))
 
 export default async function apiRequest(request, context) {
+  // The payment page shell needs no database or Express runtime.
+  if (isPaymentShellPath(apiPath(new URL(request.url).pathname))) return paymentShellResponse(request)
   try {
     const api = await runtime()
     return await api.withRequestTasks(async () => {
