@@ -2,7 +2,7 @@ import { appendFile } from 'node:fs/promises'
 import { v2 as cloudinary } from 'cloudinary'
 
 if (process.env.NODE_ENV !== 'test' || process.env.DB_HOST !== '127.0.0.1' || process.env.DB_PORT !== '3307' ||
-    !/^galeo_store_test_home_[a-f0-9]{12}$/.test(process.env.DB_NAME || '') || !process.env.GALEO_TEST_MEDIA_NETWORK_GUARD) {
+    !/^galeo_store_test_home_[a-f0-9]{12}_test$/.test(process.env.DB_NAME || '') || !process.env.GALEO_TEST_MEDIA_NETWORK_GUARD) {
   throw new Error('The Home workflow network guard requires a generated disposable local MySQL fixture.')
 }
 async function refused(operation) {

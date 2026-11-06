@@ -54,57 +54,6 @@ function RouteScroll() {
   return null
 }
 
-function KeepAliveSocket() {
-  useEffect(() => {
-    if (import.meta.env.VITE_RENDER_KEEPALIVE === 'false') return
-    let socket = null
-    let timer = null
-    let reconnectTimer = null
-    let stopped = false
-    let retry = 1000
-
-    const connect = () => {
-      if (stopped) return
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(protocol + '//' + window.location.host + '/ws')
-
-      socket.addEventListener('open', () => {
-        retry = 1000
-        try { socket.send(JSON.stringify({ type: 'keepalive', at: Date.now() })) } catch {}
-        timer = window.setInterval(() => {
-          if (socket?.readyState === WebSocket.OPEN) {
-            try { socket.send(JSON.stringify({ type: 'keepalive', at: Date.now() })) } catch {}
-          }
-        }, 60 * 1000)
-      })
-
-      socket.addEventListener('close', () => {
-        if (timer) window.clearInterval(timer)
-        timer = null
-        if (stopped) return
-        window.clearTimeout(reconnectTimer)
-        reconnectTimer = window.setTimeout(connect, retry)
-        retry = Math.min(retry * 2, 30 * 1000)
-      })
-
-      socket.addEventListener('error', () => {
-        try { socket?.close() } catch {}
-      })
-    }
-
-    connect()
-
-    return () => {
-      stopped = true
-      if (timer) window.clearInterval(timer)
-      window.clearTimeout(reconnectTimer)
-      try { socket?.close() } catch {}
-    }
-  }, [])
-
-  return null
-}
-
 const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(value))
   ? Math.min(max, Math.max(min, Number(value))) : fallback
 
@@ -277,7 +226,7 @@ function Header({ theme, onToggle, categories = [], navigation = null, cartItems
     <header className="site-header" onKeyDown={handleSearchKeyDown}>
       <Link className="brand" to="/" aria-label="Galeo Store" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>
         <span className="brand-logo-wrap">
-          <img className="brand-logo" src="/images/galeo-brand.webp" alt="GALEO" />
+          <img className="brand-logo" src="/images/galeo-logo-128.webp" width="128" height="128" alt="GALEO" />
         </span>
         <span className="brand-wordmark">GALEO</span>
       </Link>
@@ -440,6 +389,28 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
 function StorefrontMotionGate(props) {
   const editor = useVisualEditor()
   return editor?.editing ? null : <StorefrontMotion {...props} />
+}
+
+// Unknown addresses used to render an empty page. The SPA cannot send HTTP 404,
+// so the page asks search engines not to index it.
+function NotFound() {
+  useEffect(() => {
+    const previous = document.title
+    const robots = document.createElement('meta')
+    robots.name = 'robots'
+    robots.content = 'noindex'
+    document.head.append(robots)
+    document.title = 'Página não encontrada — Galeo Store'
+    return () => { robots.remove(); document.title = previous }
+  }, [])
+  return <main className="section-shell page-space not-found-page">
+    <h1>Página não encontrada</h1>
+    <p>Este endereço não existe ou mudou de lugar.</p>
+    <div className="not-found-actions">
+      <Link className="button button-primary" to="/shop">Ver catálogo ↗</Link>
+      <Link className="text-link" to="/">Voltar ao início</Link>
+    </div>
+  </main>
 }
 
 function StoreFooter({ footer }) {
@@ -819,7 +790,6 @@ export default function App() {
         </div>
       )}
 
-      <KeepAliveSocket />
       {!adminRoute && (!needsHome || homeReady) && <StorefrontMotionGate homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
       {!adminRoute && <Header
         theme={theme}
@@ -837,6 +807,7 @@ export default function App() {
         <Route path="/newsletter" element={<NewsletterConfirmation />} />
         <Route path="/carrinho" element={<CartPage />} />
         <Route path="/pagamento/:orderId" element={<MercadoPagoCheckout />} />
+        <Route path="*" element={<NotFound />} />
       </Routes></Suspense>
       {!adminRoute && <StoreFooter footer={siteSettings.footer} />}
     </div>

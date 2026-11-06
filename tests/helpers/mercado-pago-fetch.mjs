@@ -46,11 +46,19 @@ globalThis.fetch = async (input, options = {}) => {
     // real quality evaluation. No external request leaves this fixture.
     const payment = body?.transactions?.payments?.[0]
     const card = payment?.payment_method?.type !== 'bank_transfer'
+    // Real Orders API (06/11/2026): a nested additional_info.payer object is
+    // rejected (unsupported_properties); buyer fields use flat "payer.*" keys and
+    // payer.authentication_type accepts only MOBILE or WEB.
+    const additional = body?.additional_info
+    const additionalValid = additional === undefined || (Boolean(additional) && typeof additional === 'object' && !Array.isArray(additional) &&
+      !Object.hasOwn(additional, 'payer') && Object.keys(additional).every(key => /^payer\.[a-z_]+$/.test(key)) &&
+      [undefined, 'MOBILE', 'WEB'].includes(additional['payer.authentication_type']))
     const valid = body?.type === 'online' && body?.processing_mode === 'automatic' &&
-      body.capture_mode === 'automatic' &&
+      body.capture_mode === 'automatic_async' && additionalValid &&
       Object.keys(body).every(key => ['type', 'processing_mode', 'capture_mode', 'total_amount', 'external_reference', 'payer', 'transactions', 'config', 'items', 'additional_info'].includes(key)) &&
       typeof body?.payer?.email === 'string' && typeof body.payer.first_name === 'string' &&
-      body.config?.statement_descriptor === 'GALEO' &&
+      // statement_descriptor belongs to the card payment method; Pix sends no config.
+      (card ? payment?.payment_method?.statement_descriptor === 'GALEO' : body.config === undefined) &&
       Array.isArray(body.items) && body.items.length > 0 && body.items.every(item =>
         Number.isSafeInteger(item.quantity) && item.quantity > 0 && /^\d+\.\d{2}$/.test(item.unit_price) &&
         typeof item.unit_price === 'string' && typeof item.title === 'string' &&

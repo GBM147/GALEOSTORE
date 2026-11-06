@@ -38,7 +38,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
-import { WebSocketServer } from 'ws'
 import { mercadoPagoOnlineConfigured, mercadoPagoPointConfigured, createMercadoPagoPointOrder, getMercadoPagoOrder, getMercadoPagoWebhookSecret, mapMercadoPagoOrderStatus, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
 import { registerOnlinePayments } from './online-payments.js'
 import { createPaymentReservationExpiry } from './payment-reservations.js'
@@ -51,7 +50,7 @@ import {
 const serverDirectory = path.dirname(fileURLToPath(import.meta.url))
 export const app = express()
 const serverless = process.env.GALEO_SERVERLESS === 'true'
-let httpServer, wss, websocketHeartbeat
+let httpServer
 const scheduledJobs = []
 const backgroundTasks = createBackgroundTasks({ onError: error => console.error('Tarefa em segundo plano:', error?.code || 'BACKGROUND_TASK_FAILED') })
 export const withRequestTasks = backgroundTasks.run
@@ -60,27 +59,6 @@ const deferBackgroundPromise = backgroundTasks.defer
 
 function startPersistentServices() {
   httpServer = createServer(app)
-  wss = new WebSocketServer({ server: httpServer, path: '/ws' })
-  wss.on('connection', (socket) => {
-    socket.isAlive = true
-    socket.on('pong', () => { socket.isAlive = true })
-    socket.on('message', (message) => {
-      socket.isAlive = true
-      try {
-        const payload = JSON.parse(String(message || '{}'))
-        if (payload?.type === 'keepalive') socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() }))
-      } catch { socket.send(JSON.stringify({ type:'keepalive_ack', at:Date.now() })) }
-    })
-    socket.on('error', () => {})
-  })
-  websocketHeartbeat = setInterval(() => {
-    wss.clients.forEach((socket) => {
-      if (socket.isAlive === false) return socket.terminate()
-      socket.isAlive = false
-      socket.ping()
-    })
-  }, 30000)
-  wss.on('close', () => clearInterval(websocketHeartbeat))
   scheduledJobs.push(cron.schedule('15 * * * *', () => auditRetention.run(), { timezone: 'America/Sao_Paulo' }))
 }
 
@@ -2841,12 +2819,6 @@ export async function runMaintenance() {
 export async function closeRuntime() {
   auditRetention.close()
   for (const job of scheduledJobs.splice(0)) { job.stop(); job.destroy() }
-  clearInterval(websocketHeartbeat)
-  if (wss) {
-    for (const socket of wss.clients) socket.terminate()
-    await new Promise(resolve => wss.close(resolve))
-    wss = undefined
-  }
   if (httpServer?.listening) await new Promise((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()))
   httpServer = undefined
   await drainBackgroundTasks()
@@ -2889,7 +2861,6 @@ export async function startServer() {
     httpServer.listen(PORT, () => {
       httpServer.off('error', reject)
       console.log(`GALEO API running on port ${PORT}`)
-      console.log('GALEO WebSocket keepalive ativo em /ws')
       resolve()
     })
   })

@@ -36,7 +36,7 @@ Uma venda aprovada baixa o estoque e cria automaticamente a receita corresponden
 ## Mídia de produtos
 Os administradores podem cadastrar URLs de mídia ou selecionar fotos e vídeos diretamente no computador. Os arquivos enviados são armazenados externamente e apenas os metadados/URLs ficam no MySQL.
 
-Para ativar upload de arquivos, configure no Render:
+Para ativar upload de arquivos, configure nas variáveis do Netlify:
 - CLOUDINARY_CLOUD_NAME
 - CLOUDINARY_API_KEY
 - CLOUDINARY_API_SECRET

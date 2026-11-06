@@ -9,11 +9,12 @@ import mysql from 'mysql2/promise'
 import bcrypt from 'bcrypt'
 
 const projectDirectory = fileURLToPath(new URL('../..', import.meta.url))
-const fixtureName = name => /^galeo_store_test_home_[a-f0-9]{12}$/.test(name)
+const fixtureName = name => /^galeo_store_test_home_[a-f0-9]{12}_test$/.test(name)
 
 export class HomeWorkflowRuntime {
   suffix = randomBytes(6).toString('hex')
-  database = 'galeo_store_test_home_' + this.suffix
+  // Mercado Pago test mode accepts only database names ending in _test.
+  database = 'galeo_store_test_home_' + this.suffix + '_test'
   password = 'Local-home-' + randomBytes(12).toString('hex')
   cookie = ''
   csrfToken = ''

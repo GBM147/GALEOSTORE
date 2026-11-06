@@ -15,7 +15,9 @@ const removedTables = [
 const preservedTables = [
   'admin_users', 'audit_logs', 'categories', 'financial_accounts',
   'financial_categories', 'home_sections', 'home_settings', 'home_versions',
-  'media_assets', 'media_library_preferences', 'sessions', 'rate_limit_counters'
+  'media_assets', 'media_library_preferences', 'sessions', 'rate_limit_counters',
+  // Melhor Envio OAuth connection: configuration, never operational data.
+  'shipping_integrations'
 ]
 const plainRows = rows => rows.map(row => Object.fromEntries(Object.entries(row).map(([field, value]) => [field, Buffer.isBuffer(value) ? value.toString('hex') : value])))
 const parseJson = value => typeof value === 'string' ? JSON.parse(value) : value
@@ -50,7 +52,7 @@ async function structure(runtime) {
 async function preservedContent(runtime) {
   const result = {}
   for (const table of preservedTables.filter(name => !['audit_logs', 'sessions'].includes(name))) {
-    const order = table === 'home_settings' ? 'setting_key' : table === 'rate_limit_counters' ? 'bucket_key' : 'id'
+    const order = table === 'home_settings' ? 'setting_key' : table === 'rate_limit_counters' ? 'bucket_key' : table === 'shipping_integrations' ? 'provider' : 'id'
     result[table] = plainRows(await runtime.query('SELECT * FROM `' + table + '` ORDER BY ' + order))
   }
   return result
@@ -143,7 +145,7 @@ test('startup recovers the 15 dropped operational tables and removes stale ident
     const ownerSessionBefore = (await runtime.query('SELECT * FROM sessions WHERE session_id=?', [sessionIds.owner]))[0]
     const mixedSessionBefore = (await runtime.query('SELECT * FROM sessions WHERE session_id=?', [sessionIds.mixed]))[0]
 
-    await t.test('the reproduction leaves exactly twelve preserved tables without disabling foreign key checks', async () => {
+    await t.test('the reproduction leaves exactly the thirteen preserved tables without disabling foreign key checks', async () => {
       for (const table of removedTables) await runtime.query('DROP TABLE `' + table + '`')
       assert.deepEqual(await tables(runtime), [...preservedTables].sort())
       assert.equal((await runtime.query('SELECT @@FOREIGN_KEY_CHECKS AS enabled'))[0].enabled, 1)
@@ -237,7 +239,7 @@ test('an interrupted schema recovery reserves identifiers at CREATE time and a l
   let alterRevoked = false
   const restoreAlterPermission = async () => {
     if (!alterRevoked) return
-    assert.match(runtime.database, /^galeo_store_test_home_[a-f0-9]{12}$/)
+    assert.match(runtime.database, /^galeo_store_test_home_[a-f0-9]{12}_test$/)
     await runtime.adminDb.query('GRANT ALTER ON `' + runtime.database + '`.* TO ?@?', [process.env.DB_USER, '%'])
     alterRevoked = false
   }
@@ -252,7 +254,7 @@ test('an interrupted schema recovery reserves identifiers at CREATE time and a l
     // Change privileges only on this generated fixture, never the shared
     // application database. CREATE remains allowed; the first subsequent
     // ALTER fails, reproducing a process that stops after structural creation.
-    assert.match(runtime.database, /^galeo_store_test_home_[a-f0-9]{12}$/)
+    assert.match(runtime.database, /^galeo_store_test_home_[a-f0-9]{12}_test$/)
     await runtime.adminDb.query('REVOKE ALTER ON `' + runtime.database + '`.* FROM ?@?', [process.env.DB_USER, '%'])
     alterRevoked = true
     await assert.rejects(runtime.startApi(), /stopped before startup/)

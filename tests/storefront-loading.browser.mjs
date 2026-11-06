@@ -153,3 +153,28 @@ test('header catalog navigation resets scroll even when only its query string ch
   assert.equal(await page.locator('.product-card').count(), 24)
   assert.ok(await page.evaluate(() => window.scrollY) < 5)
 })
+
+test('endereço inexistente mostra página não encontrada, sem indexação e com caminho de volta', async t => {
+  const { page } = await fixture(t, { width: 390 })
+  await page.goto(baseUrl + '/pagina-que-nao-existe')
+  await page.getByRole('heading', { name: 'Página não encontrada', exact: true }).waitFor()
+  assert.equal(await page.getByRole('link', { name: 'Ver catálogo ↗', exact: true }).getAttribute('href'), '/shop')
+  assert.equal(await page.getByRole('link', { name: 'Voltar ao início', exact: true }).getAttribute('href'), '/')
+  assert.equal(await page.locator('meta[name="robots"][content="noindex"]').count(), 1)
+  assert.equal(await page.title(), 'Página não encontrada — Galeo Store')
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
+  await page.getByRole('link', { name: 'Ver catálogo ↗', exact: true }).click()
+  await page.waitForURL('**/shop')
+  await page.locator('.product-card').first().waitFor()
+  assert.equal(await page.locator('meta[name="robots"][content="noindex"]').count(), 0)
+  assert.notEqual(await page.title(), 'Página não encontrada — Galeo Store')
+})
+
+test('a logo do cabeçalho usa a versão leve de 128 px', async t => {
+  const { page } = await fixture(t)
+  await page.goto(baseUrl + '/shop')
+  const logo = page.locator('img.brand-logo')
+  await logo.waitFor()
+  assert.equal(await logo.getAttribute('src'), '/images/galeo-logo-128.webp')
+  assert.equal(await logo.evaluate(image => image.naturalWidth), 128)
+})

@@ -7,7 +7,6 @@
   NODE_VERSION = "24"
   NPM_CONFIG_INCLUDE = "dev"
   VITE_DIRECT_UPLOADS = "true"
-  VITE_RENDER_KEEPALIVE = "false"
   VITE_STORE_API_URL = ""
 
 [functions]

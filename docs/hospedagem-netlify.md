@@ -80,6 +80,17 @@ depender do serviço Go no Render. Novas variáveis de Functions devem ser
 cadastradas pela interface/API do Netlify, pois os valores de
 `[build.environment]` não são a configuração dos segredos em execução.
 
+Para publicar pela API, use o script do repositório. Ele compila com as
+variáveis de `[build.environment]`, gera `dist/_redirects` e `dist/_headers` a
+partir do `netlify.toml`, empacota as funções com o agendamento da manutenção e
+envia tudo pela API. `--noindex` acrescenta `X-Robots-Tag` para a homologação, e
+`--dry-run` prepara sem enviar. Cada publicação em produção gasta 15 créditos.
+
+```sh
+NETLIFY_AUTH_TOKEN=... npm run deploy:netlify -- --site 832678f0-b9a7-4b99-b8f7-fad63cb55245 --noindex --message "homologação"
+NETLIFY_AUTH_TOKEN=... npm run deploy:netlify -- --site 1987b91f-dacd-4665-bda8-89d899b7b51b --message "produção"
+```
+
 Publicações enviadas pela API com arquivos já compilados precisam também
 incluir `dist/_redirects` e `dist/_headers` equivalentes ao TOML e o agendamento
 da função `maintenance` no manifesto. Nesse fluxo o Netlify não executa o
