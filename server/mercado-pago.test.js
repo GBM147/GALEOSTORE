@@ -192,7 +192,7 @@ test('Pix uses the official SDK and sends item quantities, decimal prices and th
   const body = JSON.parse(post.options.body)
   assert.equal(body.type, 'online')
   assert.equal(body.processing_mode, 'automatic')
-  assert.equal(body.capture_mode, 'automatic')
+  assert.equal(body.capture_mode, 'automatic_async')
   assert.equal(body.total_amount, '121.35')
   assert.deepEqual(body.payer, { email: order.customer_email })
   assert.deepEqual(body.transactions.payments, [{ amount: '121.35', expiration_time: 'PT30M', payment_method: { id: 'pix', type: 'bank_transfer' } }])
@@ -211,7 +211,7 @@ test('card payments send validated identification and the documented capture, st
   await createMercadoPagoOnlineOrder({ order, items, payment: { ...payment, issuer_id: 'ignored', installments: 1 }, idempotencyKey: randomUUID() })
   const body = JSON.parse(calls.find(call => call.options.method === 'POST').options.body)
   assert.deepEqual(body.transactions.payments[0].payment_method, { id: 'visa', type: 'credit_card', token: payment.token, installments: 1, statement_descriptor: 'GALEO' })
-  assert.equal(body.capture_mode, 'automatic')
+  assert.equal(body.capture_mode, 'automatic_async')
   assert.deepEqual(body.payer, { email: order.customer_email, identification: { type: 'CPF', number: '12345678909' } })
   assert.deepEqual(body.config, { online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } })
   assert.equal(JSON.stringify(body).includes('issuer_id'), false)
@@ -223,7 +223,7 @@ test('authenticated buyer metadata and explicit checkout-address choice reach Or
   const buyerContext = { id: 9, name: '  Ana Maria Silva  ', email: 'account@example.invalid', phone: '+55 (11) 98765-4321',
     registered_at_ms: registered, previous_purchases: 1, last_purchase_at_ms: lastPurchase, authentication_type: 'password',
     address_source: 'checkout_delivery', checkout_address: { postal_code: '01001-000', street: 'Rua da entrega', number: '17 A', city: 'São Paulo', state: 'sp', neighborhood: 'Centro', complement: 'Sala 2' } }
-  const deviceId = 'sdk-device-local-' + randomUUID()
+  const deviceId = 'armor.' + randomUUID().replace(/-/g, '') + '.local'
   const payment = { ...card(), device_id: deviceId, use_shipping_address: true, email: 'forged@example.invalid',
     payer: { first_name: 'Forged', address: { city: 'Forged' } }, items: [{ quantity: 99, unit_price: '0.01' }] }
   const previous = structuredClone({ order, items, buyerContext, payment })
@@ -265,7 +265,7 @@ test('unsafe device identifiers and invalid explicit buyer addresses fail before
   const address = { zip_code: '01001000', state: 'SP', street_name: 'Rua local', street_number: '1', city: 'São Paulo' }
   for (const payment of [
     { ...card(), device_id: '' }, { ...card(), device_id: 'short' }, { ...card(), device_id: 'device\r\nAuthorization: secret' },
-    { ...card(), device_id: 'x'.repeat(257) }, { ...card(), use_shipping_address: 'true' },
+    { ...card(), device_id: 'x'.repeat(513) }, { ...card(), device_id: 'armor.ok/../x' }, { ...card(), use_shipping_address: 'true' },
     { ...card(), use_shipping_address: false }, { ...card(), use_shipping_address: false, billing_address: { ...address, zip_code: '012' } },
     { ...card(), use_shipping_address: false, billing_address: { ...address, state: 'BRA' } },
     { ...card(), use_shipping_address: false, billing_address: { ...address, street_name: 'Rua\u0000privada' } }

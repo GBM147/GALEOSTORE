@@ -891,7 +891,7 @@ test('cartão tokenizado usa valor e comprador do pedido, com aprovação persis
   assert.deepEqual(creation.body.config, { online: {
     transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } })
   assert.equal(creation.body.transactions.payments[0].payment_method.statement_descriptor, 'GALEO')
-  assert.equal(creation.body.capture_mode, 'automatic')
+  assert.equal(creation.body.capture_mode, 'automatic_async')
   assert.deepEqual(creation.body.items, [{ external_code: 'galeo-' + fixture.productId,
     title: 'Teste MP ' + suffix + '-' + (fixtures.products.length - 1), quantity: 2, unit_price: '20.00', category_id: 'fashion' }])
   assert.equal(creation.body.additional_info['payer.authentication_type'], 'WEB')

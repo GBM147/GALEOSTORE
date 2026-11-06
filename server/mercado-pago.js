@@ -301,7 +301,8 @@ export function normalizeMercadoPagoPayment(input) {
   const extra = {}
   if (input.device_id != null) {
     const deviceId = text(input.device_id)
-    if (!/^[A-Za-z0-9_-]{6,256}$/.test(deviceId)) throw invalid('Não foi possível identificar o dispositivo do pagamento.')
+    // Official device session IDs contain dots ("armor.<hash>.<hash>").
+    if (!/^[A-Za-z0-9._-]{6,512}$/.test(deviceId)) throw invalid('Não foi possível identificar o dispositivo do pagamento.')
     extra.device_id = deviceId
   }
   if (input.use_shipping_address != null) {
@@ -413,7 +414,8 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
     : { id: selection.payment_method_id, type: selection.method, token: selection.token, installments: 1, statement_descriptor: 'GALEO' }
   const additional = buyerSupplement(buyerContext)
   const payload = {
-    type: 'online', processing_mode: 'automatic', capture_mode: 'automatic', total_amount: (total / 100).toFixed(2), external_reference: reference,
+    // automatic_async is the Orders default; the quality check accepts it and manual.
+    type: 'online', processing_mode: 'automatic', capture_mode: 'automatic_async', total_amount: (total / 100).toFixed(2), external_reference: reference,
     // The Orders schema keeps statement_descriptor on the card payment method.
     payer, items: providerItems, ...(selection.method === 'pix' ? {} : { config: {
       online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }),

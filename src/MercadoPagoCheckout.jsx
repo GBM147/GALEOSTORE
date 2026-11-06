@@ -6,13 +6,16 @@ import './mercado-pago-checkout.css'
 
 const money = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const sdkUrl = 'https://sdk.mercadopago.com/js/v2'
+const deviceSdkUrl = 'https://www.mercadopago.com/v2/security.js'
 const states = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
 const emptyBuyerAddress = () => ({ postal_code: '', street: '', number: '', neighborhood: '', city: '', state: '', complement: '' })
 let sdkPromise
+let deviceScript
 
+// The official collector's session IDs contain dots (e.g. "armor.<hash>.<hash>").
 function currentDeviceId() {
   const value = window.MP_DEVICE_SESSION_ID
-  return typeof value === 'string' && /^[A-Za-z0-9_-]{6,256}$/.test(value) ? value : ''
+  return typeof value === 'string' && /^[A-Za-z0-9._-]{6,512}$/.test(value) ? value : ''
 }
 
 // The payment page is served with a per-request CSP nonce on its scripts.
@@ -20,6 +23,28 @@ function currentDeviceId() {
 function cspNonce() {
   const value = document.querySelector('script[nonce]')?.nonce
   return typeof value === 'string' && /^[A-Za-z0-9+/_-]{16,128}={0,2}$/.test(value) ? value : ''
+}
+
+// Mercado Pago's official device collector sets MP_DEVICE_SESSION_ID, which the
+// server sends as X-Meli-Session-Id. It injects an inline script, so it runs
+// under CSP only with the payment page nonce. Never invent a replacement ID.
+function loadDeviceProfile() {
+  if (currentDeviceId() || deviceScript?.isConnected) return
+  const existing = [...document.scripts].find(script => script.src === deviceSdkUrl)
+  if (existing) { deviceScript = existing; return }
+  const script = document.createElement('script')
+  const nonce = cspNonce()
+  if (nonce) script.nonce = nonce
+  script.src = deviceSdkUrl
+  script.async = true
+  script.defer = true
+  script.setAttribute('view', 'checkout')
+  script.onerror = () => {
+    script.remove()
+    if (deviceScript === script) deviceScript = null
+  }
+  deviceScript = script
+  document.head.append(script)
 }
 
 function loadCardSdk() {
@@ -148,10 +173,9 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
       try {
         const MercadoPago = await loadCardSdk()
         if (disposed) return
-        // The SDK collects the device profile and attaches its session to the
-        // card token. Its inline collector runs under CSP only with the nonce.
-        const nonce = cspNonce()
-        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: true, ...(nonce ? { deviceProfileCspNonce: nonce } : {}) })
+        // The standalone security.js owns device collection (one session, sent
+        // as X-Meli-Session-Id); the SDK's own collector would add a second one.
+        const mp = new MercadoPago(publicKey, { locale: 'pt-BR', advancedFraudPrevention: false })
         controller = mp.cardForm({
           amount: Number(order.total).toFixed(2),
           iframe: true,
@@ -285,6 +309,10 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
       if (data.payment.awaiting_confirmation) setUncertain(true)
     }
   }, [attemptKey])
+
+  useEffect(() => {
+    if (config?.available && snapshot && !terminal && !waiting) loadDeviceProfile()
+  }, [config?.available, snapshot, terminal, waiting])
 
   useEffect(() => {
     const current = ++lifecycle.current
