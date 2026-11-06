@@ -190,8 +190,12 @@ test('stock stays in products, old history links resolve there and the stock dia
   await search.fill('camiseta')
   const option = page.getByRole('option', { name:/Camiséta pesquisável/ })
   await option.waitFor()
-  const bounds = await option.boundingBox()
-  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 391, 'product search must remain usable on mobile')
+  // The list is repositioned after the viewport change; measure once it settles.
+  const fits = await page.waitForFunction(element => {
+    const box = element.getBoundingClientRect()
+    return box.width > 0 && box.left >= 0 && box.right <= 391
+  }, await option.elementHandle(), { timeout: 3000 }).then(() => true, () => false)
+  assert.ok(fits, 'product search must remain usable on mobile')
   assert.deepEqual(dataCalls(calls), ['/api/admin/products'])
   assert.equal(calls.some(call => call.path === '/api/admin/stock/movements'), false)
 })
