@@ -54,10 +54,10 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
 - [x] **Testes automáticos no GitHub** (Técnico, 06/11): `.github/workflows/ci.yml`
   roda verificação de sintaxe, unitários, build, integração com MySQL descartável e
   navegador a cada envio para `main`, `fix/**`, `feature/**` e em pull requests.
-  Quatro testes que já falhavam antes de 06/11 rodam como pendentes (`todo`): o
-  teste 37 de produtos (reescrever para o fluxo Orders), os 2 de contraste do
-  título da Home no tema claro e o de usuário restrito da limpeza (permissões do
-  MySQL). A suíte de privacidade, que exige um segundo MySQL com criptografia,
+  Dois testes que já falhavam antes de 06/11 rodam como pendentes (`todo`): o
+  teste 37 de produtos (reescrever para o fluxo Orders) e o de usuário restrito
+  da limpeza (permissões do MySQL). Os 2 de contraste do tema claro foram
+  corrigidos: o erro estava na leitura de cor do próprio teste. A suíte de privacidade, que exige um segundo MySQL com criptografia,
   ainda não roda no CI.
 - [ ] **Proteção de dados em produção** (Donos + Técnico): ativar a criptografia
   extra dos dados pessoais e limpar os dados de teste. Dependem de acesso válido
@@ -95,7 +95,7 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   poderiam piscar; separar o editor visual dos donos rende só cerca de 6 KB
   comprimidos. A primeira carga depois de um tempo parado pode levar mais de 10 s
   pelo início a frio da função.
-- [ ] **Acessibilidade** (Técnico): os 11 links "sem texto" eram falso positivo da animação de revelação (todos têm texto depois de aparecer). Falta corrigir o contraste do título da Home no tema claro do editor (2 testes falham desde antes) e revisar o foco do teclado.
+- [ ] **Acessibilidade** (Técnico): os 11 links "sem texto" eram falso positivo da animação de revelação (todos têm texto depois de aparecer). O "contraste baixo" do título no tema claro do editor também era falso: o teste lia cores no formato `color(srgb …)` como se fossem 0–255; o contraste real é de cerca de 15:1 e o teste foi corrigido em 06/11. Falta revisar o foco do teclado.
 - [ ] **Frete** (Técnico, quando os donos decidirem): compra de etiqueta e
   rastreamento no Melhor Envio, que já cota fretes na produção; opção de
   retirada na loja.

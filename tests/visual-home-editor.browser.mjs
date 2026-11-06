@@ -108,8 +108,7 @@ const saves = calls => calls.filter(call => call.method === 'PUT')
 const publications = calls => calls.filter(call => call.path === '/api/admin/home/publish')
 
 for (const width of [1366, 390]) for (const theme of ['dark', 'light']) {
-  // Light-mode contrast was already failing before 06/11/2026 (docs/plano-de-melhorias.md).
-  test(`the active Hero text remains readable and unclipped at ${width}px in ${theme} mode`, { todo: theme === 'light' ? 'Contraste do título da Home no tema claro do editor.' : false }, async t => {
+  test(`the active Hero text remains readable and unclipped at ${width}px in ${theme} mode`, async t => {
     const { page, calls } = await fixture(t, { width, navigate:editorUrl + '&theme=' + theme })
     await page.setViewportSize({ width, height:width === 390 ? 844 : 768 })
     await toolbar(page).waitFor()
@@ -125,11 +124,12 @@ for (const width of [1366, 390]) for (const theme of ['dark', 'light']) {
     const geometry = await input.evaluate(element => {
       const css = getComputedStyle(element), rect = element.getBoundingClientRect()
       const hero = document.querySelector('.hero-full').getBoundingClientRect()
+      // Browsers report mixed colors as color(srgb r g b) with 0–1 channels and
+      // plain colors as rgb()/rgba() with 0–255 channels.
       const luminance = color => {
-        const rgb = color.match(/[\d.]+/g).slice(0, 3).map(value => {
-          const normalized = Number(value) / 255
-          return normalized <= .04045 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4
-        })
+        const srgb = color.match(/^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/)
+        const channels = srgb ? srgb.slice(1, 4).map(Number) : color.match(/[\d.]+/g).slice(0, 3).map(value => Number(value) / 255)
+        const rgb = channels.map(normalized => normalized <= .04045 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4)
         return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722
       }
       const foreground = luminance(css.color), background = luminance(css.backgroundColor)
