@@ -66,6 +66,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The Netlify runtime suite loads the real function bundle.
+      - name: Pacote das funções do Netlify
+        run: npm run bundle:netlify
+
       - name: Permissões do MySQL de teste
         run: |
           mysql -h 127.0.0.1 -P 3307 -uroot -pci-root-only <<'SQL'
