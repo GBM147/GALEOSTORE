@@ -54,10 +54,11 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
 - [x] **Testes automáticos no GitHub** (Técnico, 06/11): `.github/workflows/ci.yml`
   roda verificação de sintaxe, unitários, build, integração com MySQL descartável e
   navegador a cada envio para `main`, `fix/**`, `feature/**` e em pull requests.
-  Dois testes que já falhavam antes de 06/11 rodam como pendentes (`todo`): o
-  teste 37 de produtos (reescrever para o fluxo Orders) e o de usuário restrito
-  da limpeza (permissões do MySQL). Os 2 de contraste do tema claro foram
-  corrigidos: o erro estava na leitura de cor do próprio teste. A suíte de privacidade, que exige um segundo MySQL com criptografia,
+  Um teste que já falhava antes de 06/11 roda como pendente (`todo`): o de
+  usuário restrito da limpeza, que depende de permissões do MySQL. O teste 37 de
+  produtos foi reescrito para o fluxo Orders (pedido com tamanho, Pix criado pela
+  rota da loja, aprovação e dois estornos pelo webhook) e os 2 de contraste do
+  tema claro foram corrigidos: o erro estava na leitura de cor do próprio teste. A suíte de privacidade, que exige um segundo MySQL com criptografia,
   ainda não roda no CI.
 - [ ] **Proteção de dados em produção** (Donos + Técnico): ativar a criptografia
   extra dos dados pessoais e limpar os dados de teste. Dependem de acesso válido

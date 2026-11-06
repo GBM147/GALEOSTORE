@@ -1,6 +1,6 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import { HomeWorkflowRuntime } from './helpers/home-workflow-runtime.mjs'
 import { ensureProductVariantSchema } from '../server/product-variants.js'
 
@@ -268,37 +268,66 @@ test('the explicit size migration is idempotent and does not modify business dat
   assert.deepEqual(await snapshot(p.id),before)
 })
 
-// Pending since the Orders flow (04/11/2026): a webhook now needs a bound payment attempt.
-test('approved online payments preserve size snapshots and repeated refunds restore only the purchased size',{ todo:'Reescrever para o fluxo Orders: o webhook exige uma tentativa de pagamento vinculada (docs/plano-de-melhorias.md).' },async()=>{
+test('approved online payments preserve size snapshots and repeated refunds restore only the purchased size',async()=>{
   const p=await product([{size:'M',stock:2},{size:'G',stock:5}])
   const created=await order([item(p,'M')]);assert.equal(created.status,200,created.data.error)
   const code=created.data.order.code,orderId=created.data.order.id,providerId='sizes-provider-'+runtime.suffix
-  const secret=randomBytes(32).toString('hex'),origin='https://galeo-variants-fixture.netlify.app'
-  const overrides={NODE_ENV:'production',GALEO_SERVERLESS:'true',DB_NAME:runtime.database,DB_SSL:'false',APP_URL:origin,ALLOWED_ORIGINS:origin,DATA_ENCRYPTION_ENABLED:'false',DATA_ENCRYPTION_KEY:'',ADMIN_EMAIL:'',ADMIN_PASSWORD:'',CLOUDINARY_URL:'',CLOUDINARY_CLOUD_NAME:'',CLOUDINARY_API_KEY:'',CLOUDINARY_API_SECRET:'',RESEND_API_KEY:'',EMAIL_FROM:'',STORE_NOTIFICATION_EMAIL:'',MERCADO_PAGO_ACCESS_TOKEN:'fixture-only-token',MERCADO_PAGO_WEBHOOK_SECRET:secret}
+  const secret=randomBytes(32).toString('hex'),origin='https://galeo-variants-fixture.netlify.app',sellerId='4242'
+  const total=Number(created.data.order.total).toFixed(2),createdDate=new Date().toISOString()
+  const overrides={NODE_ENV:'production',GALEO_SERVERLESS:'true',DB_NAME:runtime.database,DB_SSL:'false',APP_URL:origin,ALLOWED_ORIGINS:origin,DATA_ENCRYPTION_ENABLED:'false',DATA_ENCRYPTION_KEY:'',ADMIN_EMAIL:'',ADMIN_PASSWORD:'',CLOUDINARY_URL:'',CLOUDINARY_CLOUD_NAME:'',CLOUDINARY_API_KEY:'',CLOUDINARY_API_SECRET:'',RESEND_API_KEY:'',EMAIL_FROM:'',STORE_NOTIFICATION_EMAIL:'',MERCADO_PAGO_ACCESS_TOKEN:'fixture-only-token',MERCADO_PAGO_WEBHOOK_SECRET:secret,
+    // Orders test mode: a virtual test seller with its own credentials and a _test database.
+    MERCADO_PAGO_MODE:'test',GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN:'APP_USR-local-sizes-token',GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY:'APP_USR-local-sizes-public',
+    GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET:secret,MERCADO_PAGO_TEST_SELLER_ID:sellerId,MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED:'true'}
   environmentBefore=Object.fromEntries(Object.keys(overrides).map(key=>[key,process.env[key]]))
   Object.assign(process.env,overrides)
-  let status='approved'
+  // Simulated Orders API, in the shape the real API returns (see mercado-pago.integration.test.js).
+  let status='action_required',creations=0
+  const detail={action_required:'waiting_payment',processed:'accredited',refunded:'refunded'}
+  const providerOrder=()=>({id:providerId,user_id:sellerId,country_code:'BRA',external_reference:code,type:'online',processing_mode:'automatic',created_date:createdDate,
+    status,status_detail:detail[status],total_amount:total,total_paid_amount:status==='action_required'?'0.00':total,
+    transactions:{payments:[{id:'PAY'+providerId,status,status_detail:detail[status],amount:total,paid_amount:status==='action_required'?'0.00':total,
+      payment_method:{id:'pix',type:'bank_transfer',qr_code:'000201-LOCAL-SIZES-'+runtime.suffix,qr_code_base64:'bG9jYWwtdGVzdA=='}}]}})
+  const json=(data,code=200)=>new Response(JSON.stringify(data),{status:code,headers:{'Content-Type':'application/json'}})
   originalFetch=globalThis.fetch
-  globalThis.fetch=async(input,options)=>{
+  globalThis.fetch=async(input,options={})=>{
     const url=new URL(typeof input==='string'||input instanceof URL?input:input.url)
     if(url.hostname==='api.mercadopago.com'){
-      assert.equal(url.pathname,'/v1/orders/'+providerId)
-      return new Response(JSON.stringify({id:providerId,external_reference:code,status,total_amount:String(created.data.order.total),transactions:{payments:[{status,amount:String(created.data.order.total),payment_method:{type:'pix'}}]}}),{status:200,headers:{'Content-Type':'application/json'}})
+      const method=String(options.method||'GET').toUpperCase()
+      if(method==='GET'&&url.pathname==='/users/me')return json({id:Number(sellerId),site_id:'MLB',tags:['test_user']})
+      if(method==='POST'&&url.pathname==='/v1/orders'){
+        const body=JSON.parse(options.body)
+        assert.equal(body.external_reference,code);assert.equal(body.total_amount,total)
+        assert.deepEqual(body.items.map(entry=>[entry.external_code,entry.quantity]),[['galeo-'+p.id+'-'+variant(p,'M').id,1]])
+        creations++
+        return json(providerOrder(),201)
+      }
+      if(method==='GET'&&url.pathname==='/v1/orders/'+providerId)return json(providerOrder())
+      throw new Error('Unexpected Mercado Pago request in the size test: '+method+' '+url.pathname)
     }
     assert.ok(['127.0.0.1','localhost','[::1]'].includes(url.hostname),'external providers must be mocked in local size tests')
     return originalFetch(input,options)
   }
   serverlessApi=await import('../server/index.js')
   const handler=(await import('../netlify/functions/api.mjs')).default
+  // The customer starts the Pix through the store route, with the session and CSRF token of the login above.
+  const started=await handler(new Request(origin+'/api/store/orders/'+orderId+'/payment',{method:'POST',
+    headers:{'Content-Type':'application/json',Origin:origin,Cookie:customer.cookie,'X-CSRF-Token':customer.csrfToken},
+    body:JSON.stringify({method:'pix',identification:{type:'CPF',number:'12345678909'},attempt_id:randomUUID()})}),{ip:'198.51.100.61',requestId:'sizes-payment'})
+  const payment=await started.json()
+  assert.equal(started.status,200,payment.error);assert.equal(creations,1)
+  assert.equal(payment.payment.status,'PENDING')
+  await stock(p,{M:1,G:5})
   async function notify(event){
     const timestamp=String(Math.floor(Date.now()/1000)),requestId='sizes-request-'+event
     const signature=createHmac('sha256',secret).update('id:'+providerId+';request-id:'+requestId+';ts:'+timestamp+';').digest('hex')
     const response=await handler(new Request(origin+'/api/integrations/mercado-pago/webhook?data.id='+providerId,{method:'POST',headers:{'Content-Type':'application/json','X-Request-Id':requestId,'X-Signature':'ts='+timestamp+',v1='+signature},body:JSON.stringify({id:event,type:'order',data:{id:providerId}})}),{ip:'198.51.100.31',requestId})
     return{status:response.status,data:await response.json()}
   }
+  status='processed'
   const paid=await notify('size-paid');assert.equal(paid.status,200,paid.data.error)
   await stock(p,{M:1,G:5})
-  const [paidOrder]=await runtime.query('SELECT sale_id FROM store_orders WHERE id=?',[orderId])
+  const [paidOrder]=await runtime.query('SELECT sale_id,payment_status FROM store_orders WHERE id=?',[orderId])
+  assert.equal(paidOrder.payment_status,'APPROVED')
   const [line]=await runtime.query('SELECT variant_id,size_label FROM sale_items WHERE sale_id=?',[paidOrder.sale_id])
   assert.equal(line.variant_id,variant(p,'M').id);assert.equal(line.size_label,'M')
   status='refunded'
@@ -307,4 +336,5 @@ test('approved online payments preserve size snapshots and repeated refunds rest
   await stock(p,{M:2,G:5})
   const restored=await runtime.query("SELECT size_label,quantity FROM stock_movements WHERE product_id=? AND type='ENTRADA' AND reference_id=?",[p.id,'store-order:'+orderId])
   assert.deepEqual(restored.map(row=>[row.size_label,row.quantity]),[['M',1]])
+  assert.equal(creations,1,'webhooks never create a second charge')
 })
