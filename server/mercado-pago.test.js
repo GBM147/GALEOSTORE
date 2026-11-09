@@ -644,6 +644,16 @@ test('3DS redirects only allow HTTPS Mercado Pago hosts without credentials or a
   }
 })
 
+test('webhook signature accepts the Orders ID as sent, as Mercado Pago signs it', () => {
+  const secret = 'local-signature-secret', requestId = 'local-request', timestamp = '1793710000000'
+  const sign = manifest => 'ts=' + timestamp + ',v1=' + createHmac('sha256', secret).update(manifest).digest('hex')
+  const original = sign('id:ORDTST01LOCAL;request-id:' + requestId + ';ts:' + timestamp + ';')
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret }), true)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret, idCase: 'lower' }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01OTHER', secret }), false)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret: 'other-secret' }), false)
+})
+
 test('webhook signature normalizes alphanumeric Orders IDs and rejects malformed signatures', () => {
   const secret = 'local-signature-secret', dataId = 'ORDLOCAL123', requestId = 'local-request', timestamp = '1793710000000'
   const hash = createHmac('sha256', secret).update('id:ordlocal123;request-id:' + requestId + ';ts:' + timestamp + ';').digest('hex')

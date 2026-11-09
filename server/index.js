@@ -1703,8 +1703,7 @@ app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
   const valid=validateMercadoPagoWebhookSignature({signature,requestId,dataId:String(queryId||''),secret})
   if(!valid) {
     // Test mode only: which parts arrived, never their values or the secret.
-    // original_case tells a wrong secret (false) from an ID case mismatch (true).
-    if (process.env.MERCADO_PAGO_MODE==='test') console.warn('Webhook Mercado Pago recusado:',JSON.stringify({url_id:queryId!=null,body_id:bodyId!=null,request_id:Boolean(requestId),signature:Boolean(signature),original_case:validateMercadoPagoWebhookSignature({signature,requestId,dataId:String(queryId||''),secret,lowercaseId:false})}))
+    if (process.env.MERCADO_PAGO_MODE==='test') console.warn('Webhook Mercado Pago recusado:',JSON.stringify({url_id:queryId!=null,body_id:bodyId!=null,request_id:Boolean(requestId),signature:Boolean(signature)}))
     return res.status(401).json({error:'Assinatura de webhook inválida.'})
   }
   const eventId=String(req.body?.id||req.get('x-request-id')||('mp-'+dataId+'-'+String(req.body?.date_created||Date.now())))

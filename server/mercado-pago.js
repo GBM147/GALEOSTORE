@@ -539,19 +539,23 @@ export function mercadoPagoPaymentForClient(order) {
 }
 
 // dataId is the data.id of the notification URL; requestId is x-request-id.
-export function validateMercadoPagoWebhookSignature({ signature, requestId = '', dataId = '', secret, lowercaseId = true }) {
+export function validateMercadoPagoWebhookSignature({ signature, requestId = '', dataId = '', secret, idCase = 'any' }) {
   const id = String(dataId ?? ''), request = String(requestId ?? '')
   if (typeof signature !== 'string' || typeof secret !== 'string' || !secret) return false
   if ((id && !/^[A-Za-z0-9_-]{1,160}$/.test(id)) || request.length > 200 || /[\s;]/.test(request)) return false
   const fields = Object.fromEntries(signature.split(',').map(part => { const [key, ...rest] = part.split('='); return [key.trim(), rest.join('=').trim()] }))
   if (!/^\d{1,16}$/.test(fields.ts || '') || !/^[0-9a-f]{64}$/i.test(fields.v1 || '')) return false
   // Documented template: id:[data.id from the URL];request-id:[x-request-id];ts:[ts];
-  // Values absent from the notification are left out, and MP signs
-  // alphanumeric IDs in lowercase even when the Order ID has uppercase letters.
-  const manifest = (id ? 'id:' + (lowercaseId ? id.toLowerCase() : id) + ';' : '') + (request ? 'request-id:' + request + ';' : '') + 'ts:' + fields.ts + ';'
-  const expected = createHmac('sha256', secret).update(manifest).digest()
+  // Values absent from the notification are left out. The docs say alphanumeric
+  // IDs are signed in lowercase, but Orders notifications (the panel simulation
+  // included, 09/11/2026) are signed with the ID as sent. Both forms need the secret.
   const received = Buffer.from(fields.v1, 'hex')
-  return received.length === expected.length && timingSafeEqual(received, expected)
+  const variants = idCase === 'lower' ? [id.toLowerCase()] : idCase === 'original' ? [id] : [...new Set([id.toLowerCase(), id])]
+  return variants.some(value => {
+    const manifest = (value ? 'id:' + value + ';' : '') + (request ? 'request-id:' + request + ';' : '') + 'ts:' + fields.ts + ';'
+    const expected = createHmac('sha256', secret).update(manifest).digest()
+    return received.length === expected.length && timingSafeEqual(received, expected)
+  })
 }
 
 // Point remains an independent integration. Online test mode never selects
