@@ -4,8 +4,8 @@
 
 /* Rhythm and section headings */
 .app main .section-block { padding-block: clamp(56px, 8vw, 104px); }
-.section-heading h2,
-.featured-selection .section-heading h2 { font-size: clamp(32px, 4.2vw, 56px); font-weight: 700; line-height: 1.04; letter-spacing: -.02em; }
+.app .section-heading h2,
+.app .featured-selection .section-heading h2 { font-size: clamp(32px, 4.2vw, 56px); font-weight: 700; line-height: 1.04; letter-spacing: -.02em; }
 .hero-eyebrow, .section-eyebrow {
   display: inline-block;
   margin-bottom: 14px;
@@ -31,16 +31,17 @@
   justify-content: center;
   padding: clamp(40px, 6vw, 80px) clamp(16px, 5vw, 72px);
 }
-.hero-full h1 { font-size: var(--hero-title-fit, clamp(40px, 6vw, 88px)); font-weight: 700; line-height: 1.02; letter-spacing: -.03em; }
-.hero-full p { margin: 20px 0 30px; font-size: 16px; }
-.hero-full-actions { flex-wrap: wrap; gap: 12px; }
+/* The banner title keeps its lighter 500 weight (a standing rule of the store). */
+.app .hero-full h1 { font-size: var(--hero-title-fit, clamp(40px, 6vw, 88px)); line-height: 1.02; letter-spacing: -.03em; }
+.app .hero-full p { margin: 20px 0 30px; font-size: 16px; }
+.app .hero-full-actions { flex-wrap: wrap; gap: 12px; }
 .hero-full-actions .hero-secondary { min-height: 52px; }
-.hero-full-shade {
+.app .hero-full-shade {
   background:
     linear-gradient(90deg, rgba(5, 5, 5, .94) 0%, rgba(5, 5, 5, .78) 38%, rgba(5, 5, 5, .18) 72%, rgba(5, 5, 5, .32) 100%),
     linear-gradient(180deg, transparent 60%, rgba(0, 0, 0, .5) 100%);
 }
-:root[data-theme="light"] .hero-full-shade {
+:root[data-theme="light"] .app .hero-full-shade {
   background: linear-gradient(90deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, transparent) 40%, transparent 76%);
 }
 /* Calmer artwork: no scan lines or drifting strokes, a softer glow. */
@@ -51,10 +52,10 @@
 @media (max-width: 760px) {
   .app main .hero-full.section-shell { min-height: min(640px, calc(100svh - 64px)); }
   .app main .hero-full-content { justify-content: flex-end; padding: 32px 16px 28px; }
-  .hero-full h1 { font-size: var(--hero-title-fit, clamp(36px, 11vw, 56px)); }
-  .hero-full p { font-size: 15px; }
-  .hero-full-shade { background: linear-gradient(180deg, rgba(5, 5, 5, .12) 0%, rgba(5, 5, 5, .55) 42%, rgba(5, 5, 5, .94) 76%); }
-  :root[data-theme="light"] .hero-full-shade { background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--surface) 72%, transparent) 42%, var(--surface) 76%); }
+  .app .hero-full h1 { font-size: var(--hero-title-fit, clamp(36px, 11vw, 56px)); }
+  .app .hero-full p { font-size: 15px; }
+  .app .hero-full-shade { background: linear-gradient(180deg, rgba(5, 5, 5, .12) 0%, rgba(5, 5, 5, .55) 42%, rgba(5, 5, 5, .94) 76%); }
+  :root[data-theme="light"] .app .hero-full-shade { background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--surface) 72%, transparent) 42%, var(--surface) 76%); }
   .hero-full .campaign-brand-image { width: 112%; left: 56%; top: 24%; opacity: .45; }
 }
 
@@ -68,7 +69,7 @@
   border-block: 1px solid var(--line);
   background: var(--surface);
 }
-.utility-strip::before { display: none; }
+.app .utility-strip::before { display: none; }
 .app main .utility-strip span {
   display: flex;
   align-items: center;
@@ -133,9 +134,9 @@
 }
 
 /* Product cards (Home and catalog) */
-.product-meta { gap: 4px; padding-top: 12px; }
-.product-meta strong { font-size: 15px; font-weight: 600; line-height: 1.3; }
-.product-meta b { font-size: 15px; font-weight: 800; }
+.app .product-meta { gap: 4px; padding-top: 12px; }
+.app .product-meta strong { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.app .product-meta b { font-size: 15px; font-weight: 800; }
 
 /* Campaigns: brand panels when there is no photo, never the repeated artwork. */
 .app main .campaign-card { min-height: 420px; }

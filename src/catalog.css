@@ -1,0 +1,242 @@
+/* Catalog and product page: compact headings, a one-line search, category
+   pills, small filter fields and trust rows with icons. Loaded before
+   styles.css and form-controls.css, so every rule carries .app (or #root when
+   it must beat a form-controls rule). */
+
+/* Page headings (catalog, cart, account): smaller and bolder. */
+.app main.page-space { padding-block: clamp(28px, 5vw, 56px) clamp(56px, 8vw, 104px); }
+.app main .page-heading { margin-bottom: clamp(20px, 3vw, 32px); }
+.app main .page-heading h1 { font-size: clamp(32px, 4.5vw, 56px); font-weight: 700; line-height: 1.04; letter-spacing: -.02em; }
+
+/* Search: the icon and the clear button sit inside the field, the submit
+   button beside it, on one line on every screen. */
+.app main .catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 24px;
+}
+.app main .catalog-search {
+  display: flex;
+  flex: 1 1 520px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 680px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.catalog-search-field { position: relative; flex: 1 1 auto; min-width: 0; }
+.app main .catalog-search-field svg {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  width: 18px;
+  height: 18px;
+  translate: 0 -50%;
+  color: var(--muted);
+  stroke: currentColor;
+  pointer-events: none;
+}
+#root .app main .catalog-search input { width: 100%; padding-inline: 42px 46px; text-overflow: ellipsis; }
+.app main .catalog-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  translate: 0 -50%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.app main .catalog-search-clear:hover { color: var(--text); }
+.app main .catalog-search > button[type="submit"] {
+  flex: 0 0 auto;
+  padding: 0 18px;
+  border: 0;
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 700;
+  cursor: pointer;
+}
+.app main .catalog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-height: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.app main .catalog-summary strong { color: var(--text); font-weight: 600; }
+
+/* Categories: pills; the active one is filled. They wrap on a computer and
+   scroll sideways on a phone. */
+.app main .filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 24px 0 0;
+  padding: 0;
+  border: 0;
+}
+.app main .filters > button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.app main .filters > button:hover { border-color: var(--text); }
+.app main .filters > button.filter-active { border-color: var(--accent-soft); background: var(--accent-soft); color: #0b0906; }
+:root[data-theme="light"] .app main .filters > button.filter-active { border-color: var(--text); background: var(--text); color: var(--bg); }
+
+/* Sort and refinements: four small fields in one row. */
+.app main .catalog-refinements {
+  --field-min-height: 40px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 240px));
+  align-items: end;
+  gap: 12px;
+  margin: 16px 0 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.app main .catalog-refinements label { display: grid; justify-self: stretch; gap: 6px; min-width: 0; margin: 0; }
+#root .app main .catalog-refinements select { width: 100%; padding-block: 7px; padding-inline-start: 12px; }
+
+/* Empty result */
+.app main .empty-catalog {
+  display: grid;
+  justify-items: center;
+  padding: clamp(40px, 6vw, 72px) 24px;
+  border: 1px dashed color-mix(in srgb, var(--text) 26%, transparent);
+  border-radius: 16px;
+  text-align: center;
+}
+.app main .empty-catalog h2 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 34px); font-weight: 700; letter-spacing: -.01em; }
+.app main .empty-catalog p { margin: 0 0 20px; }
+
+@media (max-width: 760px) {
+  .app main .catalog-summary { flex-basis: 100%; }
+  .app main .filters {
+    flex-wrap: nowrap;
+    margin-top: 18px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .app main .filters::-webkit-scrollbar { display: none; }
+  .app main .filters > button { min-height: 44px; }
+  .app main .catalog-refinements { --field-min-height: 44px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 24px; }
+  #root .app main .catalog-refinements select { padding-block: 9px; padding-inline-end: 34px; background-position: right 12px center; }
+}
+
+/* Product page */
+.app main.product-page { padding-block: clamp(20px, 3vw, 36px) clamp(64px, 8vw, 110px); }
+.app main .product-breadcrumb { gap: 8px; margin-bottom: 20px; font-size: 12px; font-weight: 600; letter-spacing: .08em; }
+.app main .product-detail { gap: clamp(28px, 4vw, 56px); }
+.app main .product-info { padding-top: 4px; top: 96px; }
+.app main .product-detail-brand { margin: 0 0 10px; color: var(--accent-soft); font-size: 11px; font-weight: 800; line-height: 1.4; letter-spacing: .2em; text-transform: uppercase; }
+.app main .product-info h1 { margin-bottom: 12px; font-size: clamp(28px, 3.2vw, 44px); font-weight: 700; line-height: 1.1; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.app main .product-detail-price { margin-bottom: 20px; color: var(--accent-soft); font-size: 26px; font-weight: 800; letter-spacing: -.01em; }
+:root[data-theme="light"] .app main :is(.product-detail-brand, .product-detail-price) { color: var(--accent-deep); }
+.app main .product-detail-description { margin-bottom: 24px; font-size: 15px; line-height: 1.7; }
+
+/* Sizes: rounded chips; the chosen one is outlined in gold (black in the
+   light theme), a sold-out one is struck through. */
+.app main .product-size-picker { margin: 0 0 20px; }
+.app main .product-size-picker legend { margin-bottom: 10px; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.app main .product-size-option {
+  min-width: 56px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--field-border);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.app main .product-size-option:hover { border-color: var(--text); }
+.app main .product-size-option:has(input:checked) { border-color: var(--accent-soft); background: color-mix(in srgb, var(--accent-soft) 16%, transparent); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+:root[data-theme="light"] .app main .product-size-option:has(input:checked) { border-color: var(--text); background: var(--text); color: var(--bg); box-shadow: none; }
+.app main .product-size-option:has(input:disabled) { opacity: .5; }
+.app main .product-size-option:has(input:disabled) span { text-decoration: line-through; }
+.app main .product-size-option small { font-size: 11px; font-weight: 600; }
+.app main .product-size-help { font-size: 13px; }
+
+.app main .product-stock-line { align-items: center; padding-block: 12px; font-size: 13px; letter-spacing: normal; text-transform: none; }
+.app main .product-stock-line small { font-size: 13px; }
+
+/* Quantity and add-to-cart share one 52px row. */
+.app main .product-purchase-box { grid-template-columns: 124px minmax(0, 1fr); gap: 10px; margin-top: 16px; }
+.app main .quantity-control { min-height: 52px; overflow: hidden; border: 1px solid var(--field-border); border-radius: 10px; background: transparent; }
+.app main .quantity-control button { font-size: 20px; }
+.app main .quantity-control span { font-size: 16px; font-weight: 700; }
+.app main .product-add-button { justify-content: center; gap: 10px; min-width: 0; min-height: 52px; padding: 0 20px; border-radius: 10px; font-size: 13px; font-weight: 800; letter-spacing: .1em; }
+
+/* Trust rows: an icon, a small label and the line of text. */
+.app main .product-detail-notes { gap: 0; margin-top: 24px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; }
+.app main .product-detail-notes > div { grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.app main .product-detail-notes > div:last-child { border-bottom: 0; }
+.product-note-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-soft) 12%, transparent);
+  color: var(--accent-soft);
+}
+:root[data-theme="light"] .product-note-icon { background: color-mix(in srgb, var(--accent-deep) 10%, transparent); color: var(--accent-deep); }
+.product-note-icon svg { width: 20px; height: 20px; }
+.app main .product-note-copy { margin: 0; }
+.app main .product-note-copy span { display: block; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.app main .product-note-copy strong { display: block; margin-top: 2px; font-size: 14px; font-weight: 600; line-height: 1.4; }
+
+/* Related products */
+.app main .related-products.section-block { margin-top: clamp(48px, 6vw, 80px); padding-block: clamp(32px, 4vw, 48px) 0; }
+.app main .related-products .section-heading h2 { font-size: clamp(24px, 2.8vw, 36px); }
+
+@media (max-width: 700px) {
+  .app main .product-purchase-box { grid-template-columns: 112px minmax(0, 1fr); }
+  .app main .product-add-button { padding-inline: 14px; font-size: 12px; letter-spacing: .06em; }
+}
+
+/* Header search: a lighter panel with rounded corners and a soft shadow. */
+.app .header-search { padding: 12px; border-radius: 16px; box-shadow: 0 16px 40px rgba(0, 0, 0, .22); }
+:root[data-theme="light"] .app .header-search { box-shadow: 0 16px 40px rgba(26, 21, 16, .1); }
+.app .header-search-row { gap: 8px; }
+.app .header-search-row button { padding: 0 18px; font-weight: 700; }
+
+/* Newsletter: the field is a box now, so the form loses its underline and
+   the button becomes solid. */
+.app main .newsletter form { gap: 8px; align-items: stretch; border: 0; }
+.app main .newsletter input { flex: 1 1 200px; }
+.app main .newsletter button { flex: 0 0 auto; margin: 0; padding: 0 20px; border: 0; background: var(--text); color: var(--bg); font-weight: 700; }
+
+/* The dark placeholder photo follows the light theme on the product page too. */
+:root[data-theme="light"] .product-detail img[src$="product-placeholder.svg"] { filter: invert(.94) hue-rotate(180deg); }

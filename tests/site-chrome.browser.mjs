@@ -121,6 +121,8 @@ test('textos do topo e do rodapé têm contraste de leitura nos modos claro e es
     const page = await fixture(t)
     await page.goto(baseUrl + '/?theme=' + theme)
     await page.locator('footer.site-footer').waitFor()
+    // The theme is applied after the first paint; read colors once the color transitions end.
+    await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))))
     const ratios = await page.evaluate(() => {
       const parse = value => {
         const text = String(value).trim()

@@ -128,6 +128,18 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   categoria ao fundo quando não há foto), campanhas sem foto viram painéis da marca
   (dourado, escuro e contorno) em vez de repetir a arte do leão, manifesto e
   newsletter mais compactos. Lighthouse local da Home: 75 → 87, acessibilidade 100.
+- [x] **Visual — catálogo, produto e campos** (Técnico, 09/11; publica no próximo
+  deploy): todos os campos da loja viraram **caixas finas e arredondadas** (46 px,
+  borda com contraste mínimo de 3:1, seta própria nos seletores, texto de 16 px que
+  evita o zoom do iPhone); o pagamento do Mercado Pago mantém 50 px até a rodada do
+  carrinho. Catálogo com título menor, busca em uma linha também no celular (lupa e
+  "limpar" dentro do campo), categorias em pílulas (a escolhida preenchida e anunciada
+  para leitores de tela) e Ordenar/Marca/Tamanho/Disponibilidade compactos lado a lado.
+  Produto com marca em destaque, nome e preço mais legíveis, tamanhos em fichas (o
+  esgotado riscado), compra em 52 px e Pedido/Entrega/Atendimento com ícones; "Você
+  também pode gostar" usa o mesmo card do catálogo, com imagem responsiva. Corrigida a
+  ordem do CSS da Home: títulos de seção e cards agora usam os tamanhos da rodada
+  anterior (o título do banner mantém o peso leve). Próxima rodada: Carrinho/Pagamento.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

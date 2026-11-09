@@ -17,7 +17,9 @@ import SiteHeader from './SiteHeader'
 import SiteFooter from './SiteFooter'
 import './site-chrome.css'
 import './home.css'
-import { CheckIcon, RefreshIcon, ShieldIcon, SparkleIcon, StarIcon, TruckIcon } from './icons'
+import './catalog.css'
+import ProductCard from './ProductCard'
+import { CheckIcon, RefreshIcon, SearchIcon, ShieldIcon, SparkleIcon, StarIcon, TruckIcon } from './icons'
 
 const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
@@ -355,24 +357,6 @@ function NotFound() {
   </main>
 }
 
-function ProductCard({ product }) {
-  const editor = useVisualEditor()
-  const image = product?.image || '/images/product-placeholder.svg'
-  return (
-    <Link className="product-card" to={'/produto/' + product.id} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({sectionKey:'featured_products',kind:'products'}) } : undefined}>
-      <div className="product-image">
-        <ResponsiveImage src={image} widths={imageWidths.card} sizes="(max-width: 700px) 50vw, (max-width: 1100px) 33vw, 25vw" alt="" loading="lazy" decoding="async" />
-        <span className="product-arrow">↗</span>
-      </div>
-      <div className="product-meta">
-        {(product?.category || product?.brand) && <span>{product.category || product.brand}</span>}
-        <strong>{product?.name || 'Produto'}</strong>
-        <b>{formatProductPrice(product?.price)}</b>
-      </div>
-    </Link>
-  )
-}
-
 const normalizeSearchText = (value) => String(value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -476,52 +460,61 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
   }
 
   return (
-    <main className="section-shell page-space">
+    <main className="section-shell page-space catalog-page">
       <div className="page-heading" data-reveal>
+        <span className="section-eyebrow">Catálogo</span>
         <h1>Descubra<br /><em>seu próximo kit</em></h1>
       </div>
 
-      <form className="catalog-search" onSubmit={submitSearch} data-reveal>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="M16 16l5 5" />
-        </svg>
-        <input
-          value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="Buscar produto, marca ou categoria"
-          aria-label="Buscar produto, marca ou categoria"
-        />
-        {searchInput && (
-          <button type="button" className="catalog-search-clear" onClick={clearSearch} aria-label="Limpar busca">×</button>
-        )}
-        <button type="submit">Buscar ↗</button>
-      </form>
+      <div className="catalog-toolbar">
+        <form className="catalog-search" role="search" onSubmit={submitSearch} data-reveal>
+          <div className="catalog-search-field">
+            <SearchIcon />
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Buscar produto, marca ou categoria"
+              aria-label="Buscar produto, marca ou categoria"
+            />
+            {searchInput && (
+              <button type="button" className="catalog-search-clear" onClick={clearSearch} aria-label="Limpar busca">×</button>
+            )}
+          </div>
+          <button type="submit">Buscar ↗</button>
+        </form>
 
-      <div className="catalog-summary" aria-live="polite">
-        <span>{filteredProducts.length} produto(s)</span>
-        {query && <strong>Busca: “{query}”</strong>}
+        <div className="catalog-summary" aria-live="polite">
+          <span>{filteredProducts.length} produto(s)</span>
+          {query && <strong>Busca: “{query}”</strong>}
+        </div>
       </div>
 
-      <div className="filters" data-reveal>
+      <div className="filters" role="group" aria-label="Categorias" data-reveal>
         <button
           type="button"
           className={selectedCategory === 'Todos' ? 'filter-active' : ''}
+          aria-pressed={selectedCategory === 'Todos'}
           onClick={() => selectCategory('Todos')}
         >
           Todos
         </button>
-        {availableCategories.map((category) => (
-          <button
-            type="button"
-            key={category.id}
-            className={normalizeSearchText(selectedCategory) === normalizeSearchText(category.name) ? 'filter-active' : ''}
-            onClick={() => selectCategory(category.name)}
-          >
-            {category.name}
-          </button>
-        ))}
-        <span />
+        {availableCategories.map((category) => {
+          const active = normalizeSearchText(selectedCategory) === normalizeSearchText(category.name)
+          return (
+            <button
+              type="button"
+              key={category.id}
+              className={active ? 'filter-active' : ''}
+              aria-pressed={active}
+              onClick={() => selectCategory(category.name)}
+            >
+              {category.name}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="catalog-refinements">
         <label className="catalog-sort">
           <span>Ordenar</span>
           <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Ordenar produtos">
@@ -536,12 +529,9 @@ function Shop({ products = fallbackProducts, categories = [], visualDefaults }) 
             <option value="size-desc">Tamanho: maior ao menor</option>
           </select>
         </label>
-      </div>
-
-      <div className="catalog-refinements">
-        <label>Marca<select aria-label="Filtrar por marca" value={selectedBrand} onChange={event => selectRefinement('brand', event.target.value)}><option value="">Todas as marcas</option>{availableBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}</select></label>
-        <label>Tamanho disponível<select aria-label="Filtrar por tamanho" value={selectedSize} onChange={event => selectRefinement('size', event.target.value)} disabled={!availableSizes.length && !selectedSize}><option value="">Todos os tamanhos</option>{selectedSize && !availableSizes.includes(selectedSize) && <option value={selectedSize}>{selectedSize}</option>}{availableSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label>
-        <label>Disponibilidade<select aria-label="Filtrar por disponibilidade" value={onlyAvailable ? 'available' : ''} onChange={event => selectRefinement('stock', event.target.value)}><option value="">Todos os produtos</option><option value="available">Com estoque</option></select></label>
+        <label>Marca<select aria-label="Filtrar por marca" value={selectedBrand} onChange={event => selectRefinement('brand', event.target.value)}><option value="">Todas</option>{availableBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}</select></label>
+        <label>Tamanho<select aria-label="Filtrar por tamanho" value={selectedSize} onChange={event => selectRefinement('size', event.target.value)} disabled={!availableSizes.length && !selectedSize}><option value="">Todos</option>{selectedSize && !availableSizes.includes(selectedSize) && <option value={selectedSize}>{selectedSize}</option>}{availableSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <label>Disponibilidade<select aria-label="Filtrar por disponibilidade" value={onlyAvailable ? 'available' : ''} onChange={event => selectRefinement('stock', event.target.value)}><option value="">Todos</option><option value="available">Com estoque</option></select></label>
       </div>
 
       {filteredProducts.length > 0 ? (

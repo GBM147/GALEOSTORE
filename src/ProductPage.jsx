@@ -6,6 +6,15 @@ import { formatProductPrice, productCanBePurchased, productHasPrice } from './pr
 import { activeProductVariants, findProductVariant, productForVariant, productHasVariants } from './productVariants'
 import './product-variants.css'
 import { usePageMeta } from './pageMeta'
+import ProductCard from './ProductCard'
+import { ShieldIcon, TruckIcon, UserIcon } from './icons'
+
+// Short promises under the buy button, each with its icon.
+const productNotes = [
+  [ShieldIcon, 'Pedido', 'Registrado com seus dados'],
+  [TruckIcon, 'Entrega', 'Calculada na finalização do pedido'],
+  [UserIcon, 'Atendimento', 'Confirmação por e-mail após o pedido']
+]
 
 const productGallery = (product) => {
   const uploaded = Array.isArray(product?.media) ? product.media : []
@@ -90,11 +99,11 @@ export default function ProductPage() {
             <div className="quantity-control"><button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Diminuir quantidade">−</button><span>{quantity}</span><button type="button" onClick={() => setQuantity((value) => Math.min(stock || 1, value + 1))} aria-label="Aumentar quantidade">+</button></div>
             <button className="button button-primary product-add-button" type="button" onClick={handleAdd} disabled={!purchasable}>{added ? 'Adicionado ao carrinho' : 'Adicionar ao carrinho'} {added ? '✓' : '↗'}</button>
           </div>
-          <div className="product-detail-notes"><div><span>Pedido</span><strong>Registrado com seus dados</strong></div><div><span>Entrega</span><strong>Calculada na finalização do pedido</strong></div><div><span>Atendimento</span><strong>Confirmação por e-mail após o pedido</strong></div></div>
+          <div className="product-detail-notes">{productNotes.map(([Icon, label, text]) => <div key={label}><span className="product-note-icon" aria-hidden="true"><Icon /></span><p className="product-note-copy"><span>{label}</span><strong>{text}</strong></p></div>)}</div>
         </section>
       </div>
 
-      {related.length > 0 && <section className="related-products section-block"><div className="section-heading row-heading"><div><h2>Você também pode gostar</h2></div><Link className="text-link" to={'/shop?category=' + encodeURIComponent(product.category || '')}>Ver categoria ↗</Link></div><div className="product-grid product-grid-editorial">{related.slice(0,4).map((item) => <Link className="product-card" key={item.id} to={'/produto/' + item.id}><div className="product-image"><img src={item.image || '/images/product-placeholder.svg'} alt="" loading="lazy" /><span className="product-arrow">↗</span></div><div className="product-meta"><span>{item.category || 'PRODUTO'}</span><strong>{item.name}</strong><b>{formatProductPrice(item.price)}</b></div></Link>)}</div></section>}
+      {related.length > 0 && <section className="related-products section-block"><div className="section-heading row-heading"><div><h2>Você também pode gostar</h2></div><Link className="text-link" to={'/shop?category=' + encodeURIComponent(product.category || '')}>Ver categoria ↗</Link></div><div className="product-grid product-grid-editorial">{related.slice(0,4).map((item) => <ProductCard key={item.id} product={item} />)}</div></section>}
     </main>
   )
 }
