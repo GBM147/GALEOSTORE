@@ -50,14 +50,20 @@ async function fixture(t, { confirm = true, deleteStatus = 200, deleteError } = 
     return json({ error: 'Unexpected fixture API' }, 500)
   })
   await page.goto(baseUrl + '/admin?tab=products')
-  await page.getByRole('button', { name: 'Excluir', exact: true }).waitFor()
+  await page.locator('.admin-product-card').waitFor()
   const initialReads = new Map(calls.filter(call => call.method === 'GET').map(call => [call.path, calls.filter(other => other.path === call.path && other.method === 'GET').length]))
   return { page, calls, dialogs, errors, unexpected, product, initialReads }
 }
 
+// Deleting sits in the card's "⋯" menu, away from Editar.
+async function clickDelete(page) {
+  await page.locator('.admin-product-more summary').click()
+  await page.getByRole('button', { name: 'Excluir', exact: true }).click()
+}
+
 test('canceling permanent deletion keeps the product and makes no DELETE request', async t => {
   const f = await fixture(t, { confirm: false })
-  await f.page.getByRole('button', { name: 'Excluir', exact: true }).click()
+  await clickDelete(f.page)
   assert.equal(f.dialogs.length, 1)
   assert.match(f.dialogs[0].message, /Excluir definitivamente o produto "Camiseta cadastrada por engano"/)
   assert.match(f.dialogs[0].message, /movimentações de estoque e os vínculos de mídia serão removidos/)
@@ -75,12 +81,12 @@ for (const failure of [
   test('deletion failure ' + failure.status + ' keeps the product active and displays the server reason', async t => {
     const f = await fixture(t, { deleteStatus: failure.status, deleteError: failure.error })
     const alert = f.page.waitForEvent('dialog', { predicate: dialog => dialog.type() === 'alert' })
-    await f.page.getByRole('button', { name: 'Excluir', exact: true }).click()
+    await clickDelete(f.page)
     await alert
     assert.equal(f.dialogs.at(-1)?.type, 'alert')
     assert.equal(f.dialogs.at(-1)?.message, failure.error)
     assert.equal(await f.page.getByText(f.product.name, { exact: true }).count(), 1)
-    assert.equal(await f.page.getByText('Ativo', { exact: true }).count(), 1)
+    assert.equal(await f.page.getByText('Na loja', { exact: true }).count(), 1)
     assert.equal(f.calls.filter(call => call.path === '/api/admin/products' && call.method === 'GET').length, f.initialReads.get('/api/admin/products'))
     assert.equal(f.calls.filter(call => call.method === 'DELETE').length, 1)
     assert.deepEqual(f.errors, [])
@@ -90,7 +96,7 @@ for (const failure of [
 
 test('successful deletion refreshes products and loads the fresh dashboard without a separate stock history request', async t => {
   const f = await fixture(t)
-  await f.page.getByRole('button', { name: 'Excluir', exact: true }).click()
+  await clickDelete(f.page)
   await f.page.getByText('Nenhum produto cadastrado ainda.', { exact: true }).waitFor()
   assert.equal(await f.page.getByText(f.product.name, { exact: true }).count(), 0)
   assert.equal(f.dialogs.at(-1)?.message, 'Produto e movimentações de estoque excluídos definitivamente.')

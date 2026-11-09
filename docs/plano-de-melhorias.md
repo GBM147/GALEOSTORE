@@ -156,6 +156,19 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   status em pílula, total e o pagamento como selo com bolinha colorida (aguardando,
   aprovado, recusado); "Continuar pagamento" compacto. Entrar/Criar conta em cartão
   arredondado, com seletor de abas (a ativa anunciada para leitores de tela).
+- [x] **Admin — cadastrar produtos e fotos** (Técnico, 09/11; publica no próximo deploy):
+  cadastro em **4 passos** (O básico → Fotos → Tamanhos e estoque → Revisar e publicar),
+  em tela cheia no celular. O produto é guardado como rascunho logo no primeiro passo, e
+  as fotos sobem **na hora**: tirar foto pela câmera, escolher várias ou arrastar no
+  computador, miniaturas com envio, foto reduzida automaticamente (máx. 2000 px), capa
+  com um toque, ordem com ◀ ▶ e fundo da capa (Original, Sem fundo, Fundo GALEO).
+  Tamanhos com a grade da categoria para tocar (P–XG, 36–48, 37–44, "Único") e quantidade
+  com − e +; a embalagem do frete vem sugerida pela categoria. A revisão mostra a prévia
+  igual à loja e uma conferência (preço é obrigatório para publicar). Na edição, os passos
+  viram abas e "Salvar produto" grava tudo. Lista de produtos em cartões, com busca e
+  filtros (Na loja, Rascunhos, Estoque baixo, Sem foto); Excluir fica no menu "⋯". Nova
+  rota para a ordem das fotos. Próxima rodada: visual do restante do Admin (menu no
+  celular, tela inicial com atalhos).
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

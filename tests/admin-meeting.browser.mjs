@@ -177,7 +177,7 @@ test('stock stays in products, old history links resolve there and the stock dia
   await page.waitForURL(url => url.searchParams.get('tab') === 'products')
   assert.equal(new URL(page.url()).searchParams.get('source'), 'old-link')
   assert.equal(await page.getByRole('button', { name:'Movimentações de estoque', exact:true }).count(), 0)
-  const row = page.getByRole('row').filter({ hasText:'Camiséta pesquisável' })
+  const row = page.locator('.admin-product-card').filter({ hasText:'Camiséta pesquisável' })
   await row.getByRole('button', { name:'Estoque', exact:true }).click()
   const search = page.getByRole('combobox', { name:'Produto', exact:true })
   await search.fill('nike')

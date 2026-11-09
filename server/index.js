@@ -29,6 +29,8 @@ import multer from 'multer'
 import { Readable } from 'node:stream'
 import cron from 'node-cron'
 import { registerMediaLibrary } from './media-library.js'
+import { mediaAssetView } from './media-presentation.js'
+import { ProductMediaOrderError, productMediaOrder } from './product-media-order.js'
 import { ensureHomeWorkflowSchema, createHomeWorkflow, registerHomeWorkflow } from './home-workflow.js'
 import { compactAuditDetails, createAuditRetentionQueue } from './audit-retention.js'
 import { ProductImageSelectionError, resolveProductImage } from './product-image-selection.js'
@@ -2258,7 +2260,19 @@ app.get('/api/admin/products/:id/media', exigirLogin, async (req, res) => {
       'SELECT id,product_id,media_type,url,public_id,width,height,duration,sort_order,created_at FROM product_media WHERE product_id=? ORDER BY sort_order,id',
       [productId]
     )
-    res.json(media)
+    // The library entry of each file carries its background versions (original,
+    // without background, GALEO background) for the cover picker.
+    const publicIds = [...new Set(media.map(item => item.public_id).filter(Boolean))]
+    let assets = new Map()
+    if (publicIds.length) {
+      try {
+        const rows = await query('SELECT * FROM media_assets WHERE public_id IN (' + publicIds.map(() => '?').join(',') + ')', publicIds)
+        assets = new Map(rows.map(row => [row.public_id, mediaAssetView(row)]))
+      } catch (error) {
+        console.error('Biblioteca indisponível para a galeria do produto:', error?.code || 'MEDIA_LIBRARY_UNAVAILABLE')
+      }
+    }
+    res.json(media.map(item => ({ ...item, asset:assets.get(item.public_id) || null })))
   } catch (error) {
     console.error('Erro ao listar mídia:', error)
     res.status(500).json({ error: 'Não foi possível carregar a mídia do produto.' })
@@ -2353,6 +2367,31 @@ app.delete('/api/admin/products/:productId/media/:mediaId', exigirLogin, async (
     await conn.rollback().catch(() => {})
     console.error('Erro ao remover associação da mídia:', error?.code || 'INTERNAL_ERROR')
     res.status(500).json({ error:'Não foi possível remover a mídia do produto.' })
+  } finally { conn.release() }
+})
+
+app.put('/api/admin/products/:id/media/order', exigirLogin, async (req, res) => {
+  const productId = Number(req.params.id)
+  if (!Number.isSafeInteger(productId) || productId <= 0) return res.status(400).json({ error:'Produto inválido.' })
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const product = await query('SELECT id FROM products WHERE id=? FOR UPDATE', [productId], conn)
+    if (!product.length) {
+      await conn.rollback()
+      return res.status(404).json({ error:'Produto não encontrado.' })
+    }
+    const rows = await query('SELECT id FROM product_media WHERE product_id=? FOR UPDATE', [productId], conn)
+    const ids = productMediaOrder(rows.map(row => row.id), req.body?.ids)
+    for (const [index, id] of ids.entries()) await query('UPDATE product_media SET sort_order=? WHERE id=? AND product_id=?', [index, id, productId], conn)
+    await audit(req.admin.id, 'MEDIA_REORDER', 'produto', productId, { ids }, conn)
+    await conn.commit()
+    res.json({ success:true, ids })
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    if (error instanceof ProductMediaOrderError) return res.status(error.status).json({ error:error.message })
+    console.error('Erro ao ordenar mídia do produto:', error?.code || 'INTERNAL_ERROR')
+    res.status(500).json({ error:'Não foi possível salvar a ordem das fotos.' })
   } finally { conn.release() }
 })
 
