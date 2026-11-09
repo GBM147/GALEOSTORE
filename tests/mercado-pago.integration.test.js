@@ -433,6 +433,13 @@ test('Pix persistido é reutilizado sem segunda criação e expõe somente instr
   assert.equal(status.data.payment.provider_reference, fixture.providerId)
 })
 
+test('notificação de pedido que a loja não conhece é confirmada sem alterar nada', async () => {
+  const unknown = { providerId: 'ORDTST01SIMULADO' + suffix.replace(/[^A-Za-z0-9]/g, '').slice(0, 12).toUpperCase() }
+  const response = await notify(unknown)
+  assert.equal(response.response.status, 200)
+  assert.deepEqual(response.data, { received: true, ignored: true, reason: 'pedido_desconhecido' })
+})
+
 test('webhook sem tentativa vinculada pede retry e só confirma após criação persistida', async () => {
   const fixture = await orderFixture(2, { bind: false })
   await setPayment(fixture, 'approved')

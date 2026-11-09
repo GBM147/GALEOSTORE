@@ -1719,6 +1719,13 @@ app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
     if (process.env.MERCADO_PAGO_MODE==='test') console.log('Webhook Mercado Pago aceito:',JSON.stringify({type:eventType,action:String(req.body?.action||'').slice(0,40),order_status:String(mpOrder?.status||'').slice(0,30)}))
     return res.status(200).json({received:true,...result})
   } catch(error) {
+    // The panel's "Simular notificação" (and any other integration) can send an
+    // order this store never created. Acknowledge it so the provider does not
+    // retry, without touching any local order.
+    if (error?.providerStatus === 404) {
+      if (process.env.MERCADO_PAGO_MODE==='test') console.log('Webhook Mercado Pago aceito:',JSON.stringify({type:eventType,action:String(req.body?.action||'').slice(0,40),order_status:'desconhecido'}))
+      return res.status(200).json({received:true,ignored:true,reason:'pedido_desconhecido'})
+    }
     console.error('Erro no webhook Mercado Pago:',error?.code || 'PAYMENT_CONFIRMATION_FAILED')
     return res.status(500).json({error:'Não foi possível processar o webhook.'})
   }
