@@ -2784,6 +2784,17 @@ app.use((error, req, res, next) => {
   })
 })
 
+// Homologation only (test database and Mercado Pago test mode); a failure
+// here must not take the test API down.
+async function syncHomologationCustomer() {
+  try {
+    const stage = await syncStageCustomer({ db, privacy, bcrypt, newPasswordError })
+    if (stage.status !== 'skipped') console.log('Conta de teste de homologação:', stage.status)
+  } catch (error) {
+    console.error('Conta de teste de homologação não sincronizada:', error?.code || 'STAGE_CUSTOMER_FAILED')
+  }
+}
+
 let runtimeReady
 export function initializeRuntime() {
   return runtimeReady ??= (async () => {
@@ -2791,14 +2802,7 @@ export function initializeRuntime() {
     await validateRuntimeSchema({ db, privacy, protection: dataProtection })
     await newsletter.initializeReadOnly()
     await mediaLibrary.initialize({ migrate: false })
-    // Homologation only (test database and Mercado Pago test mode); a failure
-    // here must not take the test API down.
-    try {
-      const stage = await syncStageCustomer({ db, privacy, bcrypt, newPasswordError })
-      if (stage.status !== 'skipped') console.log('Conta de teste de homologação:', stage.status)
-    } catch (error) {
-      console.error('Conta de teste de homologação não sincronizada:', error?.code || 'STAGE_CUSTOMER_FAILED')
-    }
+    await syncHomologationCustomer()
     return { schema: 'ready' }
   })().catch(error => { runtimeReady = undefined; throw error })
 }
@@ -2870,6 +2874,7 @@ export async function startServer() {
   if (httpServer?.listening) return httpServer
   await ensureTestDatabase()
   await migrateSchema()
+  await syncHomologationCustomer()
 
   const productHealth = await query(`
     SELECT
