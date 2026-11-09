@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
 import { registerSeoRoutes } from './seo.js'
+import { instagramUrl, normalizeFooterSettings, whatsappNumber } from '../src/siteNavigation.js'
 import { registerStaticSite } from './static-site.js'
 import { cachePublicResponse, markStorefrontChanges } from './storefront-cache.js'
 import { captureConsoleErrors, createErrorLog, ERROR_EVENTS_DDL } from './error-log.js'
@@ -1947,6 +1948,12 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
 
   let setting = value
 
+  // Footer links are public: only bounded text, an Instagram profile and a phone number.
+  if (key === 'footer') {
+    if (String(value.instagram ?? '').trim() && !instagramUrl(value.instagram)) return res.status(400).json({ error:'Instagram inválido. Use @perfil ou o link do perfil no instagram.com.' })
+    if (String(value.whatsapp ?? '').trim() && !whatsappNumber(value.whatsapp)) return res.status(400).json({ error:'WhatsApp inválido. Use o número com DDD, por exemplo 11 99999-9999.' })
+    setting = normalizeFooterSettings(value)
+  }
   if (key === 'campaign_defaults') {
     const effects = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns']
     const transitions = ['fade','slide','crossfade']

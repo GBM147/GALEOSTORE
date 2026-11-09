@@ -22,9 +22,10 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   Privacidade (LGPD); Termos de Uso; Trocas e Devoluções, com o arrependimento em
   7 dias; e Entregas. O Decreto 7.962/2013 exige identificação e contato visíveis.
   Hoje `/contato`, `/privacidade`, `/termos` e `/trocas` mostram página vazia.
-- [ ] **Rodapé com links** (Técnico, junto com as páginas acima): políticas, contato, Instagram, WhatsApp e
-  formas de pagamento. Em 06/11 o rodapé ganhou Catálogo, Carrinho, Minha conta e
-  o botão "Modo leve"; faltam os links que dependem das páginas e dos dados acima.
+- [ ] **Rodapé com links** (Técnico, junto com as páginas acima): políticas e contato.
+  Em 09/11 o topo e o rodapé foram refeitos (ver "Visual — topo, menu e rodapé"); o
+  rodapé já tem Loja, Ajuda, formas de pagamento e Instagram/WhatsApp configuráveis no
+  editor (Configurações → Rodapé). Faltam só os links das páginas acima.
 - [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, publica junto com o próximo deploy.
 - [ ] **Produtos e categorias de teste na vitrine** (Donos): a produção mostra os produtos "teste" e "teste2" (R$ 50, sem categoria e sem foto) e a categoria "Nova categoria". Remover ou substituir antes de divulgar.
 - [ ] **Conteúdo da Home** (Donos): campanhas e categorias no CMS estão sem
@@ -114,6 +115,13 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   cards (antes sobrava um bloco marrom no computador); produto sem categoria não
   mostra mais "Sem categoria"; a imagem provisória de produto ganhou o monograma
   da marca. Identidade, cores e tipografia continuam as mesmas.
+- [x] **Visual — topo, menu e rodapé** (Técnico, 09/11; publica no próximo deploy):
+  topo com ícones (busca, tema, conta, sacola com contador), categorias do menu do
+  CMS com a ativa sublinhada e, no celular, um **menu lateral** que antes não existia
+  (as categorias ficavam inacessíveis). Rodapé com a marca grande, colunas Loja/Ajuda/
+  Pagamento (Pix, crédito, débito pelo Mercado Pago) e redes sociais quando
+  preenchidas. Modo escuro em preto e dourado, modo claro minimalista. Próximas
+  rodadas: Home, Catálogo/Produto e Carrinho/Pagamento.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

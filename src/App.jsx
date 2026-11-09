@@ -12,7 +12,10 @@ import { formatProductPrice, productHasPrice } from './productAvailability'
 import { loadStorefrontJson } from './storefrontData'
 import { editorialSegments, editorialType, textHighlightPath } from './editorialText'
 import { useHeroTitleFit } from './useHeroTitleFit'
-import { setLiteMode, useLiteMode } from './liteMode'
+import { useLiteMode } from './liteMode'
+import SiteHeader from './SiteHeader'
+import SiteFooter from './SiteFooter'
+import './site-chrome.css'
 
 const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
@@ -207,106 +210,6 @@ function StorefrontMotion({ homeSections, visualDefaults, campaignDefaults }) {
   return null
 }
 
-function ModeButton({ theme, onToggle }) {
-  return (
-    <button className="mode-button" type="button" onClick={onToggle} aria-label={theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}>
-      <span>Escolha do modo</span>
-      <i>{theme === 'dark' ? '☼' : '☾'}</i>
-    </button>
-  )
-}
-
-function Header({ theme, onToggle, categories = [], navigation = null, cartItemsCount = 0 }) {
-  const editor = useVisualEditor()
-  const navigate = useNavigate()
-  const searchTrigger = useRef(null)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const primaryCategories = Array.isArray(navigation?.items) && navigation.items.length ? navigation.items.slice(0, 8).map((item, index) => ({ id: 'cms-menu-' + index, name: item.label, url: item.url || '/shop' })) : MALE_CATEGORIES.slice(0, 4).map((name, index) => ({ id: 'menu-' + index, name, url: '/shop?category=' + encodeURIComponent(name) }))
-
-  function startNavigationAtTop(event) {
-    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
-    window.scrollTo({ top:0, left:0, behavior:'instant' })
-  }
-
-  function submitSearch(event) {
-    event.preventDefault()
-    if (editor?.editing) return
-    if (editor?.confirmLeave && !editor.confirmLeave()) return
-    const value = search.trim()
-    navigate(value ? '/shop?q=' + encodeURIComponent(value) : '/shop')
-    setSearchOpen(false)
-    // A header search may change only the query string while the customer is
-    // near the bottom of the catalog. Start the new results at the top.
-    window.scrollTo({ top:0, left:0, behavior:'instant' })
-  }
-
-  function handleSearchKeyDown(event) {
-    if (!searchOpen || event.key !== 'Escape') return
-    event.preventDefault()
-    setSearchOpen(false)
-    searchTrigger.current?.focus({ preventScroll:true })
-  }
-
-  return (
-    <header className="site-header" onKeyDown={handleSearchKeyDown}>
-      <Link className="brand" to="/" aria-label="Galeo Store" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>
-        <span className="brand-logo-wrap">
-          <img className="brand-logo" src="/images/galeo-logo-128.webp" width="128" height="128" alt="GALEO" />
-        </span>
-        <span className="brand-wordmark">GALEO</span>
-      </Link>
-
-      <nav className="desktop-nav" aria-label="Categorias principais">
-        {primaryCategories.map((category) => (
-          <Link key={category.id} to={category.url} data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>
-            {category.name}
-          </Link>
-        ))}
-        <Link to="/shop" data-editor-spa-link={editor ? 'true' : undefined} onClick={editor?.editing ? event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) } : startNavigationAtTop}>{editor?.editing ? 'Editar menu' : 'Catálogo'}</Link>
-      </nav>
-
-      <div className="header-actions">
-        <button
-          ref={searchTrigger}
-          className={'search-trigger' + (searchOpen ? ' is-open' : '')}
-          type="button"
-          disabled={editor?.editing}
-          onClick={() => setSearchOpen(value => !value)}
-          aria-expanded={searchOpen}
-          aria-controls={searchOpen ? 'galeo-header-search' : undefined}
-          aria-label={searchOpen ? 'Fechar busca' : 'Abrir busca'}
-          title={searchOpen ? 'Fechar busca' : 'Buscar produtos'}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="11" cy="11" r="6.5" />
-            <path d="M16 16l5 5" />
-          </svg>
-        </button>
-        <ModeButton theme={theme} onToggle={editor?.editing ? () => editor.updateSetting('storefront_visual_defaults', current => ({ ...current, theme:theme === 'dark' ? 'light' : 'dark' })) : onToggle} />
-        <Link className="bag-link" to="/carrinho" data-editor-spa-link={editor ? 'true' : undefined} aria-disabled={editor?.editing || undefined} onClick={editor?.editing ? event => event.preventDefault() : undefined}>Carrinho <span>{cartItemsCount}</span></Link>
-        <Link className="header-link" to="/conta" data-editor-spa-link={editor ? 'true' : undefined} aria-disabled={editor?.editing || undefined} onClick={editor?.editing ? event => event.preventDefault() : undefined}>Conta</Link>
-      </div>
-
-      {searchOpen && (
-        <form id="galeo-header-search" className="header-search" onSubmit={submitSearch}>
-          <div className="header-search-row">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por produto, marca ou categoria"
-              autoFocus
-              aria-label="Buscar produtos"
-            />
-            <button type="submit">Buscar ↗</button>
-          </div>
-        </form>
-      )}
-    </header>
-  )
-}
-
 function homeSectionContent(sections, key, loaded = false) {
   const section = Array.isArray(sections) ? sections.find((item) => item.key === key) : null
   return { ...(section?.content || {}), __visible: section ? section.visible !== false : !loaded }
@@ -438,20 +341,6 @@ function NotFound() {
       <Link className="text-link" to="/">Voltar ao início</Link>
     </div>
   </main>
-}
-
-function StoreFooter({ footer }) {
-  const editor = useVisualEditor()
-  const lite = useLiteMode()
-  return <footer className="site-footer">
-    <div className="site-footer-brand"><span>{footer?.brand || 'GALEO STORE'}</span><span>© {footer?.year || '2026'}</span></div>
-    <nav className="site-footer-links" aria-label="Links do rodapé">
-      <Link to="/shop">Catálogo</Link><Link to="/carrinho">Carrinho</Link><Link to="/conta">Minha conta</Link>
-      <button type="button" className="lite-mode-toggle" onClick={() => setLiteMode(!lite)}
-        title="Sem animações, vídeos automáticos e efeitos de desfoque">Modo leve: {lite ? 'ligado' : 'desligado'}</button>
-    </nav>
-    {editor?.editing && <button type="button" className="visual-editor-footer-button" onClick={() => editor.select({kind:'settings',tab:'footer'})}>Editar rodapé</button>}
-  </footer>
 }
 
 function ProductCard({ product }) {
@@ -825,9 +714,8 @@ export default function App() {
       )}
 
       {!adminRoute && (!needsHome || homeReady) && <StorefrontMotionGate homeSections={homeSections} visualDefaults={siteSettings.storefront_visual_defaults} campaignDefaults={siteSettings.campaign_defaults} />}
-      {!adminRoute && <Header
+      {!adminRoute && <SiteHeader
         theme={theme}
-        categories={categories}
         navigation={siteSettings.navigation}
         cartItemsCount={cartItemsCount}
         onToggle={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}
@@ -843,7 +731,7 @@ export default function App() {
         <Route path="/pagamento/:orderId" element={<MercadoPagoCheckout />} />
         <Route path="*" element={<NotFound />} />
       </Routes></Suspense>
-      {!adminRoute && <StoreFooter footer={siteSettings.footer} />}
+      {!adminRoute && <SiteFooter footer={siteSettings.footer} navigation={siteSettings.navigation} />}
     </div>
   )
   if (!visualMode) return storefront
