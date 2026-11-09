@@ -16,6 +16,8 @@ import { useLiteMode } from './liteMode'
 import SiteHeader from './SiteHeader'
 import SiteFooter from './SiteFooter'
 import './site-chrome.css'
+import './home.css'
+import { CheckIcon, RefreshIcon, ShieldIcon, SparkleIcon, StarIcon, TruckIcon } from './icons'
 
 const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
@@ -229,6 +231,14 @@ function HeroTitle({ text, highlight }) {
   return <span className="hero-title-mask"><EditorialTitle text={text} highlight={highlight} type="hero" /></span>
 }
 
+// Each benefit in the strip gets an icon chosen from its own text (CMS).
+const utilityIcons = [[/envio|entrega|frete/i, TruckIcon], [/segur|pagamento|pix|cart[aã]o/i, ShieldIcon], [/nov[ao]s?\b|semana|lançamento/i, SparkleIcon], [/curadoria|marca|qualidade/i, StarIcon], [/troca|devolu/i, RefreshIcon]]
+function UtilityIcon({ text }) {
+  const Icon = utilityIcons.find(([pattern]) => pattern.test(String(text || '')))?.[1] || CheckIcon
+  return <Icon className="utility-icon" />
+}
+const initialOf = value => (String(value || '').trim()[0] || '').toLocaleUpperCase('pt-BR')
+
 function Home({ products = fallbackProducts, homeSections = [], homeLoaded = false, campaignDefaults, visualDefaults }) {
   usePageMeta('')
   const editor = useVisualEditor()
@@ -271,20 +281,22 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       <div className="hero-full-media"><HeroVisual mediaUrl={hero.desktop_media_url || ''} mobileUrl={hero.mobile_media_url || ''} videoUrl={hero.video_media_url || ''} effect={effect} speed={campaignDefaults?.speed ?? campaigns.defaults?.speed ?? 'slow'} durationSeconds={campaignDefaults?.duration_seconds ?? campaigns.defaults?.duration_seconds ?? 6} editorPaused={editing} /><div className="hero-full-shade" /></div>
       <EditorMediaButton sectionKey="hero" label="Trocar imagem ou vídeo do Hero" />
       <div className="hero-full-content">
+        {hero.eyebrow && <span className="hero-eyebrow">{field('hero','eyebrow','Selo do Hero',text(hero.eyebrow,''))}</span>}
         <h1 className="hero-title"><span className="hero-title-line">{field('hero','title','Título do Hero',heroTitle)}</span></h1>
         <p>{field('hero','description','Descrição do Hero',heroDescription)}</p>
-        <div className="hero-full-actions"><EditorLink sectionKey="hero" labelPath="button_label" urlPath="button_url" className="button button-primary" to={hero.button_url || '/shop'}>{text(hero.button_label,'Explorar coleção')} <span>↗</span></EditorLink></div>
+        <div className="hero-full-actions"><EditorLink sectionKey="hero" labelPath="button_label" urlPath="button_url" className="button button-primary" to={hero.button_url || '/shop'}>{text(hero.button_label,'Explorar coleção')} <span>↗</span></EditorLink>{!editing && (hero.button_url || '/shop') !== '/shop' && <Link className="button button-ghost hero-secondary" to="/shop">Ver catálogo</Link>}</div>
       </div>
     </section>,
     utility: (editing || utility.__visible !== false) && <section data-home-section="utility" className="utility-strip section-shell" aria-label="Diferenciais">
-      {(Array.isArray(utility.items) ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}>{field('utility',['items',index],'Mensagem ' + (index + 1),item)}</span>)}
+      {(Array.isArray(utility.items) ? utility.items : ['Curadoria multimarcas','Compra segura','Envio para todo o Brasil','Novas peças toda semana']).map((item,index) => <span key={index}><UtilityIcon text={item} />{field('utility',['items',index],'Mensagem ' + (index + 1),item)}</span>)}
     </section>,
     categories: (editing || categorySection.__visible !== false) && <section data-home-section="categories" className="section-shell section-block">
       <div className="section-heading row-heading" data-reveal><div><h2>{field('categories','title','Título das categorias',text(categorySection.title,'Escolha seu movimento'))}</h2></div><EditorLink sectionKey="categories" labelPath="button_label" urlPath="button_url" className="text-link" to={categorySection.button_url || '/shop'}>{text(categorySection.button_label,'Ver catálogo')} ↗</EditorLink></div>
       <RevealGrid className="category-grid" items={categoryItems} reveal={reveal}>{categoryItems.map((item,index) => {
         const content = <>{item.media_url && <ResponsiveImage className="category-media" src={item.media_url} widths={imageWidths.card} sizes="(max-width: 700px) 50vw, 25vw" alt="" loading="lazy" decoding="async" />}<strong>{field('categories',['items',index,'title'],'Nome da categoria ' + (index + 1),text(item.title,'Categoria'))}</strong><small>Explorar ↗</small></>
-        const className = 'category-card category-card-' + (index % 3)
-        return editing ? <article key={item.id || index} className={className} onClick={() => editor.select({sectionKey:'categories',kind:'category',itemIndex:index})}>{content}<EditorMediaButton sectionKey="categories" kind="category" itemIndex={index} label={'Editar categoria ' + (index + 1)} /></article> : <Link key={item.id || index} className={className} data-editor-spa-link={editor ? 'true' : undefined} to={item.url || '/shop'}>{content}</Link>
+        const className = 'category-card category-card-' + (index % 3) + (item.media_url ? ' has-media' : '')
+        const initial = initialOf(text(item.title,'Categoria'))
+        return editing ? <article key={item.id || index} className={className} data-initial={initial} onClick={() => editor.select({sectionKey:'categories',kind:'category',itemIndex:index})}>{content}<EditorMediaButton sectionKey="categories" kind="category" itemIndex={index} label={'Editar categoria ' + (index + 1)} /></article> : <Link key={item.id || index} className={className} data-initial={initial} data-editor-spa-link={editor ? 'true' : undefined} to={item.url || '/shop'}>{content}</Link>
       })}</RevealGrid>
     </section>,
     featured_products: (editing || featured.__visible !== false) && (editing || shownProducts.length > 0) && <section data-home-section="featured_products" className="section-shell section-block featured-selection" id="destaques">
@@ -309,7 +321,7 @@ function Home({ products = fallbackProducts, homeSections = [], homeLoaded = fal
       <p>{field('manifesto','text','Texto do manifesto',text(manifesto.text,'Não seguimos o padrão\nCriamos o nosso'))}</p>
     </section>,
     newsletter: (editing || newsletter.__visible !== false) && <section data-home-section="newsletter" className="newsletter section-shell" data-reveal>
-      <div><h2>{field('newsletter','title','Título da newsletter',text(newsletter.title,'Entre para a próxima fase'))}</h2></div>
+      <div>{newsletter.eyebrow && <span className="section-eyebrow">{field('newsletter','eyebrow','Selo da newsletter',text(newsletter.eyebrow,''))}</span>}<h2>{field('newsletter','title','Título da newsletter',text(newsletter.title,'Entre para a próxima fase'))}</h2></div>
       {editing ? <div className="newsletter-signup"><div className="visual-editor-newsletter"><input type="email" placeholder="Seu melhor e-mail" aria-label="Prévia do campo de e-mail" disabled /><span>{field('newsletter','button_label','Texto do botão da newsletter',text(newsletter.button_label,'Entrar'))} ↗</span></div><small>Prévia do formulário de novidades</small></div> : <NewsletterSignup buttonLabel={text(newsletter.button_label,'Entrar')} />}
     </section>
   }

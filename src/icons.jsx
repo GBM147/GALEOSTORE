@@ -14,3 +14,9 @@ export const SunIcon = props => <svg {...base} {...props}><circle cx="12" cy="12
 export const MoonIcon = props => <svg {...base} {...props}><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
 export const ArrowIcon = props => <svg {...base} {...props}><path d="M7 17 17 7M9 7h8v8" /></svg>
 export const LiteIcon = props => <svg {...base} {...props}><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" /></svg>
+export const TruckIcon = props => <svg {...base} {...props}><path d="M3 6.5h11v9H3zM14 9.5h3.6l3.4 3.4v2.6h-7" /><circle cx="7" cy="17.5" r="1.8" /><circle cx="17" cy="17.5" r="1.8" /></svg>
+export const ShieldIcon = props => <svg {...base} {...props}><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.9 7.5-9.5V6z" /><path d="m9 12 2.2 2.2L15.5 10" /></svg>
+export const SparkleIcon = props => <svg {...base} {...props}><path d="M12 3.5 13.8 10.2 20.5 12l-6.7 1.8L12 20.5l-1.8-6.7L3.5 12l6.7-1.8z" /></svg>
+export const StarIcon = props => <svg {...base} {...props}><path d="m12 3.8 2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.7l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7z" /></svg>
+export const RefreshIcon = props => <svg {...base} {...props}><path d="M20 11a8 8 0 0 0-14.6-4.4M4 4.5V8.5h4M4 13a8 8 0 0 0 14.6 4.4M20 19.5v-4h-4" /></svg>
+export const CheckIcon = props => <svg {...base} {...props}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>

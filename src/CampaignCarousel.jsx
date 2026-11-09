@@ -7,7 +7,6 @@ import './CampaignCarousel.css'
 import { ResponsiveImage, ResponsivePicture } from './ResponsiveImage'
 import { cloudinaryVideoPoster, imageWidths } from './cloudinaryImage'
 import { useLiteMode } from './liteMode'
-import { BrandImage } from './BrandImage'
 
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
@@ -47,7 +46,7 @@ function CampaignMedia({ slide, variant, effect, active, paused, reduceMotion })
     <div className="campaign-orb" />
     <div className="campaign-line campaign-line-a" />
     <div className="campaign-line campaign-line-b" />
-    {!desktopUrl ? <BrandImage loading="lazy" />
+    {!desktopUrl ? <div className="campaign-fallback" aria-hidden="true"><span>GALEO</span></div>
       : !desktopVideo && (!hasMobile || !mobileVideo) ? <ResponsivePicture src={desktopUrl} mobileSrc={hasMobile ? mobileUrl : undefined}
         widths={imageWidths.banner} mobileWidths={imageWidths.bannerMobile} alt="" className="campaign-media " loading="lazy" decoding="async" /> : <>
         {desktopVideo
@@ -180,6 +179,7 @@ export default function CampaignCarousel({ item, variant = 1, defaults, sectionD
   return <div ref={root} className={'campaign-carousel campaign-carousel-managed' + (slides.length > 1 ? ' has-slides' : '')}
     data-testid="campaign-carousel" data-current-slide={currentIndex + 1} data-slide-count={slides.length}
     data-transition={settings.transition} data-effect={settings.effect} data-use-default={settings.use_default}
+    data-variant={variant} data-has-media={slides.some(slide => slide.desktop_url || slide.mobile_url) ? 'true' : 'false'}
     data-paused={paused} data-transitioning={transitioning}
     onPointerEnter={(event) => { if (event.pointerType !== 'touch') setHovered(true) }} onPointerLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}>

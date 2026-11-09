@@ -122,6 +122,12 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   Pagamento (Pix, crédito, débito pelo Mercado Pago) e redes sociais quando
   preenchidas. Modo escuro em preto e dourado, modo claro minimalista. Próximas
   rodadas: Home, Catálogo/Produto e Carrinho/Pagamento.
+- [x] **Visual — página inicial** (Técnico, 09/11; publica no próximo deploy): banner
+  em largura total (sem moldura, com o selo do CMS e o atalho "Ver catálogo"), faixa de
+  diferenciais com ícones, categorias compactas (2 colunas no celular, inicial da
+  categoria ao fundo quando não há foto), campanhas sem foto viram painéis da marca
+  (dourado, escuro e contorno) em vez de repetir a arte do leão, manifesto e
+  newsletter mais compactos. Lighthouse local da Home: 75 → 87, acessibilidade 100.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as
