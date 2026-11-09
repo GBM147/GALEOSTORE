@@ -539,7 +539,7 @@ export function mercadoPagoPaymentForClient(order) {
 }
 
 // dataId is the data.id of the notification URL; requestId is x-request-id.
-export function validateMercadoPagoWebhookSignature({ signature, requestId = '', dataId = '', secret }) {
+export function validateMercadoPagoWebhookSignature({ signature, requestId = '', dataId = '', secret, lowercaseId = true }) {
   const id = String(dataId ?? ''), request = String(requestId ?? '')
   if (typeof signature !== 'string' || typeof secret !== 'string' || !secret) return false
   if ((id && !/^[A-Za-z0-9_-]{1,160}$/.test(id)) || request.length > 200 || /[\s;]/.test(request)) return false
@@ -548,7 +548,7 @@ export function validateMercadoPagoWebhookSignature({ signature, requestId = '',
   // Documented template: id:[data.id from the URL];request-id:[x-request-id];ts:[ts];
   // Values absent from the notification are left out, and MP signs
   // alphanumeric IDs in lowercase even when the Order ID has uppercase letters.
-  const manifest = (id ? 'id:' + id.toLowerCase() + ';' : '') + (request ? 'request-id:' + request + ';' : '') + 'ts:' + fields.ts + ';'
+  const manifest = (id ? 'id:' + (lowercaseId ? id.toLowerCase() : id) + ';' : '') + (request ? 'request-id:' + request + ';' : '') + 'ts:' + fields.ts + ';'
   const expected = createHmac('sha256', secret).update(manifest).digest()
   const received = Buffer.from(fields.v1, 'hex')
   return received.length === expected.length && timingSafeEqual(received, expected)
