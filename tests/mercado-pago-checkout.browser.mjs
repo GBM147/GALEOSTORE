@@ -32,7 +32,8 @@ async function fixture(t, { available = true, initialPayment = null, initialStat
           document.getElementById(config.form[field].id).append(frame)
         }
         const form = document.getElementById(config.form.id)
-        const listener = event => config.callbacks.onSubmit(event)
+        // Like the real SDK, invalid card data never reaches onSubmit.
+        const listener = event => { event.preventDefault(); if (window.__mpCardError) return config.callbacks.onError?.(window.__mpCardError); config.callbacks.onSubmit(event) }
         form.addEventListener('submit', listener)
         if (sdkReady) setTimeout(() => config.callbacks.onFormMounted(), 0)
         return {
@@ -231,7 +232,9 @@ test('cartão monta três iframes e envia token e metadados sem dados brutos do 
   await page.getByRole('button', { name: 'Cartão', exact: true }).click()
   await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).waitFor()
   await page.getByLabel('Nome no cartão', { exact: true }).fill('APRO')
-  await page.getByLabel('CPF do titular', { exact: true }).fill('12345678909')
+  // A CPF typed with dots and dash is kept as digits for the SDK.
+  await page.getByLabel('CPF do titular', { exact: true }).fill('123.456.789-09')
+  assert.equal(await page.getByLabel('CPF do titular', { exact: true }).inputValue(), '12345678909')
   await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).click()
   await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
   const body = paymentPosts(calls)[0].body
@@ -253,6 +256,23 @@ test('cartão monta três iframes e envia token e metadados sem dados brutos do 
     assert.equal(style.color, '#111111')
     assert.equal(style.height, '100%')
   }
+})
+
+test('dados do cartão recusados pelo SDK aparecem na tela em vez de um botão que não responde', async t => {
+  const { page, calls } = await fixture(t)
+  await page.getByRole('button', { name: 'Cartão', exact: true }).click()
+  await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).waitFor()
+  await page.getByLabel('Nome no cartão', { exact: true }).fill('APRO')
+  await page.getByLabel('CPF do titular', { exact: true }).fill('123')
+  await page.evaluate(() => { window.__mpCardError = [{ code: '324', field: 'identificationNumber', message: 'parameter identificationNumber invalid' }, { cause: 'E302' }] })
+  await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'Confira o CPF, o código de segurança e tente de novo.' }).waitFor()
+  assert.equal(paymentPosts(calls).length, 0)
+  // Errors that do not follow a payment attempt are not shown.
+  await page.evaluate(() => { window.__mpCardError = null })
+  await page.getByRole('button', { name: 'Pagar com cartão', exact: true }).click()
+  await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
+  assert.equal(paymentPosts(calls).length, 1)
 })
 
 test('falha do SDK é visível e impede envio de cartão', async t => {

@@ -14,6 +14,31 @@ let sdkPromise
 let deviceScript
 
 // The official collector's session IDs contain dots (e.g. "armor.<hash>.<hash>").
+// The SDK refuses invalid card data before creating a token and does not call
+// onSubmit, so its errors must be shown here or the button seems to do nothing.
+const cardFieldLabels = [
+  ['cardNumber', 'o número do cartão'], ['expiration', 'a validade'], ['securityCode', 'o código de segurança'],
+  ['cardholderName', 'o nome no cartão'], ['identification', 'o CPF']
+]
+const cardErrorCodes = { 205: 'o número do cartão', E301: 'o número do cartão', 208: 'a validade', 209: 'a validade', 325: 'a validade', 326: 'a validade', 212: 'o CPF', 213: 'o CPF', 214: 'o CPF', 322: 'o CPF', 323: 'o CPF', 324: 'o CPF', 221: 'o nome no cartão', 316: 'o nome no cartão', 224: 'o código de segurança', E302: 'o código de segurança', E203: 'o código de segurança' }
+export function cardDataError(error) {
+  const found = new Set(), seen = new Set()
+  const visit = value => {
+    if (value == null || seen.has(value)) return
+    if (typeof value === 'object') seen.add(value)
+    if (Array.isArray(value)) return value.forEach(visit)
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value)
+      if (cardErrorCodes[text]) found.add(cardErrorCodes[text])
+      for (const [key, label] of cardFieldLabels) if (text.includes(key)) found.add(label)
+      return
+    }
+    if (typeof value === 'object') for (const key of ['field', 'code', 'cause', 'message', 'description', 'fieldErrors', 'error', 'errors']) visit(value[key])
+  }
+  visit(error)
+  return found.size ? 'Confira ' + [...found].join(', ') + ' e tente de novo.' : 'Confira os dados do cartão e tente de novo.'
+}
+
 function currentDeviceId() {
   const value = window.MP_DEVICE_SESSION_ID
   return typeof value === 'string' && /^[A-Za-z0-9._-]{6,512}$/.test(value) ? value : ''
@@ -162,7 +187,15 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
   }, [lockedMethod])
 
   useEffect(() => {
-    let disposed = false, mountTimer, controller, formReady = false
+    let disposed = false, mountTimer, controller, formReady = false, attemptedAt = 0
+    const form = document.getElementById(id)
+    const markAttempt = () => { attemptedAt = Date.now() }
+    // Errors right after "Pagar com cartão" are about the data typed by the buyer.
+    const showCardError = error => {
+      if (disposed || !formReady || Date.now() - attemptedAt > 15000) return
+      attemptedAt = 0
+      setError(cardDataError(error))
+    }
     setMounted(false)
     setError('')
     function failed() {
@@ -193,6 +226,11 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
             cardholderEmail: { id: id + '-email' }
           },
           callbacks: {
+            onCardTokenReceived: (error, token) => {
+              if (error) showCardError(error)
+              return token
+            },
+            onError: showCardError,
             onFormMounted: error => {
               if (disposed) return
               if (error) return failed()
@@ -228,6 +266,7 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
           }
         })
         cardForm.current = controller
+        form?.addEventListener('submit', markAttempt, true)
         mountTimer = window.setTimeout(() => { if (!disposed && !formReady) failed() }, 8000)
       } catch { failed() }
     }
@@ -235,6 +274,7 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
     return () => {
       disposed = true
       window.clearTimeout(mountTimer)
+      form?.removeEventListener('submit', markAttempt, true)
       if (cardForm.current === controller) cardForm.current = null
       try { controller?.unmount?.() } catch {}
     }
@@ -248,7 +288,8 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
       <div className="mp-secure-field" role="group" aria-labelledby={id + '-securityCode-label'}><span id={id + '-securityCode-label'}>Código de segurança</span><div className="mp-secure-input" id={id + '-securityCode'} data-mp-secure-field="securityCode" aria-labelledby={id + '-securityCode-label'} /></div>
     </div>
     <label>Nome no cartão<input id={id + '-name'} autoComplete="cc-name" required /></label>
-    <label>CPF do titular<input id={id + '-identificationNumber'} inputMode="numeric" autoComplete="off" maxLength={14} required /></label>
+    <label>CPF do titular<input id={id + '-identificationNumber'} inputMode="numeric" autoComplete="off" maxLength={14} required
+      onInput={event => { const digits = event.currentTarget.value.replace(/\D/g, '').slice(0, 11); if (digits !== event.currentTarget.value) event.currentTarget.value = digits }} /></label>
     <input id={id + '-email'} type="email" value={order.customer_email || order.email || ''} readOnly hidden />
     <select id={id + '-issuer'} data-mp-sdk-required-field="issuer" hidden aria-hidden="true" tabIndex={-1} />
     <select id={id + '-installments'} data-mp-sdk-required-field="installments" hidden aria-hidden="true" tabIndex={-1} />
