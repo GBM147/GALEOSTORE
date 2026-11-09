@@ -253,7 +253,8 @@ test('cartão monta três iframes e envia token e metadados sem dados brutos do 
   for (const field of ['issuer', 'installments', 'identificationType']) assert.ok(configuration.fields.includes(field))
   for (const style of configuration.secureFieldStyles) {
     assert.equal(style.fontSize, '16px')
-    assert.equal(style.color, '#111111')
+    // The page opens in the dark theme: light text on the dark field box.
+    assert.equal(style.color, '#f2eadb')
     assert.equal(style.height, '100%')
   }
 })
@@ -321,6 +322,34 @@ test('challenge aceita somente HTTPS do Mercado Pago e nunca HTML do provedor', 
   await page.getByRole('button', { name: 'Conferir pagamento', exact: true }).click()
   assert.equal(await page.getByRole('link', { name: 'Confirmar no Mercado Pago', exact: true }).getAttribute('href'), 'https://www.mercadopago.com.br/3ds/local-fixture')
   assert.equal(paymentPosts(calls).length, 0)
+})
+
+test('campos seguros seguem o tema e são montados de novo quando o tema muda', async t => {
+  const { page } = await fixture(t, { width: 1280 })
+  await page.getByRole('button', { name: 'Cartão', exact: true }).click()
+  const pay = page.getByRole('button', { name: 'Pagar com cartão', exact: true })
+  await page.waitForFunction(() => window.__mpSdkConfigurations.length > 0)
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === 'Pagar com cartão' && !button.disabled))
+  assert.ok((await page.evaluate(() => window.__mpSdkConfigurations.at(-1).secureFieldStyles)).every(style => style.color === '#f2eadb'))
+  const box = await page.locator('.mp-secure-input').first().evaluate(node => ({ scheme: getComputedStyle(node).colorScheme, radius: parseFloat(getComputedStyle(node).borderTopLeftRadius), height: node.getBoundingClientRect().height }))
+  assert.equal(box.scheme, 'light', 'o iframe precisa do esquema claro para continuar transparente no modo escuro')
+  assert.ok(box.radius >= 8 && box.height >= 50)
+  const mounts = await page.evaluate(() => window.__mpSdkConfigurations.length)
+  await page.getByRole('button', { name: 'Ativar modo claro', exact: true }).click()
+  await page.waitForFunction(count => window.__mpSdkConfigurations.length > count, mounts)
+  assert.ok((await page.evaluate(() => window.__mpSdkConfigurations.at(-1).secureFieldStyles)).every(style => style.color === '#1a1510'))
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === 'Pagar com cartão' && !button.disabled))
+  assert.equal(await page.locator('.mp-secure-input iframe').count(), 3)
+  assert.equal(await pay.isEnabled(), true)
+})
+
+test('etapas mostram o pagamento como passo atual e as abas têm ícones', async t => {
+  const { page } = await fixture(t, { width: 320 })
+  const steps = page.getByRole('list', { name: 'Etapas da compra', exact: true })
+  assert.equal(await steps.locator('[aria-current="step"]').textContent(), '2Pagamento')
+  assert.match(await steps.locator('li').first().textContent(), /Carrinho \(concluída\)/)
+  for (const name of ['Pix', 'Cartão']) assert.equal(await page.getByRole('button', { name, exact: true }).locator('svg[aria-hidden="true"]').count(), 1)
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
 })
 
 test('campos permanecem legíveis sem overflow em 390px', async t => {

@@ -1,0 +1,42 @@
+/* Purchase steps: numbered marks joined by a line; done steps get a check. */
+.checkout-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 clamp(20px, 3vw, 32px);
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.checkout-steps li { display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; }
+.checkout-steps li + li::before { content: ""; flex: 0 0 clamp(16px, 4vw, 48px); height: 1px; margin-right: 2px; background: var(--line); }
+.checkout-step-mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--text) 30%, transparent);
+  border-radius: 50%;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.checkout-step-mark svg { width: 15px; height: 15px; }
+.checkout-steps .is-current { color: var(--text); }
+.checkout-steps .is-current .checkout-step-mark { border-color: var(--accent-soft); background: var(--accent-soft); color: #0b0906; }
+.checkout-steps .is-done { color: var(--text); }
+.checkout-steps .is-done .checkout-step-mark { border-color: var(--accent-soft); color: var(--accent-soft); }
+:root[data-theme="light"] .checkout-steps .is-current .checkout-step-mark { border-color: var(--text); background: var(--text); color: var(--bg); }
+:root[data-theme="light"] .checkout-steps .is-done .checkout-step-mark { border-color: var(--accent-deep); color: var(--accent-deep); }
+.checkout-step-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Phones: only the current step keeps its name on screen (the others stay
+   available to screen readers). */
+@media (max-width: 520px) {
+  .checkout-steps { gap: 8px; }
+  .checkout-steps li + li::before { flex-basis: 20px; }
+  .checkout-steps li:not(.is-current) .checkout-step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

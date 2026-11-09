@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { customerApi } from './storeApi'
 import usePostalCodeAddress from './usePostalCodeAddress'
 import './mercado-pago-checkout.css'
+import CheckoutSteps from './CheckoutSteps'
+import { CardIcon, LockIcon, QrIcon } from './icons'
 import { usePageMeta } from './pageMeta'
 
 const money = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -166,6 +168,27 @@ function BuyerAddressFields({ useShipping, changeUseShipping, form, setForm, dis
   </fieldset>
 }
 
+// Text colors inside the secure fields; their boxes follow the page theme.
+const secureFieldColors = {
+  dark: { color: '#f2eadb', placeholderColor: '#a59d91' },
+  light: { color: '#1a1510', placeholderColor: '#6f665a' }
+}
+
+function readDocumentTheme() {
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
+}
+
+function useDocumentTheme() {
+  const [theme, setTheme] = useState(readDocumentTheme)
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(readDocumentTheme()))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    setTheme(readDocumentTheme())
+    return () => observer.disconnect()
+  }, [])
+  return theme
+}
+
 function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialMethod, lockedMethod }) {
   const id = 'galeo-mp-' + useId().replace(/[^\w-]/g, '')
   const cardForm = useRef(null)
@@ -178,9 +201,11 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const secureFields = ['cardNumber', 'expirationDate', 'securityCode']
-  // CardFormMap.style applies inside Mercado Pago's cross-origin iframes;
-  // the application's form CSS cannot set the text size in those documents.
-  const secureFieldStyle = { fontSize: '16px', fontFamily: 'Roboto, Arial, sans-serif', fontWeight: '400', color: '#111111', placeholderColor: '#555555', height: '100%' }
+  const theme = useDocumentTheme()
+  // CardFormMap.style applies inside Mercado Pago's cross-origin iframes; the
+  // application's CSS cannot set the text size or color in those documents, so
+  // the fields are mounted again when the theme changes.
+  const secureFieldStyle = { fontSize: '16px', fontFamily: 'Roboto, Arial, sans-serif', fontWeight: '400', height: '100%', ...secureFieldColors[theme] }
 
   useEffect(() => {
     if (lockedMethod === 'credit_card' || lockedMethod === 'debit_card') setCardType(lockedMethod)
@@ -278,7 +303,7 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
       if (cardForm.current === controller) cardForm.current = null
       try { controller?.unmount?.() } catch {}
     }
-  }, [publicKey, order.total, id, retry])
+  }, [publicKey, order.total, id, retry, theme])
 
   return <form id={id} className="mp-payment-form" onSubmit={event => event.preventDefault()} data-mp-public-key-source="runtime-endpoint" data-mp-payer-email-source="application" data-mp-payer-identification-source="form" data-mp-identification-type="CPF">
     {methods.includes('credit_card') && methods.includes('debit_card') && <fieldset className="mp-card-types"><legend>Tipo de cartão</legend>{[['credit_card', 'Crédito'], ['debit_card', 'Débito']].map(([value, label]) => <label key={value}><input type="radio" name={id + '-type'} value={value} checked={cardType === value} disabled={disabled || Boolean(lockedMethod)} onChange={() => setCardType(value)} />{label}</label>)}</fieldset>}
@@ -476,11 +501,13 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
   const validExpiry = expiry && Number.isFinite(expiry.getTime()) ? expiry.toLocaleString('pt-BR') : ''
 
   return <main className="section-shell page-space mp-checkout-page">
+    <CheckoutSteps current={2} />
     <section className="mp-checkout-card" aria-labelledby="mp-checkout-title">
       <h1 id="mp-checkout-title">Pagamento</h1>
-      {(snapshot?.order?.code || initialOrder?.code) && <p>Pedido <strong>{snapshot?.order?.code || initialOrder.code}</strong></p>}
+      {(snapshot?.order?.code || initialOrder?.code) && <p className="mp-order-code">Pedido <strong>{snapshot?.order?.code || initialOrder.code}</strong></p>}
       {loading ? <p role="status">Carregando pagamento…</p> : <>
         {snapshot?.order && <div className="mp-checkout-total"><span>Total do pedido</span><strong>{money(snapshot.order.total)}</strong></div>}
+        {snapshot?.order && <p className="mp-secure-note"><LockIcon /><span>Pagamento seguro processado pelo Mercado Pago</span></p>}
         {config?.mode === 'test' && <p className="mp-test-notice" role="status">Compra de teste — sem cobrança real.</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
         {!snapshot ? <div className="mp-payment-form"><button className="button button-ghost" type="button" onClick={() => setLoadRevision(value => value + 1)}>Carregar pagamento novamente</button><Link className="button button-ghost" to="/conta">Acessar minha conta</Link></div> : status === 'APPROVED' ? <div role="status"><h2>Pagamento aprovado</h2><p>Seu pedido está confirmado. Você pode acompanhá-lo na sua conta.</p></div> : status === 'REFUNDED' ? <div role="status"><h2>Pagamento estornado</h2><p>Acompanhe o estorno pelo Mercado Pago.</p></div> : cancelledOrder ? <div role="status"><h2>Pedido cancelado</h2><p>Este pedido não pode receber novos pagamentos.</p></div> : !config?.available ? <p role="status">O pagamento online ainda está sendo preparado pela loja. Você pode acompanhar seu pedido na sua conta.</p> : waiting ? <div className="mp-pending-payment">
@@ -499,8 +526,8 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
           {status === 'CANCELLED' && <p role="status">A tentativa anterior foi cancelada. Escolha a forma de pagamento para tentar novamente.</p>}
           <BuyerAddressFields useShipping={useShippingAddress} changeUseShipping={setUseShippingAddress} form={buyerAddress} setForm={setBuyerAddress} disabled={submitting || uncertain} />
           <div className="mp-method-tabs" role="group" aria-label="Forma de pagamento">
-            {config.methods?.includes('pix') && <button type="button" aria-pressed={method === 'pix'} disabled={submitting || uncertain} onClick={() => setMethod('pix')}>Pix</button>}
-            {cardMethods.length > 0 && <button type="button" aria-pressed={method === 'card'} disabled={submitting || uncertain} onClick={() => setMethod('card')}>Cartão</button>}
+            {config.methods?.includes('pix') && <button type="button" aria-pressed={method === 'pix'} disabled={submitting || uncertain} onClick={() => setMethod('pix')}><QrIcon />Pix</button>}
+            {cardMethods.length > 0 && <button type="button" aria-pressed={method === 'card'} disabled={submitting || uncertain} onClick={() => setMethod('card')}><CardIcon />Cartão</button>}
           </div>
           {method === 'pix' ? <form className="mp-payment-form" onSubmit={event => { event.preventDefault(); submit({ method: 'pix', identification: { type: 'CPF', number: cpf.replace(/\D/g, '') } }) }}>
             <label>CPF do comprador<input value={cpf} onChange={event => setCpf(event.target.value)} inputMode="numeric" autoComplete="off" maxLength={14} required /></label>

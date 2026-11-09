@@ -140,6 +140,16 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   também pode gostar" usa o mesmo card do catálogo, com imagem responsiva. Corrigida a
   ordem do CSS da Home: títulos de seção e cards agora usam os tamanhos da rodada
   anterior (o título do banner mantém o peso leve). Próxima rodada: Carrinho/Pagamento.
+- [x] **Visual — carrinho e pagamento** (Técnico, 09/11; publica no próximo deploy):
+  etapas da compra (Carrinho → Pagamento → Confirmação) no carrinho e no pagamento.
+  Carrinho com itens, entrega e endereço à esquerda e um **resumo do pedido** fixo à
+  direita (embaixo no celular), com total em destaque, botão "Solicitar pedido" e a
+  linha "Pagamento seguro — Pix, crédito ou débito pelo Mercado Pago". Pagamento em
+  cartão arredondado, total em caixa própria, Pix/Cartão como seletor com ícones e os
+  **campos seguros do Mercado Pago no tema da loja** (antes eram caixas brancas no modo
+  escuro); ao trocar o tema, os campos seguros são montados de novo com a cor certa.
+  Conferido com o SDK real do Mercado Pago nos dois temas. Os logotipos oficiais do
+  Mercado Pago e do Pix podem entrar depois, com os arquivos oficiais das marcas.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

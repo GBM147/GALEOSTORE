@@ -20,3 +20,6 @@ export const SparkleIcon = props => <svg {...base} {...props}><path d="M12 3.5 1
 export const StarIcon = props => <svg {...base} {...props}><path d="m12 3.8 2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.7l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7z" /></svg>
 export const RefreshIcon = props => <svg {...base} {...props}><path d="M20 11a8 8 0 0 0-14.6-4.4M4 4.5V8.5h4M4 13a8 8 0 0 0 14.6 4.4M20 19.5v-4h-4" /></svg>
 export const CheckIcon = props => <svg {...base} {...props}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+export const LockIcon = props => <svg {...base} {...props}><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" /></svg>
+export const CardIcon = props => <svg {...base} {...props}><rect x="3" y="5.5" width="18" height="13" rx="2" /><path d="M3 10h18M7 15h4" /></svg>
+export const QrIcon = props => <svg {...base} {...props}><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" /><path d="M14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 18.5V20M20 14v1.5" /></svg>
