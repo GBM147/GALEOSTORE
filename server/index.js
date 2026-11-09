@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
 import { registerSeoRoutes } from './seo.js'
+import { registerStaticSite } from './static-site.js'
 import { cachePublicResponse, markStorefrontChanges } from './storefront-cache.js'
 import { captureConsoleErrors, createErrorLog, ERROR_EVENTS_DDL } from './error-log.js'
 import { createDataProtection } from './data-protection.js'
@@ -2755,7 +2756,10 @@ registerExpenseManagement(app, { db, query, audit, exigirLogin, insertPrivateBus
 const dist = path.join(serverDirectory, '..', 'dist')
 const mediaLibrary = registerMediaLibrary(app, { db, query, audit, exigirLogin, exigirOwner, mediaUpload, enviarParaCloudinary, cloudinaryConfigurado, cloudinary, schemaManaged: serverless, serverless, deferBackgroundPromise })
 app.use('/api', (req, res) => res.status(404).json({ success: false, error: 'Endpoint não encontrado.' }))
-if (!serverless) {
+if (!serverless && NODE_ENV === 'production') {
+  // Hosted outside Netlify (Render test copy): same headers and payment nonce.
+  registerStaticSite(app, { dist, configFile: path.join(serverDirectory, '..', 'netlify.toml') })
+} else if (!serverless) {
 app.use(express.static(dist, {
   setHeaders(res, filePath) {
     if (String(filePath).endsWith('/index.html')) {
