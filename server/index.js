@@ -2848,9 +2848,27 @@ export async function closeRuntime() {
   await db.end()
 }
 
+// A test copy may start on a server without its database (Render test copy):
+// create it first. Only names ending in _test, never a production database.
+async function ensureTestDatabase() {
+  if (process.env.DB_CREATE_TEST_DATABASE !== 'true') return
+  const name = String(process.env.DB_NAME || '')
+  if (!/^[A-Za-z0-9_]{1,58}_test$/.test(name)) {
+    throw Object.assign(new Error('DB_CREATE_TEST_DATABASE só vale para bancos terminados em _test.'), { code: 'TEST_DATABASE_NAME_INVALID' })
+  }
+  const { database, waitForConnections, connectionLimit, maxIdle, idleTimeout, queueLimit, ...serverConfig } = dbConfig
+  const connection = await mysql.createConnection(serverConfig)
+  try {
+    await connection.query('CREATE DATABASE IF NOT EXISTS `' + name + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+  } finally {
+    await connection.end()
+  }
+}
+
 export async function startServer() {
   if (serverless) throw new Error('O runtime serverless não inicia um servidor persistente.')
   if (httpServer?.listening) return httpServer
+  await ensureTestDatabase()
   await migrateSchema()
 
   const productHealth = await query(`
