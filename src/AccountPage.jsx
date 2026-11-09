@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { customerApi } from './storeApi'
 import { usePageMeta } from './pageMeta'
+import './account.css'
 
 const dateTime = (value) => value ? new Date(value).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : '—'
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
+const paymentLabels = { PENDING:'Aguardando pagamento', APPROVED:'Aprovado', REJECTED:'Recusado', CANCELLED:'Cancelado', REFUNDED:'Estornado' }
 const verificationTokenFromHash = (hash) => /^#verify=([a-f0-9]{64})$/i.exec(hash)?.[1] || ''
 
 export default function AccountPage() {
@@ -182,9 +184,9 @@ export default function AccountPage() {
   if (!user) {
     return (
       <main className="section-shell account-page page-space">
-        <div className="page-heading"><h1>{mode === 'login' ? 'Entre na sua conta' : mode === 'register' ? 'Crie sua conta' : 'Confirme seu e-mail'}</h1><p>{mode === 'verify' ? 'Digite sua senha para confirmar que este e-mail é seu' : mode === 'pending' ? 'Abra o link enviado para seu e-mail antes de acessar a conta' : 'Guarde seus dados e acompanhe seus pedidos em um só lugar'}</p></div>
+        <div className="page-heading account-auth-heading"><span className="section-eyebrow">Minha conta</span><h1>{mode === 'login' ? 'Entre na sua conta' : mode === 'register' ? 'Crie sua conta' : 'Confirme seu e-mail'}</h1><p>{mode === 'verify' ? 'Digite sua senha para confirmar que este e-mail é seu' : mode === 'pending' ? 'Abra o link enviado para seu e-mail antes de acessar a conta' : 'Guarde seus dados e acompanhe seus pedidos em um só lugar'}</p></div>
         <div className="account-auth">
-          <div className="account-auth-tabs"><button className={mode==='login'?'active':''} type="button" disabled={saving} onClick={() => chooseMode('login')}>Entrar</button><button className={mode==='register'?'active':''} type="button" disabled={saving} onClick={() => chooseMode('register')}>Criar conta</button></div>
+          <div className="account-auth-tabs"><button className={mode==='login'?'active':''} type="button" aria-pressed={mode==='login'} disabled={saving} onClick={() => chooseMode('login')}>Entrar</button><button className={mode==='register'?'active':''} type="button" aria-pressed={mode==='register'} disabled={saving} onClick={() => chooseMode('register')}>Criar conta</button></div>
           {mode === 'login' ? (
             <form className="account-form" onSubmit={login}>
               <label>E-mail<input type="email" autoComplete="email" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm,email:e.target.value})} required /></label>
@@ -236,22 +238,37 @@ export default function AccountPage() {
 
   return (
     <main className="section-shell account-page page-space">
-      <div className="page-heading"><h1>{user.name}</h1><p>{user.email}</p></div>
+      <div className="page-heading account-heading">
+        <div><span className="section-eyebrow">Minha conta</span><h1>{user.name}</h1><p>{user.email}</p></div>
+        <button className="account-logout" type="button" onClick={logout}>Sair da conta</button>
+      </div>
       <div className="account-layout">
-        <section className="account-profile-card">
-          <div className="account-card-heading"><h2>Perfil</h2></div>
+        <section className="account-orders-card" aria-labelledby="account-orders-title">
+          <div className="account-card-heading"><h2 id="account-orders-title">Meus pedidos</h2>{orders.length > 0 && <span>{orders.length === 1 ? '1 pedido' : orders.length + ' pedidos'}</span>}</div>
+          {!orders.length ? <div className="empty-catalog"><h3>Nenhum pedido ainda</h3><p>Quando você fizer um pedido, ele aparecerá aqui</p><Link className="text-link" to="/shop">Explorar catálogo ↗</Link></div> : <div className="account-orders-list">{orders.map((order) => (
+            <article className="account-order" key={order.id}>
+              <div className="account-order-head">
+                <div className="account-order-id"><strong>{order.code}</strong><span>{dateTime(order.created_at)}</span></div>
+                <span className="account-order-status">{order.status_label || order.status}</span>
+                <strong className="account-order-total">{money(order.total)}</strong>
+              </div>
+              <p className="account-order-items">{(order.items || []).map((item) => item.name + (item.size_label ? ' — tamanho ' + item.size_label : '') + ' × ' + item.quantity).join(' · ')}</p>
+              <div className="account-order-foot">
+                <span className="account-payment" data-status={order.payment_status || 'UNKNOWN'}>Pagamento: {paymentLabels[order.payment_status] || 'Aguardando confirmação'}</span>
+                {order.payment_available && <Link className="button button-primary account-pay" to={'/pagamento/' + order.id} reloadDocument>Continuar pagamento</Link>}
+              </div>
+            </article>
+          ))}</div>}
+        </section>
+        <section className="account-profile-card" aria-labelledby="account-profile-title">
+          <div className="account-card-heading"><h2 id="account-profile-title">Perfil</h2></div>
           <form className="account-form" onSubmit={saveProfile}>
             <label>Nome<input value={profile.name} onChange={(e) => setProfile({...profile,name:e.target.value})} required /></label>
             <label>Telefone<input value={profile.phone} onChange={(e) => setProfile({...profile,phone:e.target.value})} /></label>
             {error && <p className="form-error">{error}</p>}
             {success && <p className="form-success">{success}</p>}
             <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar dados ↗'}</button>
-            <button className="text-button" type="button" onClick={logout}>Sair da conta</button>
           </form>
-        </section>
-        <section className="account-orders-card">
-          <div className="account-card-heading"><h2>Meus pedidos</h2></div>
-          {!orders.length ? <div className="empty-catalog"><h2>Nenhum pedido ainda</h2><p>Quando você fizer um pedido, ele aparecerá aqui</p><Link className="text-link" to="/shop">Explorar catálogo ↗</Link></div> : <div className="account-orders-list">{orders.map((order) => <article className="account-order" key={order.id}><div><span>{order.code}</span><strong>{dateTime(order.created_at)}</strong></div><div><span>{order.status_label || order.status}</span><strong>{money(order.total)}</strong></div><small>{(order.items || []).map((item) => item.name + (item.size_label ? ' — tamanho ' + item.size_label : '') + ' × ' + item.quantity).join(' · ')}</small><p>Pagamento: {({PENDING:'Aguardando pagamento',APPROVED:'Aprovado',REJECTED:'Recusado',CANCELLED:'Cancelado',REFUNDED:'Estornado'})[order.payment_status] || 'Aguardando confirmação'}</p>{order.payment_available && <Link className="button button-primary" to={'/pagamento/' + order.id} reloadDocument>Continuar pagamento</Link>}</article>)}</div>}
         </section>
       </div>
     </main>

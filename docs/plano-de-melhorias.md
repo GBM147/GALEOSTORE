@@ -150,6 +150,12 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   escuro); ao trocar o tema, os campos seguros são montados de novo com a cor certa.
   Conferido com o SDK real do Mercado Pago nos dois temas. Os logotipos oficiais do
   Mercado Pago e do Pix podem entrar depois, com os arquivos oficiais das marcas.
+- [x] **Visual — Minha conta** (Técnico, 09/11; publica no próximo deploy): nome menor
+  com o selo "Minha conta" e "Sair da conta" no topo; **pedidos primeiro** (o Perfil vai
+  para a lateral, e abaixo no celular), cada um em linhas compactas com código, data,
+  status em pílula, total e o pagamento como selo com bolinha colorida (aguardando,
+  aprovado, recusado); "Continuar pagamento" compacto. Entrar/Criar conta em cartão
+  arredondado, com seletor de abas (a ativa anunciada para leitores de tela).
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as
