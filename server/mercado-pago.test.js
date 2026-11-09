@@ -652,6 +652,9 @@ test('webhook signature accepts the Orders ID as sent, as Mercado Pago signs it'
   assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret, idCase: 'lower' }), false)
   assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01OTHER', secret }), false)
   assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret: 'other-secret' }), false)
+  // Test and production modes may each sign with their own secret.
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret: 'other-secret, ' + secret }), true)
+  assert.equal(validateMercadoPagoWebhookSignature({ signature: original, requestId, dataId: 'ORDTST01LOCAL', secret: ' , ' }), false)
 })
 
 test('webhook signature normalizes alphanumeric Orders IDs and rejects malformed signatures', () => {

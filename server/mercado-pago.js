@@ -551,11 +551,14 @@ export function validateMercadoPagoWebhookSignature({ signature, requestId = '',
   // included, 09/11/2026) are signed with the ID as sent. Both forms need the secret.
   const received = Buffer.from(fields.v1, 'hex')
   const variants = idCase === 'lower' ? [id.toLowerCase()] : idCase === 'original' ? [id] : [...new Set([id.toLowerCase(), id])]
-  return variants.some(value => {
+  // The panel's test and production webhook modes can each have their own
+  // secret; several may be configured separated by commas.
+  const secrets = secret.split(',').map(value => value.trim()).filter(Boolean)
+  return secrets.some(key => variants.some(value => {
     const manifest = (value ? 'id:' + value + ';' : '') + (request ? 'request-id:' + request + ';' : '') + 'ts:' + fields.ts + ';'
-    const expected = createHmac('sha256', secret).update(manifest).digest()
+    const expected = createHmac('sha256', key).update(manifest).digest()
     return received.length === expected.length && timingSafeEqual(received, expected)
-  })
+  }))
 }
 
 // Point remains an independent integration. Online test mode never selects
