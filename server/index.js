@@ -1715,6 +1715,8 @@ app.post('/api/integrations/mercado-pago/webhook', async (req,res) => {
     if(!dataId) return res.status(200).json({received:true,ignored:true})
     const mpOrder=await getMercadoPagoOrder(dataId)
     const result=await processarNotificacaoMercadoPago({eventId,eventType,mpOrder,allowPendingBinding:true})
+    // Test mode only: proof that signed notifications arrive, without identifiers.
+    if (process.env.MERCADO_PAGO_MODE==='test') console.log('Webhook Mercado Pago aceito:',JSON.stringify({type:eventType,action:String(req.body?.action||'').slice(0,40),order_status:String(mpOrder?.status||'').slice(0,30)}))
     return res.status(200).json({received:true,...result})
   } catch(error) {
     console.error('Erro no webhook Mercado Pago:',error?.code || 'PAYMENT_CONFIRMATION_FAILED')
