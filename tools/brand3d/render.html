@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>GALEO 3D render</title>
+  <style>html, body { margin: 0; background: #202020; }</style>
+</head>
+<body>
+  <!-- Development-only page: scripts/render-logo-3d.mjs renders the 3D logo files here. -->
+  <script type="module">
+    import { createGaleoScene } from '/src/brand3d/galeoScene.js'
+    window.renderGaleo = async ({ width, height, background = null, includeName = true, pose = { x: 0.05, y: -0.3 }, zoom = 1, type = 'image/png', quality = 0.92 }) => {
+      const canvas = document.createElement('canvas')
+      const scene = await createGaleoScene(canvas, { width, height, background, includeName, preserveDrawingBuffer: true })
+      scene.setPose(pose)
+      scene.camera.position.z /= zoom
+      scene.render()
+      const url = canvas.toDataURL(type, quality)
+      scene.dispose()
+      return url
+    }
+    window.galeoReady = true
+  </script>
+</body>
+</html>

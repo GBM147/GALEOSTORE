@@ -181,6 +181,17 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   dourado** escolhidas com um toque. Efeitos com nomes simples (Aproximação lenta,
   Profundidade ao rolar, Esmaecer…). Corrigido o ajuste do título da capa, que lia
   tamanhos atrasados com a regra de movimento reduzido.
+- [x] **Logo GALEO em 3D** (Técnico, 10/11; publica no próximo deploy): medalha de ouro
+  com o leão e o galo no esmalte preto, aro em relevo e "G" no verso, e o nome GALEO em
+  letras douradas extrudadas (fonte Cinzel, licença OFL), com o friso e o losango.
+  Arquivos em alta para redes e materiais: PNG 2048 px transparente e com fundo preto, e
+  só a medalha em 1024 px (foto de perfil); geram-se de novo com
+  `node scripts/render-logo-3d.mjs` com o Vite ligado. No site: topo, rodapé, ícone da aba
+  e imagem de compartilhamento com a medalha 3D; na capa sem foto, a medalha **balança
+  devagar e inclina com o mouse** no computador. O three.js (150 KB comprimidos) é baixado
+  à parte só no computador e depois da página pronta; celular, Modo leve e movimento
+  reduzido ficam com a imagem 3D fixa. A arte original do círculo tem só ~540 px: com o
+  arquivo original do logo em alta, a medalha fica mais nítida.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

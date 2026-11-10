@@ -26,16 +26,13 @@
 :root[data-theme="light"] .app > .site-header.is-scrolled { box-shadow: 0 6px 20px rgba(17, 17, 17, .07); }
 
 .brand { display: inline-flex; align-items: center; gap: 12px; width: fit-content; color: var(--text); }
+/* The logo is the 3D gold medallion (transparent), so no extra circle. */
 .brand-logo-wrap {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 50%;
-  background: #050505;
+  width: 44px;
+  height: 44px;
 }
-.brand-logo { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 46%; }
+.brand-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand-wordmark { color: var(--accent-soft); font-size: 16px; font-weight: 800; letter-spacing: .24em; }
 :root[data-theme="light"] .brand-wordmark { color: var(--text); }
 
@@ -266,7 +263,7 @@ html.menu-open { overflow: hidden; }
 .site-footer-grid a { display: inline-flex; align-items: center; min-height: 36px; color: var(--muted); font-size: 14px; transition: color .2s ease; }
 .site-footer-grid a:hover { color: var(--text); }
 .site-footer-about { display: grid; align-content: start; gap: 14px; }
-.site-footer-about img { width: 56px; height: 56px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 50%; }
+.site-footer-about img { width: 60px; height: 60px; object-fit: contain; }
 .site-footer-about p { margin: 0; font-size: 14px; line-height: 1.6; }
 .site-footer-about strong { display: block; color: var(--text); font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
 .site-footer-grid .payment-badges { display: flex; flex-wrap: wrap; gap: 8px; }

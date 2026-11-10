@@ -4,7 +4,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { ResponsiveImage, ResponsivePicture } from './ResponsiveImage'
 import { cloudinaryImageUrl, cloudinaryVideoPoster, imageWidths } from './cloudinaryImage'
 import { useLiteMode } from './liteMode'
-import { BrandImage } from './BrandImage'
+import BrandMedallion from './brand3d/BrandMedallion'
 
 const motions = {
   zoom: [{ scale: 1 }, { scale: 1.055 }],
@@ -127,7 +127,7 @@ export default function HeroVisual({ mediaUrl = '', mobileUrl = '', videoUrl = '
         preload={canPlayVideo ? 'metadata' : 'none'} />
       {mobileUrl && <ResponsiveImage src={mobileUrl} widths={imageWidths.bannerMobile} sizes="100vw" alt={alt} className="campaign-media campaign-mobile-image" loading="eager" fetchPriority="high" decoding="async" />}
     </> : imageUrl ? <ResponsivePicture src={imageUrl} mobileSrc={mobileUrl || undefined} widths={imageWidths.banner} mobileWidths={imageWidths.bannerMobile}
-      alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" /> : <BrandImage fetchPriority="high" />}
+      alt={alt} className="campaign-media" loading="eager" fetchPriority="high" decoding="async" /> : <BrandMedallion fetchPriority="high" />}
     <div className="campaign-scan" />
   </div>
 }
