@@ -4,7 +4,10 @@ import { Link, useLocation } from 'react-router-dom'
 import { adminApi } from './adminApi'
 import { CAMPAIGN_DEFAULTS, MAX_CAMPAIGN_SLIDES, isCampaignVideo } from './campaign-model'
 import { textHighlightPath, editorialType, defaultTextHighlight } from './editorialText'
+import LinkChooser from './editor/LinkChooser'
+import { uploadToLibrary } from './editor/libraryUpload'
 import './VisualHomeEditor.css'
+import './editor/editor-panel.css'
 
 const EditorContext = createContext(null)
 const names = { hero:'Capa', utility:'Faixa informativa', categories:'Categorias', featured_products:'Produtos em destaque', campaigns:'Campanhas', manifesto:'Sobre a GALEO', newsletter:'Newsletter' }
@@ -44,13 +47,33 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
 })
 export const useVisualEditor = () => useContext(EditorContext)
 
-function TextHighlightField({ text, value, type, onChange, label = 'Trecho em destaque', disabled = false }) {
+const wordsOf = text => Array.from(String(text || '').matchAll(/\S+/g), match => ({ word: match[0], start: match.index, end: match.index + match[0].length }))
+
+// The highlighted words (gold and italic). In the panel the words of the text
+// are buttons: tapping marks a continuous stretch; typing still works.
+function TextHighlightField({ text, value, type, onChange, label = 'Trecho em destaque', disabled = false, chips = false }) {
   const hintId = useId()
   const highlight = String(value ?? defaultTextHighlight(text, type))
   const invalid = Boolean(highlight && !String(text).includes(highlight))
+  const words = chips ? wordsOf(text) : []
+  const at = highlight && !invalid ? String(text).indexOf(highlight) : -1
+  const from = at < 0 ? -1 : words.findIndex(word => word.end > at)
+  const to = at < 0 ? -1 : words.findLastIndex(word => word.start < at + highlight.length)
+  function tap(index) {
+    let start = from, end = to
+    if (from < 0) start = end = index
+    else if (index === from && index === to) return onChange('')
+    else if (index === from) start = from + 1
+    else if (index === to) end = to - 1
+    else if (index < from) start = index
+    else if (index > to) end = index
+    else start = end = index
+    onChange(String(text).slice(words[start].start, words[end].end))
+  }
   return <span className="visual-highlight-options">
-    <label className="visual-highlight-field"><span>{label}</span><input type="text" aria-label={label} value={highlight} disabled={disabled} aria-describedby={hintId} aria-invalid={invalid || undefined} onChange={event => onChange(event.target.value)} /></label>
-    <span id={hintId} className={invalid ? 'visual-highlight-hint is-invalid' : 'visual-highlight-hint'}>{invalid ? 'Esse trecho precisa fazer parte do texto acima. Confira as palavras e as letras maiúsculas.' : 'Estas palavras ficam em dourado e itálico. Deixe vazio para usar o texto comum.'}</span>
+    {chips && words.length > 0 && <span className="visual-highlight-words" role="group" aria-label={'Palavras em dourado — ' + label.replace(/^Trecho em destaque — /, '')}>{words.map((word, index) => <button key={index} type="button" disabled={disabled} aria-pressed={from >= 0 && index >= from && index <= to} onClick={() => tap(index)}>{word.word}</button>)}</span>}
+    <label className="visual-highlight-field"><span>{chips ? 'Ou digite o trecho em dourado' : label}</span><input type="text" aria-label={label} value={highlight} disabled={disabled} aria-describedby={hintId} aria-invalid={invalid || undefined} onChange={event => onChange(event.target.value)} /></label>
+    <span id={hintId} className={invalid ? 'visual-highlight-hint is-invalid' : 'visual-highlight-hint'}>{invalid ? 'Esse trecho precisa fazer parte do texto acima. Confira as palavras e as letras maiúsculas.' : chips ? 'Toque nas palavras que ficam em dourado e itálico. Toque de novo para tirar.' : 'Estas palavras ficam em dourado e itálico. Deixe vazio para usar o texto comum.'}</span>
   </span>
 }
 
@@ -149,24 +172,14 @@ export function EditableSection({ sectionKey, children }) {
   const section = editor.sections.find((item) => item.key === sectionKey)
   if (!section) return children
   const title = names[sectionKey] || sectionKey
-  const ordered = sorted(editor.sections)
-  const index = ordered.findIndex((item) => item.key === sectionKey)
-  function move(direction) {
-    const target = index + direction
-    if (target < 0 || target >= ordered.length) return
-    const next = [...ordered]
-    ;[next[index], next[target]] = [next[target], next[index]]
-    editor.reorder(next.map((item) => item.key))
-  }
-  return <div className={'visual-editable-section' + (!section.visible ? ' is-hidden' : '')} data-editor-section={sectionKey}>
+  const current = editor.current === sectionKey
+  return <div className={'visual-editable-section' + (!section.visible ? ' is-hidden' : '') + (current ? ' is-current' : '')} data-editor-section={sectionKey}>
     <div className="visual-section-toolbar" role="group" aria-label={'Editar seção ' + title}>
-      <strong>{title}</strong>
-      <button type="button" aria-label={'Mover ' + title + ' para cima'} disabled={editor.busy || index === 0} onClick={() => move(-1)}>↑</button>
-      <button type="button" aria-label={'Mover ' + title + ' para baixo'} disabled={editor.busy || index === ordered.length - 1} onClick={() => move(1)}>↓</button>
-      <button type="button" aria-label={(section.visible ? 'Ocultar ' : 'Mostrar ') + title} disabled={editor.busy} onClick={() => editor.setVisibility(sectionKey, !section.visible)}>{section.visible ? 'Ocultar' : 'Mostrar'}</button>
-      <button type="button" aria-label={'Opções de ' + title} disabled={editor.busy} onClick={() => editor.select({ sectionKey, kind:'section' })}>Opções</button>
+      <strong>{current ? 'Editando: ' + title : title}</strong>
+      {!section.visible && <span className="visual-section-state">Oculta na loja</span>}
+      <button type="button" aria-label={'Opções de ' + title} disabled={editor.busy} onClick={() => editor.select({ sectionKey, kind:'section' })}>Editar</button>
     </div>
-    {section.visible ? children : <div className="visual-hidden-section"><p>Esta seção está oculta na loja.</p><button type="button" disabled={editor.busy} onClick={() => editor.setVisibility(sectionKey, true)}>Mostrar {title}</button></div>}
+    {section.visible ? children : <div className="visual-hidden-section"><p>Esta seção está oculta na loja.</p><button type="button" aria-label={'Mostrar seção ' + title} disabled={editor.busy} onClick={() => editor.setVisibility(sectionKey, true)}>Mostrar de novo</button></div>}
   </div>
 }
 
@@ -190,6 +203,79 @@ function EditorDialog({ title, children, onClose, busy }) {
     <div className="visual-dialog-content" data-lenis-prevent="">{children}</div>
     <footer><p>Você está alterando o rascunho.</p><button type="button" disabled={busy} onClick={onClose}>Concluir</button></footer>
   </dialog>, document.body)
+}
+
+// The fields of one part of the page, inside the side panel. It is a
+// non-modal dialog: the page stays visible and usable next to it.
+function PanelFrame({ title, children, onClose, busy }) {
+  const headingId = useId()
+  const close = useRef(null)
+  useLayoutEffect(() => { close.current?.focus({ preventScroll:true }) }, [])
+  // Escape closes the part even after the focused button disappeared (for
+  // example "Remover foto 3"). Inline text editing stops its own Escape.
+  useEffect(() => {
+    function escape(event) {
+      if (event.key !== 'Escape' || event.defaultPrevented || busy || document.querySelector('dialog[open]')) return
+      event.preventDefault()
+      onClose()
+    }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [busy, onClose])
+  return <section className="visual-editor-dialog visual-panel-frame" role="dialog" aria-modal="false" aria-labelledby={headingId} data-lenis-prevent="">
+    <header><h2 id={headingId}>{title}</h2><button ref={close} type="button" aria-label="Fechar opções" disabled={busy} onClick={onClose}>×</button></header>
+    <div className="visual-dialog-content" data-lenis-prevent="">{children}</div>
+    <footer><p>Você está alterando o rascunho.</p><button type="button" disabled={busy} onClick={onClose}>Concluir</button></footer>
+  </section>
+}
+
+const summaries = {
+  hero: content => content.title,
+  utility: content => (content.items || []).filter(Boolean).join(' · '),
+  categories: content => (content.items || []).length + ' categoria' + ((content.items || []).length === 1 ? '' : 's'),
+  featured_products: content => content.source === 'manual' ? (content.product_ids || []).length + ' produto(s) escolhido(s)' : 'Produtos mais recentes',
+  campaigns: content => (content.items || []).length + ' campanha' + ((content.items || []).length === 1 ? '' : 's'),
+  manifesto: content => String(content.text || '').split('\n')[0],
+  newsletter: content => content.title
+}
+const storeParts = [['navigation', 'Menu do topo', 'Links do menu da loja'], ['footer', 'Rodapé', 'Nome da loja, Instagram e WhatsApp'], ['visual', 'Cores e tema', 'Tema escuro ou claro e cores'], ['campaign', 'Movimento das campanhas', 'Como as fotos das campanhas se movem']]
+
+// Every part of the Home in page order, with show/hide and move, plus the
+// settings that apply to the whole store.
+function PartsList({ editor, onOpen, onSettings, onHide }) {
+  const headingId = useId()
+  const ordered = sorted(editor.sections)
+  function move(index, direction) {
+    const target = index + direction
+    if (target < 0 || target >= ordered.length) return
+    const next = [...ordered]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    editor.reorder(next.map((item) => item.key))
+  }
+  return <section className="visual-parts" aria-labelledby={headingId}>
+    <header className="visual-parts-header"><h2 id={headingId}>Partes da página</h2><button type="button" className="visual-parts-hide" onClick={onHide}>Ver na página</button></header>
+    <div className="visual-parts-body" data-lenis-prevent="">
+      <p className="visual-parts-hint">Toque numa parte para mudar textos, fotos e botões. Também dá para clicar direto na página.</p>
+      <ol className="visual-parts-list">
+        {ordered.map((section, index) => {
+          const title = names[section.key] || section.key
+          const summary = summaries[section.key]?.(section.content || {})
+          return <li key={section.key} className={'visual-part' + (section.visible ? '' : ' is-hidden') + (editor.current === section.key ? ' is-current' : '')}>
+            <button type="button" className="visual-part-open" disabled={editor.busy} onClick={() => onOpen(section.key)}><strong>{title}</strong><small>{section.visible ? (summary || 'Sem texto ainda') : 'Oculta na loja'}</small></button>
+            <span className="visual-part-actions">
+              <button type="button" className="visual-part-visibility" aria-label={(section.visible ? 'Ocultar ' : 'Mostrar ') + title} disabled={editor.busy} onClick={() => editor.setVisibility(section.key, !section.visible)}>{section.visible ? 'Ocultar' : 'Mostrar'}</button>
+              <button type="button" aria-label={'Mover ' + title + ' para cima'} disabled={editor.busy || index === 0} onClick={() => move(index, -1)}>↑</button>
+              <button type="button" aria-label={'Mover ' + title + ' para baixo'} disabled={editor.busy || index === ordered.length - 1} onClick={() => move(index, 1)}>↓</button>
+            </span>
+          </li>
+        })}
+      </ol>
+      <h3 className="visual-parts-title">Toda a loja</h3>
+      <ul className="visual-parts-list">
+        {storeParts.map(([tab, title, hint]) => <li key={tab} className="visual-part"><button type="button" className="visual-part-open" disabled={editor.busy} onClick={() => onSettings(tab)}><strong>{title}</strong><small>{hint}</small></button></li>)}
+      </ul>
+    </div>
+  </section>
 }
 
 function Field({ label, value, onChange, multiline = false, ...props }) {
@@ -223,8 +309,35 @@ function MediaPicker({ target, onPick, onBack, busy }) {
   useEffect(() => { mounted.current = true; load(); return () => { mounted.current = false } }, [])
   useLayoutEffect(() => { heading.current?.focus({ preventScroll:true }) }, [])
   const filtered = items.filter((item) => !target.type || item.media_type === target.type)
+  const [sending, setSending] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const fileInput = useRef(null), cameraInput = useRef(null)
+  const accept = target.type === 'video' ? 'video/mp4,video/webm,video/quicktime' : target.type === 'image' ? 'image/*,.jpg,.jpeg,.png,.webp,.avif' : 'image/*,video/mp4,video/webm,video/quicktime'
+  async function send(file) {
+    if (!file || sending) return
+    const kind = String(file.type).startsWith('video/') ? 'video' : 'image'
+    if (target.type && kind !== target.type) return setError(target.type === 'video' ? 'Escolha um vídeo (MP4, WebM ou MOV).' : 'Escolha uma foto (JPG, PNG ou WebP).')
+    setSending(true)
+    setError('')
+    try {
+      const item = await uploadToLibrary(file)
+      if (mounted.current) onPick(item)
+    } catch (err) { if (mounted.current) setError(err.message || 'Não foi possível enviar. Tente de novo.') }
+    finally { if (mounted.current) setSending(false) }
+  }
   return <div className="visual-media-picker">
-    <button className="visual-back" type="button" onClick={onBack}>← Voltar às opções</button><h3 ref={heading} tabIndex="-1">Escolher mídia</h3><p>{target.label}. Escolha uma foto ou um vídeo da biblioteca.</p>
+    <button className="visual-back" type="button" onClick={onBack}>← Voltar às opções</button><h3 ref={heading} tabIndex="-1">Escolher mídia</h3><p>{target.label}. Envie uma {target.type === 'video' ? 'mídia' : 'foto'} nova ou escolha uma da biblioteca.</p>
+    <div className={'visual-media-upload' + (dragging ? ' is-dragging' : '')} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); send(event.dataTransfer.files?.[0]) }}>
+      <p><strong>Enviar {target.type === 'video' ? 'vídeo' : target.type === 'image' ? 'foto' : 'foto ou vídeo'} novo</strong> — do celular ou do computador. Já entra no lugar escolhido.</p>
+      <span className="visual-upload-buttons">
+        {target.type !== 'video' && <button type="button" className="visual-upload-camera" disabled={busy || sending} onClick={() => cameraInput.current?.click()}>Tirar foto</button>}
+        <button type="button" className="visual-publish-button" disabled={busy || sending} onClick={() => fileInput.current?.click()}>{sending ? 'Enviando…' : target.type === 'video' ? 'Enviar vídeo' : 'Enviar foto'}</button>
+      </span>
+      <input ref={fileInput} type="file" hidden accept={accept} aria-label={'Enviar arquivo para ' + target.label} onChange={(event) => { send(event.target.files?.[0]); event.target.value = '' }} />
+      <input ref={cameraInput} type="file" hidden accept="image/*" capture="environment" aria-label={'Tirar foto para ' + target.label} onChange={(event) => { send(event.target.files?.[0]); event.target.value = '' }} />
+      {sending && <p role="status">Enviando… fotos grandes são reduzidas antes.</p>}
+    </div>
+    <h4 className="visual-library-title">Ou escolha da biblioteca</h4>
     {error && <p className="visual-error" role="alert">{error}<button type="button" onClick={() => load(offset)}>Tentar novamente</button></p>}
     <div className="visual-media-grid">{filtered.map((item) => <button type="button" key={item.id} disabled={busy} aria-label={'Usar ' + (item.title || (item.media_type === 'video' ? 'vídeo' : 'foto'))} onClick={() => onPick(item)}>
       {item.media_type === 'video' ? <video src={item.url} muted playsInline preload="metadata" /> : <img src={item.url} alt="" loading="lazy" />}
@@ -244,12 +357,12 @@ function MediaSlot({ label, url, type, onChoose, onClear }) {
   </div>
 }
 
-const effects = [['static','Nenhum'],['zoom','Zoom suave'],['pan-horizontal','Horizontal'],['pan-vertical','Vertical'],['parallax','Parallax'],['ken-burns','Ken Burns']]
-const transitions = [['fade','Fade'],['slide','Slide'],['crossfade','Crossfade']]
+const effects = [['static','Parada (sem movimento)'],['zoom','Zoom suave'],['pan-horizontal','Deslizar para o lado'],['pan-vertical','Deslizar para cima'],['parallax','Profundidade ao rolar a página'],['ken-burns','Aproximação lenta']]
+const transitions = [['fade','Esmaecer'],['slide','Deslizar'],['crossfade','Mistura suave']]
 const speeds = [['slow','Lenta'],['normal','Normal'],['fast','Rápida']]
 function AnimationFields({ value, onChange }) {
   const current = { ...CAMPAIGN_DEFAULTS, ...value }
-  return <div className="visual-field-grid">{[['effect','Movimento',effects],['transition','Transição',transitions],['speed','Velocidade',speeds]].map(([key,label,options]) => <label className="visual-field" key={key}><span>{label}</span><select value={current[key]} onChange={(event) => onChange({ ...current, [key]:event.target.value })}>{options.map(([value,text]) => <option key={value} value={value}>{text}</option>)}</select></label>)}<Field label="Duração em segundos" type="number" min="2" max="30" value={current.duration_seconds} onChange={(value) => onChange({ ...current, duration_seconds:value === '' ? '' : Number(value) })} /></div>
+  return <div className="visual-field-grid">{[['effect','Efeito na foto',effects],['transition','Troca entre fotos',transitions],['speed','Velocidade',speeds]].map(([key,label,options]) => <label className="visual-field" key={key}><span>{label}</span><select value={current[key]} onChange={(event) => onChange({ ...current, [key]:event.target.value })}>{options.map(([value,text]) => <option key={value} value={value}>{text}</option>)}</select></label>)}<Field label="Tempo de cada foto (segundos)" type="number" min="2" max="30" value={current.duration_seconds} onChange={(value) => onChange({ ...current, duration_seconds:value === '' ? '' : Number(value) })} /></div>
 }
 
 function SelectionPanel({ selection, editor, onClose }) {
@@ -299,20 +412,21 @@ function SelectionPanel({ selection, editor, onClose }) {
     closePicker()
   }
   const dialogTitle = picker ? 'Escolher mídia' : titles[kind] || 'Editar rascunho'
-  return <EditorDialog title={dialogTitle} onClose={onClose} busy={editor.busy}>
+  const links = { categories:editor.categories, products:editor.products, whatsapp:editor.settings.footer?.whatsapp }
+  return <PanelFrame title={dialogTitle} onClose={onClose} busy={editor.busy}>
     {picker ? <MediaPicker target={picker} onPick={applyAsset} onBack={closePicker} busy={editor.busy} /> : <fieldset disabled={editor.busy} className="visual-panel-fields">
-      {textFields.map(([path,label,multiline]) => <span className="visual-formatted-field" key={path}><Field label={label} multiline={multiline} value={readPath(content,path)} onChange={(value) => update(path,value)} /><TextHighlightField label={'Trecho em destaque — ' + label} text={readPath(content,path) || ''} value={readPath(content,textHighlightPath(path))} type={editorialType(section.key,path)} onChange={value => update(textHighlightPath(path),value)} /></span>)}
-      {kind === 'media' && <><p>Troque a imagem principal, a versão para celular ou o vídeo da capa. O vídeo tem prioridade sobre a foto.</p>{[['desktop','Imagem para computador','image'],['mobile','Imagem para celular','image'],['video','Vídeo da capa','video']].map(([prefix,label,type]) => <MediaSlot key={prefix} label={label} type={type} url={content[prefix + '_media_url']} onChoose={() => chooseTarget({prefix,label,type})} onClear={() => editor.updateSection(section.key,(old) => ({ ...old,[prefix + '_media_id']:null,[prefix + '_media_url']:'' }))} />)}</>}
-      {kind === 'link' && <><Field label="Texto do botão" value={readPath(content,selection.labelPath)} onChange={(value) => update(selection.labelPath,value)} /><Field label="Destino do botão" value={readPath(content,selection.urlPath)} placeholder="Ex.: /shop" onChange={(value) => update(selection.urlPath,value)} /><p>Use /shop para o catálogo ou cole o endereço de uma página.</p></>}
-      {kind === 'category' && item && <><Field label="Nome da categoria" value={item.title} onChange={(value) => updateItem({ ...item,title:value })} /><TextHighlightField label="Trecho em destaque — Nome da categoria" text={item.title || ''} value={item.title_highlight} type="generic" onChange={value => updateItem({ ...item,title_highlight:value })} /><Field label="Destino da categoria" value={item.url} onChange={(value) => updateItem({ ...item,url:value })} /><MediaSlot label="Foto da categoria" url={item.media_url} onChoose={() => chooseTarget({itemPath:['items',itemIndex],label:'Foto da categoria',type:'image'})} onClear={() => updateItem({ ...item,media_id:null,media_url:'' })} /></>}
+      {textFields.map(([path,label,multiline]) => <span className="visual-formatted-field" key={path}><Field label={label} multiline={multiline} value={readPath(content,path)} onChange={(value) => update(path,value)} /><TextHighlightField chips label={'Trecho em destaque — ' + label} text={readPath(content,path) || ''} value={readPath(content,textHighlightPath(path))} type={editorialType(section.key,path)} onChange={value => update(textHighlightPath(path),value)} /></span>)}
+      {kind === 'media' && <><p>Troque a imagem principal, a versão para celular ou o vídeo da capa. O vídeo tem prioridade sobre a foto.</p>{[['desktop','Imagem para computador','image'],['mobile','Imagem para celular','image'],['video','Vídeo da capa','video']].map(([prefix,label,type]) => <MediaSlot key={prefix} label={label} type={type} url={content[prefix + '_media_url']} onChoose={() => chooseTarget({prefix,label,type})} onClear={() => editor.updateSection(section.key,(old) => ({ ...old,[prefix + '_media_id']:null,[prefix + '_media_url']:'' }))} />)}<section className="visual-panel-group"><h3>Botão da capa</h3><Field label="Texto do botão" value={content.button_label} onChange={(value) => update('button_label',value)} /><LinkChooser label="Para onde o botão leva" value={content.button_url} onChange={(value) => update('button_url',value)} {...links} /></section></>}
+      {kind === 'link' && <><Field label="Texto do botão" value={readPath(content,selection.labelPath)} onChange={(value) => update(selection.labelPath,value)} /><LinkChooser label="Para onde o botão leva" value={readPath(content,selection.urlPath)} onChange={(value) => update(selection.urlPath,value)} {...links} /></>}
+      {kind === 'category' && item && <><Field label="Nome da categoria" value={item.title} onChange={(value) => updateItem({ ...item,title:value })} /><TextHighlightField chips label="Trecho em destaque — Nome da categoria" text={item.title || ''} value={item.title_highlight} type="generic" onChange={value => updateItem({ ...item,title_highlight:value })} /><LinkChooser label="Destino da categoria" value={item.url} onChange={(value) => updateItem({ ...item,url:value })} {...links} /><MediaSlot label="Foto da categoria" url={item.media_url} onChoose={() => chooseTarget({itemPath:['items',itemIndex],label:'Foto da categoria',type:'image'})} onClear={() => updateItem({ ...item,media_id:null,media_url:'' })} /></>}
       {['categories','campaigns','utility'].includes(kind) && <><p>Organize o que aparece nesta seção. Todas as mudanças ficam no rascunho.</p><div className="visual-item-list">{items.map((value,index) => <div key={index} className="visual-list-row">{kind === 'utility' ? <Field label={'Mensagem ' + (index + 1)} value={value} onChange={(text) => update(['items',index],text)} /> : <button className="visual-list-select" type="button" onClick={() => editor.select({ sectionKey:section.key,kind:kind === 'categories' ? 'category' : 'campaign',itemIndex:index })}>{value.title || 'Item ' + (index + 1)} <span>Editar →</span></button>}<div className="visual-row-actions"><button type="button" aria-label={'Mover item ' + (index + 1) + ' para cima'} disabled={index === 0} onClick={() => moveItem(index,-1)}>↑</button><button type="button" aria-label={'Mover item ' + (index + 1) + ' para baixo'} disabled={index === items.length - 1} onClick={() => moveItem(index,1)}>↓</button><button type="button" aria-label={'Remover item ' + (index + 1)} onClick={() => update('items',items.filter((_,current) => current !== index))}>Remover</button></div></div>)}</div><button type="button" onClick={newItem}>+ {kind === 'categories' ? 'Adicionar categoria' : kind === 'campaigns' ? 'Adicionar campanha' : 'Adicionar mensagem'}</button></>}
-      {kind === 'campaign' && item && <CampaignOptions item={item} defaults={editor.settings.campaign_defaults} onChange={updateItem} onChoose={(target) => chooseTarget({ ...target,campaign:true,campaignIndex:itemIndex })} />}
+      {kind === 'campaign' && item && <CampaignOptions item={item} links={links} defaults={editor.settings.campaign_defaults} onChange={updateItem} onChoose={(target) => chooseTarget({ ...target,campaign:true,campaignIndex:itemIndex })} />}
       {kind === 'products' && <ProductChoices content={content} products={editor.products} onChange={(value) => editor.updateSection(section.key,() => value)} />}
       {kind === 'section' && <><p>Clique nos textos desta seção para editar diretamente na página.</p>{section?.key === 'newsletter' && <Field label="Texto do botão da newsletter" value={content.button_label} onChange={(value) => update('button_label',value)} />}</>}
-      {kind === 'settings' && <><div className="visual-settings-tabs" role="group" aria-label="Áreas de configurações">{[['navigation','Menu'],['footer','Rodapé'],['visual','Cores e tema'],['campaign','Movimento']].map(([key,label]) => <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div><SettingsOptions tab={tab} settings={editor.settings} update={editor.updateSetting} /><a href="/admin?tab=editor&mode=advanced">Mais opções e histórico de versões ↗</a></>}
+      {kind === 'settings' && <><div className="visual-settings-tabs" role="group" aria-label="Áreas de configurações">{[['navigation','Menu'],['footer','Rodapé'],['visual','Cores e tema'],['campaign','Movimento']].map(([key,label]) => <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div><SettingsOptions tab={tab} settings={editor.settings} update={editor.updateSetting} links={links} /><a href="/admin?tab=editor&mode=advanced">Mais opções e histórico de versões ↗</a></>}
       {(kind === 'category' || kind === 'campaign') && !item && <p>Este item foi removido. Feche as opções e escolha outro.</p>}
     </fieldset>}
-  </EditorDialog>
+  </PanelFrame>
 }
 
 function campaignSlides(item) {
@@ -320,15 +434,15 @@ function campaignSlides(item) {
   return [{ media_id:item.media_id || null, media_url:item.video_media_url || item.media_url || '', media_type:item.video_media_url ? 'video' : (item.media_type || (isCampaignVideo(item.media_url) ? 'video' : 'image')), mobile_media_id:item.mobile_media_id || null, mobile_media_url:item.mobile_video_media_url || item.mobile_media_url || '', mobile_media_type:item.mobile_video_media_url ? 'video' : (item.mobile_media_type || 'image') }]
 }
 function withSlides(item,slides) { return { ...item,media_id:null,media_url:'',video_media_id:null,video_media_url:'',mobile_media_id:null,mobile_media_url:'',mobile_video_media_id:null,mobile_video_media_url:'',slides } }
-function CampaignOptions({ item, defaults, onChange, onChoose }) {
+function CampaignOptions({ item, links, defaults, onChange, onChoose }) {
   const slides = campaignSlides(item)
   const animation = item.animation || { use_default:true }
   function changeSlides(next) { onChange(withSlides(item,next)) }
   function move(index,direction) { const next = [...slides]; [next[index],next[index + direction]] = [next[index + direction],next[index]]; changeSlides(next) }
-  return <><Field label="Título da campanha" value={item.title} onChange={(value) => onChange({ ...item,title:value })} /><TextHighlightField label="Trecho em destaque — Título da campanha" text={item.title || ''} value={item.title_highlight} type="campaign" onChange={value => onChange({ ...item,title_highlight:value })} /><Field label="Texto do botão" value={item.button_label} onChange={(value) => onChange({ ...item,button_label:value })} /><Field label="Destino do botão" value={item.button_url} onChange={(value) => onChange({ ...item,button_url:value })} />
+  return <><Field label="Título da campanha" value={item.title} onChange={(value) => onChange({ ...item,title:value })} /><TextHighlightField chips label="Trecho em destaque — Título da campanha" text={item.title || ''} value={item.title_highlight} type="campaign" onChange={value => onChange({ ...item,title_highlight:value })} /><Field label="Texto do botão" value={item.button_label} onChange={(value) => onChange({ ...item,button_label:value })} /><LinkChooser label="Para onde o botão leva" value={item.button_url} onChange={(value) => onChange({ ...item,button_url:value })} {...links} />
     {slides.map((slide,index) => <section className="visual-campaign-slide" key={index}><h3>Foto ou vídeo {index + 1}</h3>{[[false,'Para computador'],[true,'Para celular (opcional)']].map(([mobile,label]) => <MediaSlot key={label} label={label} url={mobile ? slide.mobile_video_media_url || slide.mobile_media_url : slide.video_media_url || slide.media_url} onChoose={() => onChoose({slideIndex:index,mobile,label})} onClear={() => { const prefix = mobile ? 'mobile_' : ''; changeSlides(slides.map((old,current) => current === index ? { ...old,[prefix + 'media_id']:null,[prefix + 'media_url']:'',[prefix + 'video_media_id']:null,[prefix + 'video_media_url']:'' } : old)) }} />)}<div className="visual-row-actions"><button type="button" aria-label={'Mover foto ' + (index + 1) + ' para cima'} disabled={!index} onClick={() => move(index,-1)}>↑</button><button type="button" aria-label={'Mover foto ' + (index + 1) + ' para baixo'} disabled={index === slides.length - 1} onClick={() => move(index,1)}>↓</button><button type="button" disabled={slides.length === 1} onClick={() => changeSlides(slides.filter((_,current) => current !== index))}>{'Remover foto ' + (index + 1)}</button></div></section>)}
     <button type="button" disabled={slides.length >= MAX_CAMPAIGN_SLIDES} onClick={() => changeSlides([...slides,{media_url:'',media_type:'image',mobile_media_url:''}])}>+ Adicionar foto ou vídeo</button>
-    <details className="visual-advanced-options"><summary>Movimento da campanha</summary><label className="visual-checkbox"><input type="checkbox" checked={animation.use_default !== false} onChange={(event) => onChange({ ...item,animation:{ ...CAMPAIGN_DEFAULTS,...defaults,...animation,use_default:event.target.checked } })} /> Usar padrão da GALEO</label>{animation.use_default === false && <AnimationFields value={animation} onChange={(value) => onChange({ ...item,animation:{ ...value,use_default:false } })} />}</details>
+    <details className="visual-advanced-options"><summary>Movimento da campanha (opcional)</summary><label className="visual-checkbox"><input type="checkbox" checked={animation.use_default !== false} onChange={(event) => onChange({ ...item,animation:{ ...CAMPAIGN_DEFAULTS,...defaults,...animation,use_default:event.target.checked } })} /> Usar padrão da GALEO</label>{animation.use_default === false && <AnimationFields value={animation} onChange={(value) => onChange({ ...item,animation:{ ...value,use_default:false } })} />}</details>
   </>
 }
 
@@ -339,12 +453,12 @@ function ProductChoices({ content, products, onChange }) {
   return <><label className="visual-field"><span>O que mostrar na Home</span><select value={content.source || 'latest'} onChange={(event) => onChange({ ...content,source:event.target.value })}><option value="latest">Produtos mais recentes</option><option value="manual">Escolher produtos</option></select></label>{content.source === 'manual' && <><Field label="Buscar produto" type="search" value={search} onChange={setSearch} /><p>{selected.length} produto(s) selecionado(s). A ordem de seleção será usada na Home.</p><div className="visual-product-grid">{filtered.map((product) => <label key={product.id} className="visual-product-choice"><input type="checkbox" checked={selected.includes(Number(product.id))} onChange={(event) => onChange({ ...content,product_ids:event.target.checked ? [...selected,Number(product.id)] : selected.filter((id) => id !== Number(product.id)) })} /><img src={product.image || '/images/product-placeholder.svg'} alt="" loading="lazy" /><span>{product.name}</span></label>)}</div>{!filtered.length && <p>Nenhum produto encontrado. Cadastre seus produtos no painel para selecionar aqui.</p>}</>}</>
 }
 
-function SettingsOptions({ tab,settings,update }) {
+function SettingsOptions({ tab,settings,update,links }) {
   if (tab === 'navigation') {
     const current = settings.navigation || {items:[]}
     const items = current.items || []
     function setItem(index,fields) { update('navigation',(old) => ({ ...old,items:items.map((item,currentIndex) => currentIndex === index ? { ...item,...fields } : item) })) }
-    return <><p>Links que aparecem no menu da loja.</p>{items.map((item,index) => <div className="visual-list-row" key={index}><Field label={'Nome do link ' + (index + 1)} value={item.label} onChange={(value) => setItem(index,{label:value})} /><Field label={'Destino do link ' + (index + 1)} value={item.url} onChange={(value) => setItem(index,{url:value})} /><button type="button" onClick={() => update('navigation',() => ({ ...current,items:items.filter((_,currentIndex) => currentIndex !== index) }))}>{'Remover link ' + (index + 1)}</button></div>)}<button type="button" disabled={items.length >= 8} onClick={() => update('navigation',() => ({ ...current,items:[...items,{label:'Novo link',url:'/shop'}] }))}>+ Adicionar link</button></>
+    return <><p>Links que aparecem no menu da loja.</p>{items.map((item,index) => <div className="visual-list-row" key={index}><Field label={'Nome do link ' + (index + 1)} value={item.label} onChange={(value) => setItem(index,{label:value})} /><LinkChooser label={'Destino do link ' + (index + 1)} value={item.url} onChange={(value) => setItem(index,{url:value})} {...links} /><button type="button" onClick={() => update('navigation',() => ({ ...current,items:items.filter((_,currentIndex) => currentIndex !== index) }))}>{'Remover link ' + (index + 1)}</button></div>)}<button type="button" disabled={items.length >= 8} onClick={() => update('navigation',() => ({ ...current,items:[...items,{label:'Novo link',url:'/shop'}] }))}>+ Adicionar link</button></>
   }
   if (tab === 'footer') return <>{[['brand','Nome da loja'],['year','Ano'],['instagram','Instagram (@perfil ou link)'],['whatsapp','WhatsApp com DDD']].map(([key,label]) => <Field key={key} label={label} value={settings.footer?.[key]} onChange={(value) => update('footer',(old) => ({ ...old,[key]:value }))} />)}<p className="visual-field-note">Instagram e WhatsApp aparecem no rodapé só quando preenchidos.</p></>
   if (tab === 'campaign') return <><p>Este padrão é aplicado às campanhas automaticamente.</p><AnimationFields value={settings.campaign_defaults} onChange={(value) => update('campaign_defaults',() => value)} /></>
@@ -352,7 +466,7 @@ function SettingsOptions({ tab,settings,update }) {
   return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>A loja e o painel usam Roboto, com pesos leves para facilitar a leitura.</p><div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([key,label]) => <Field key={key} type="color" label={label} value={/^#[\da-f]{6}$/i.test(current.palette?.[key] || '') ? current.palette[key] : '#000000'} onChange={(value) => update('storefront_visual_defaults',(old) => ({ ...old,palette:{ ...old.palette,[key]:value } }))} />)}</div></>
 }
 
-export default function VisualHomeEditor({ sections = [], settings = {}, products = [], onSectionsChange, onSettingsChange, children }) {
+export default function VisualHomeEditor({ sections = [], settings = {}, products = [], categories = [], onSectionsChange, onSettingsChange, children }) {
   const location = useLocation()
   const [authorized,setAuthorized] = useState(null)
   const [editing,setEditing] = useState(true)
@@ -360,6 +474,10 @@ export default function VisualHomeEditor({ sections = [], settings = {}, product
   const [status,setStatus] = useState('')
   const [error,setError] = useState('')
   const [selection,setSelection] = useState(null)
+  const [panelOpen,setPanelOpen] = useState(false)
+  const [toolbarHeight,setToolbarHeight] = useState(0)
+  const toolbarRef = useRef(null)
+  const opener = useRef(null)
   const [baselineVersion,setBaselineVersion] = useState(0)
   const baseline = useRef(null)
   const operation = useRef(false)
@@ -480,24 +598,50 @@ export default function VisualHomeEditor({ sections = [], settings = {}, product
     onSettingsChange(clone(baseline.current.settings))
     setSelection(null); setStatus('Alterações locais desfeitas. O rascunho salvo foi mantido.'); setError('')
   }
-  const context = useMemo(() => ({ editing:editing && authorized === true, busy,sections,settings,products,select:(value) => { if (!operation.current) { setSelection(value); setError('') } },updateSection,updateSetting,
+  useLayoutEffect(() => {
+    const node = toolbarRef.current
+    if (!node) return
+    const measure = () => setToolbarHeight(node.offsetHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [authorized])
+  function closeSelection() {
+    setSelection(null)
+    window.requestAnimationFrame(() => { if (opener.current?.isConnected) opener.current.focus({ preventScroll:true }) })
+  }
+  function openPart(key) {
+    context.select({ sectionKey:key, kind:'section' })
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    window.requestAnimationFrame(() => document.querySelector('[data-editor-section="' + key + '"]')?.scrollIntoView({ block:'start', behavior:reduce ? 'auto' : 'smooth' }))
+  }
+  const context = useMemo(() => ({ editing:editing && authorized === true, busy,sections,settings,products,categories,current:selection?.sectionKey || null,
+    select:(value) => { if (!operation.current) { opener.current = document.activeElement; setSelection(value); setError('') } },updateSection,updateSetting,
     confirmLeave:() => !dirtyRef.current || window.confirm(leaveMessage),
     setVisibility:(key,visible) => { if (!operation.current) onSectionsChange((current) => current.map((item) => item.key === key ? { ...item,visible } : item)) },
     reorder:(keys) => { if (!operation.current) onSectionsChange((current) => keys.map((key,index) => ({ ...current.find((item) => item.key === key),order:(index + 1) * 10 }))) }
-  }),[editing,authorized,busy,sections,settings,products,baselineVersion])
+  }),[editing,authorized,busy,sections,settings,products,categories,selection,baselineVersion])
+  const panelSelection = selection && !['publish','discard'].includes(selection.kind) ? selection : null
+  const panelVisible = panelOpen || Boolean(panelSelection)
   if (authorized === null) return <div className="visual-editor-access" role="status">Verificando acesso ao editor…</div>
   if (!authorized) return <div className="visual-editor-access"><h1>Entre com a conta de proprietário</h1><p>O editor da loja está disponível somente para os donos.</p><Link to="/admin">Entrar no painel</Link></div>
-  return <EditorContext.Provider value={context}><div className="visual-home-editor" data-editing={editing ? 'true' : 'false'}>
-    <div className="visual-editor-toolbar" role="toolbar" aria-label="Editor visual da loja" data-lenis-prevent="">
+  return <EditorContext.Provider value={context}><div className="visual-home-editor" data-editing={editing ? 'true' : 'false'} data-panel-open={panelVisible ? 'true' : 'false'} style={{ '--visual-toolbar-height':toolbarHeight + 'px' }}>
+    <div ref={toolbarRef} className="visual-editor-toolbar" role="toolbar" aria-label="Editor visual da loja" data-lenis-prevent="">
       <div className="visual-editor-identity"><strong>Editor da loja</strong><small>{dirty ? 'Alterações não salvas' : 'Rascunho salvo'}</small></div>
-      <div className="visual-editor-top-actions"><button type="button" disabled={busy} onClick={() => setEditing((value) => !value)}>{editing ? 'Ver como cliente' : 'Voltar a editar'}</button><button type="button" disabled={busy || !dirty} onClick={save}>{busy ? 'Aguarde…' : 'Salvar rascunho'}</button><button className="visual-publish-button" type="button" disabled={busy || dirty} title={dirty ? 'Salve o rascunho antes de publicar' : undefined} onClick={() => { setError(''); setSelection({kind:'publish'}) }}>Publicar alterações</button></div>
-      {editing && <div className="visual-editor-secondary"><p>Clique nos textos e nas fotos da página para editar.</p><div><button type="button" disabled={busy || !dirty} onClick={() => setSelection({kind:'discard'})}>Desfazer alterações</button><button type="button" disabled={busy} onClick={() => setSelection({kind:'settings'})}>Configurações</button><Link to="/admin" data-editor-spa-link="true">Painel ↗</Link></div></div>}
+      <div className="visual-editor-top-actions">{editing && <button type="button" className="visual-parts-toggle" aria-expanded={panelVisible} disabled={busy} onClick={() => { if (panelVisible) { setPanelOpen(false); setSelection(null) } else setPanelOpen(true) }}>Partes da página</button>}<button type="button" disabled={busy} onClick={() => setEditing((value) => !value)}>{editing ? 'Ver como cliente' : 'Voltar a editar'}</button><button type="button" disabled={busy || !dirty} onClick={save}>{busy ? 'Aguarde…' : 'Salvar rascunho'}</button><button className="visual-publish-button" type="button" disabled={busy || dirty} title={dirty ? 'Salve o rascunho antes de publicar' : undefined} onClick={() => { setError(''); setSelection({kind:'publish'}) }}>Publicar alterações</button></div>
+      {editing && <div className="visual-editor-secondary"><div><button type="button" disabled={busy || !dirty} onClick={() => setSelection({kind:'discard'})}>Desfazer alterações</button><button type="button" disabled={busy} onClick={() => context.select({kind:'settings'})}>Configurações</button><Link to="/admin" data-editor-spa-link="true">Painel ↗</Link></div></div>}
       {(status || error) && <div className={error ? 'visual-toolbar-message visual-error' : 'visual-toolbar-message'} role={error ? 'alert' : 'status'}>{error || status}</div>}
       {!editing && <p className="visual-client-note">Prévia do rascunho{dirty ? ', incluindo suas alterações não salvas' : ''}. A loja só muda ao publicar.</p>}
     </div>
-    {children}
+    {editing && <aside className="visual-editor-panel" aria-label="Painel do editor">
+      {panelSelection
+        ? <SelectionPanel key={[panelSelection.kind,panelSelection.sectionKey,panelSelection.itemIndex,panelSelection.tab].join('-')} selection={panelSelection} editor={context} onClose={closeSelection} />
+        : <PartsList editor={context} onOpen={openPart} onSettings={(tab) => context.select({ kind:'settings', tab })} onHide={() => setPanelOpen(false)} />}
+    </aside>}
+    <div className="visual-editor-canvas">{children}</div>
     {selection?.kind === 'publish' ? <EditorDialog title="Publicar alterações na loja?" onClose={() => setSelection(null)} busy={busy}><p>O rascunho salvo passará a aparecer para todos os clientes, incluindo textos, fotos, ordem das seções e configurações.</p>{!publishedDifference && <p>O conteúdo das seções está igual à última publicação. As configurações salvas também serão publicadas.</p>}<button className="visual-publish-button" type="button" disabled={busy || dirty} onClick={publish}>Confirmar publicação</button>{error && <p className="visual-error" role="alert">{error}</p>}</EditorDialog>
       : selection?.kind === 'discard' ? <EditorDialog title="Desfazer alterações não salvas?" onClose={() => setSelection(null)} busy={busy}><p>Esta tela voltará ao último rascunho salvo. A loja pública não será alterada.</p><button type="button" onClick={discard}>Confirmar desfazer</button></EditorDialog>
-      : selection && <SelectionPanel key={[selection.kind,selection.sectionKey,selection.itemIndex,selection.tab].join('-')} selection={selection} editor={context} onClose={() => setSelection(null)} />}
+      : null}
   </div></EditorContext.Provider>
 }

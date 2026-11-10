@@ -493,7 +493,9 @@ test('hiding and moving a section changes the draft order without removing its c
   const { page, calls } = await fixture(t)
   await page.getByRole('button', { name:'Mover Capa para baixo', exact:true }).click()
   await page.getByRole('button', { name:'Ocultar Categorias', exact:true }).click()
-  assert.equal(await page.getByRole('group', { name:'Editar seção Categorias', exact:true }).getByRole('button', { name:'Mostrar Categorias', exact:true }).isVisible(), true)
+  // Showing and hiding live in the side panel; the page marks the hidden part.
+  assert.equal(await page.getByRole('complementary', { name:'Painel do editor', exact:true }).getByRole('button', { name:'Mostrar Categorias', exact:true }).isVisible(), true)
+  assert.equal(await page.getByRole('group', { name:'Editar seção Categorias', exact:true }).getByText('Oculta na loja', { exact:true }).isVisible(), true)
   assert.deepEqual(await page.locator('[data-editor-section]').evaluateAll(elements => elements.map(element => element.dataset.editorSection)), ['utility', 'hero', ...keys.slice(2)])
   assert.equal(mutations(calls).length, 0)
   await saveDraft(page)
@@ -535,7 +537,7 @@ test('settings modify the displayed draft and save only the changed setting', as
 
 test('the visual media library updates desktop and mobile photos while retaining original metadata', async t => {
   const { page, calls } = await fixture(t)
-  await page.locator('[data-home-section="hero"]').click({ position:{ x:1100, y:300 } })
+  await page.locator('[data-home-section="hero"]').click({ position:{ x:700, y:300 } })
   let options = page.getByRole('dialog', { name:'Fotos e vídeo da capa', exact:true })
   await options.getByRole('button', { name:'Escolher Imagem para computador', exact:true }).click()
   await page.getByRole('dialog', { name:'Escolher mídia', exact:true }).getByRole('button', { name:'Usar Foto desktop da coleção', exact:true }).click()

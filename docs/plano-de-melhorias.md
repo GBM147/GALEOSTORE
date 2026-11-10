@@ -169,6 +169,18 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   filtros (Na loja, Rascunhos, Estoque baixo, Sem foto); Excluir fica no menu "⋯". Nova
   rota para a ordem das fotos. Próxima rodada: visual do restante do Admin (menu no
   celular, tela inicial com atalhos).
+- [x] **Editor da loja — painel lateral** (Técnico, 10/11; publica no próximo deploy):
+  à esquerda, a lista das **partes da página** na ordem (Capa, Faixa, Categorias,
+  Destaques, Campanhas, Sobre a GALEO, Newsletter), cada uma com Ocultar/Mostrar e ↑ ↓, e
+  "Toda a loja" (Menu, Rodapé, Cores e tema, Movimento); à direita, a página ao vivo.
+  Clicar numa parte (ou na página) abre os campos dela no painel e marca a seção com
+  "Editando: …". No celular, "Partes da página" abre o painel em tela cheia. **Foto nova
+  direto no editor** (tirar foto, enviar ou arrastar; já entra no lugar escolhido, sem
+  passar pela Biblioteca). **"Para onde o botão leva"** escolhido da loja (catálogo,
+  categoria, produto, WhatsApp ou outro endereço), com "Leva para: …". **Palavras em
+  dourado** escolhidas com um toque. Efeitos com nomes simples (Aproximação lenta,
+  Profundidade ao rolar, Esmaecer…). Corrigido o ajuste do título da capa, que lia
+  tamanhos atrasados com a regra de movimento reduzido.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

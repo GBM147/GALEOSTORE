@@ -19,10 +19,20 @@ function minimumHeroHeight(hero, value) {
   return height
 }
 
+// Measurements must see each tried size at once. A transition on the title or
+// its lines (the reduced-motion rule keeps a tiny one on every element) would
+// make the browser report the previous size and end the fitting with a wrong
+// result, so transitions are off while fitting (see .is-fitting-title).
 function fitTitle(hero) {
   const title = hero.querySelector('.hero-title')
+  if (!title) return
+  hero.classList.add('is-fitting-title')
+  try { fitTitleNow(hero, title) } finally { hero.classList.remove('is-fitting-title') }
+}
+
+function fitTitleNow(hero, title) {
   const content = hero.querySelector('.hero-full-content')
-  if (!title || !content || !content.clientWidth || content.querySelector('textarea')) return
+  if (!content || !content.clientWidth || content.querySelector('textarea')) return
 
   title.style.removeProperty('--hero-title-fit')
   const maximum = pixels(getComputedStyle(title).fontSize)

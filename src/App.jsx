@@ -739,5 +739,5 @@ export default function App() {
   if (!visualMode) return storefront
   if (previewDenied) return <main className="section-shell page-space"><h1>Editor indisponível</h1><p role="alert">Entre no painel com a conta de proprietário para editar o rascunho.</p><a className="button button-primary" href="/admin">Entrar no painel</a></main>
   if (!homeReady || !settingsLoaded || settingsSource !== 'draft') return <main className="section-shell page-space"><p role="status">Carregando o rascunho da loja…</p></main>
-  return <VisualHomeEditor sections={homeSections} settings={siteSettings} products={catalog} onSectionsChange={setHomeSections} onSettingsChange={next => { setThemePreference(null); setSiteSettings(next) }}>{storefront}</VisualHomeEditor>
+  return <VisualHomeEditor sections={homeSections} settings={siteSettings} products={catalog} categories={categories} onSectionsChange={setHomeSections} onSettingsChange={next => { setThemePreference(null); setSiteSettings(next) }}>{storefront}</VisualHomeEditor>
 }

@@ -18,6 +18,8 @@
 :root[data-theme="light"] :is(.hero-eyebrow, .section-eyebrow) { color: var(--accent-deep); }
 
 /* Banner */
+/* While the title size is being fitted, no transition may delay the sizes it measures. */
+.is-fitting-title, .is-fitting-title * { transition: none !important; }
 .app main .hero-full.section-shell {
   width: 100%;
   max-width: none;

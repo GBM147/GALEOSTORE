@@ -1,0 +1,155 @@
+/* Store editor: the side panel with the parts of the page, next to the live
+   page. On a computer the panel is always there; on phones and tablets it
+   opens full screen from "Partes da página". */
+.visual-home-editor { --visual-panel-width: 380px; }
+
+.visual-editor-panel {
+  position: fixed;
+  top: var(--visual-toolbar-height, 0px);
+  bottom: 0;
+  left: 0;
+  z-index: 105;
+  display: none;
+  width: 100%;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: 14px/1.5 Roboto, Arial, sans-serif;
+}
+.visual-home-editor[data-panel-open="true"] .visual-editor-panel { display: block; }
+.visual-parts-toggle { order: -1; }
+
+/* A part's fields fill the panel; the old drawer layout is not used here. */
+.visual-editor-panel > .visual-panel-frame {
+  position: relative;
+  inset: auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  border: 0;
+}
+.visual-panel-frame > header { padding: 16px 18px; }
+.visual-panel-frame h2 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.visual-panel-frame .visual-dialog-content { overflow-y: auto; overscroll-behavior: contain; }
+
+/* List of parts */
+.visual-parts { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
+.visual-parts-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.visual-parts-header h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.visual-parts-body { overflow-y: auto; overscroll-behavior: contain; padding: 14px 14px 28px; }
+.visual-parts-hint { margin: 0 4px 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.visual-parts-title { margin: 22px 4px 10px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.visual-parts-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.visual-part { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+.visual-part.is-current { border-color: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+.visual-part.is-hidden { opacity: .7; }
+.visual-editor-panel .visual-part-open {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.visual-editor-panel .visual-part-open:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.visual-part-open strong { font-size: 15px; font-weight: 700; }
+.visual-part-open small { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.visual-part.is-hidden .visual-part-open small { color: #e0a43a; font-weight: 700; }
+:root[data-theme="light"] .visual-part.is-hidden .visual-part-open small { color: #9a6412; }
+.visual-part-actions { display: flex; gap: 4px; }
+.visual-editor-panel .visual-part-actions button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: 700 12px/1 Roboto, Arial, sans-serif;
+  cursor: pointer;
+}
+.visual-editor-panel .visual-part-actions button:disabled { opacity: .35; cursor: default; }
+
+/* Shared look of the panel content: bigger text, rounded controls. */
+.visual-editor-panel .visual-dialog-content { padding: 16px 18px 24px; }
+.visual-editor-panel .visual-dialog-content p { font-size: 13px; }
+.visual-editor-panel :is(.visual-dialog-content, footer) button,
+.visual-editor-panel .visual-dialog-content a,
+.visual-editor-panel .visual-parts-header button,
+.visual-editor-panel .visual-panel-frame > header button { border-radius: 10px; font-size: 13px; font-weight: 700; }
+.visual-panel-group { display: grid; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.visual-panel-group h3 { margin: 0; font-size: 15px; font-weight: 700; }
+
+/* Destination of buttons and links */
+.visual-link-chooser { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.visual-link-chooser .visual-field { display: grid; gap: 6px; }
+.visual-link-chooser label { font-size: 13px; font-weight: 600; }
+.visual-editor-panel .visual-link-summary, .visual-link-summary { margin: 0; color: var(--muted); font-size: 13px; }
+.visual-link-summary strong { color: var(--text); }
+
+/* Words in gold */
+.visual-highlight-words { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.visual-editor-panel .visual-highlight-words button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: 600 14px/1 Roboto, Arial, sans-serif;
+  cursor: pointer;
+}
+.visual-editor-panel .visual-highlight-words button[aria-pressed="true"] { border-color: var(--accent-soft); background: color-mix(in srgb, var(--accent-soft) 18%, transparent); color: var(--accent-soft); font-style: italic; }
+:root[data-theme="light"] .visual-editor-panel .visual-highlight-words button[aria-pressed="true"] { border-color: var(--accent-deep); color: var(--accent-deep); }
+
+/* Sending a new photo inside the media picker */
+.visual-media-upload { display: grid; gap: 10px; margin: 6px 0 18px; padding: 16px; border: 2px dashed color-mix(in srgb, var(--text) 26%, transparent); border-radius: 14px; text-align: center; }
+.visual-media-upload.is-dragging { border-color: var(--accent-soft); background: color-mix(in srgb, var(--accent-soft) 8%, transparent); }
+.visual-media-upload p { margin: 0; }
+.visual-upload-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+@media (pointer: fine) { .visual-upload-camera { display: none !important; } }
+.visual-library-title { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+
+/* The section being edited on the page */
+.visual-editable-section { scroll-margin-top: calc(var(--visual-toolbar-height, 0px) + 12px); }
+.visual-editable-section.is-current::before { border: 2px solid var(--accent-soft); }
+.visual-editable-section.is-current .visual-section-toolbar { background: color-mix(in srgb, var(--accent-soft) 14%, var(--surface)); }
+.visual-section-state { padding: 2px 10px; border: 1px solid #e0a43a; border-radius: 999px; color: #e0a43a; font: 700 11px/1.4 Roboto, Arial, sans-serif; }
+:root[data-theme="light"] .visual-section-state { border-color: #9a6412; color: #9a6412; }
+
+/* Computer: the panel stays beside the page. */
+@media (min-width: 1100px) {
+  .visual-editor-panel { display: block; width: var(--visual-panel-width); }
+  .visual-home-editor[data-editing="true"] .visual-editor-canvas { margin-left: var(--visual-panel-width); }
+  .visual-parts-toggle, .visual-parts-hide { display: none !important; }
+}
+
+/* Phones and tablets: the panel covers the page below the toolbar. */
+@media (max-width: 1099px) {
+  .visual-editor-panel { z-index: 115; }
+}
+@media (max-width: 700px) {
+  .visual-editor-top-actions .visual-parts-toggle { grid-column: 1 / -1; }
+  .visual-parts-header, .visual-panel-frame > header { padding: 12px 14px; }
+  .visual-parts-body { padding: 12px 10px 24px; }
+  .visual-editor-panel .visual-dialog-content { padding: 14px 12px 20px; }
+}
+
+/* Toolbar: rounded, readable buttons; one row on a computer. */
+.visual-editor-toolbar :is(button, a), .visual-section-toolbar button, .visual-hidden-section button { border-radius: 10px; font-size: 12px; font-weight: 700; }
+@media (min-width: 1100px) {
+  .visual-editor-toolbar { padding: 10px 20px; }
+  .visual-editor-secondary { order: 1; width: auto; margin-left: auto; padding-top: 0; border-top: 0; }
+  .visual-editor-top-actions { order: 2; }
+  .visual-toolbar-message, .visual-client-note { order: 3; }
+}
