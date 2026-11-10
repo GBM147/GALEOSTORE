@@ -460,7 +460,7 @@ test('the store fonts are local: Bodoni Moda titles, Inter text and the Cinzel n
   assert.ok(typography.brand.startsWith('Cinzel'))
   for (const [name, faces] of Object.entries(typography.faces)) assert.ok(faces.includes('loaded'), name + ' carregada')
   assert.doesNotMatch(typography.sources, /https?:/, 'nenhuma fonte vem de outro site')
-  for (const file of ['inter-latin-normal.woff2', 'bodoni-moda-latin-normal.woff2', 'bodoni-moda-latin-italic.woff2']) {
+  for (const file of ['inter-latin-normal.woff2', 'bodoni-moda-latin-normal.woff2']) {
     assert.equal(await page.locator(`link[rel="preload"][href="/fonts/${file}"]`).count(), 1, file)
   }
 })

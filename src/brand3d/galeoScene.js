@@ -84,8 +84,8 @@ function wordmark() {
   return { group, width }
 }
 
-export async function createGaleoScene(canvas, { width, height, pixelRatio = 1, background = null, includeName = true, preserveDrawingBuffer = false, emblemUrl = '/images/galeo-emblem.webp' } = {}) {
-  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: background === null, preserveDrawingBuffer, powerPreference: 'high-performance' })
+export async function createGaleoScene(canvas, { width, height, pixelRatio = 1, background = null, includeName = true, preserveDrawingBuffer = false, failIfMajorPerformanceCaveat = false, emblemUrl = '/images/galeo-emblem.webp' } = {}) {
+  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: background === null, preserveDrawingBuffer, failIfMajorPerformanceCaveat, powerPreference: 'high-performance' })
   renderer.setPixelRatio(pixelRatio)
   renderer.setSize(width, height, false)
   renderer.outputColorSpace = SRGBColorSpace

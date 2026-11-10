@@ -189,8 +189,9 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   `node scripts/render-logo-3d.mjs` com o Vite ligado. No site: topo, rodapé, ícone da aba
   e imagem de compartilhamento com a medalha 3D; na capa sem foto, a medalha **balança
   devagar e inclina com o mouse** no computador. O three.js (150 KB comprimidos) é baixado
-  à parte só no computador e depois da página pronta; celular, Modo leve e movimento
-  reduzido ficam com a imagem 3D fixa. A arte original do círculo tem só ~540 px: com o
+  à parte só no computador e depois da página pronta; celular, Modo leve, movimento
+  reduzido e navegador sem vídeo (desenho por software, como o robô do PageSpeed) ficam
+  com a imagem 3D fixa, que no celular vem em 640 px. A arte original do círculo tem só ~540 px: com o
   arquivo original do logo em alta, a medalha fica mais nítida.
 - [x] **Fontes por função** (Técnico, 10/11; publica no próximo deploy): no lugar da
   Roboto em tudo, cada escrita tem a sua letra, como na Zara. **Bodoni Moda** (serifa de
@@ -200,7 +201,9 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   (números alinhados). **Cinzel**, a letra do logo 3D, no nome GALEO do topo, no rodapé e
   na campanha sem foto. Fontes hospedadas no próprio site (licença OFL), em versões
   menores (Bodoni com tamanho óptico fixo; Cinzel só com maiúsculas), com fonte reserva
-  do mesmo tamanho para o texto não pular enquanto carrega.
+  do mesmo tamanho para o texto não pular enquanto carrega. Lighthouse local da Home:
+  celular 87 (antes 84–87; CLS de 0,011 para 0) e computador 100 (antes 68, pela
+  animação 3D desenhada sem vídeo).
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

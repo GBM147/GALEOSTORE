@@ -7,9 +7,21 @@ function canAnimate() {
   if (!window.matchMedia('(min-width: 900px)').matches) return false
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
   if (document.documentElement.dataset.lite === 'true') return false
+  return hasGraphicsCard()
+}
+
+// Only with a graphics card: with software rendering (no GPU, a GPU the
+// browser blocks, or robots such as PageSpeed) every frame would hold up the
+// page, so the image stays.
+function hasGraphicsCard() {
   try {
-    const probe = document.createElement('canvas')
-    return Boolean(probe.getContext('webgl2') || probe.getContext('webgl'))
+    const probe = document.createElement('canvas'), options = { failIfMajorPerformanceCaveat: true }
+    const gl = probe.getContext('webgl2', options) || probe.getContext('webgl', options)
+    if (!gl) return false
+    const info = gl.getExtension('WEBGL_debug_renderer_info')
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '')
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    return !/swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer)
   } catch { return false }
 }
 
@@ -35,6 +47,7 @@ export default function BrandMedallion({ fetchPriority }) {
     }
   }, [])
   return <div ref={wrap} className="campaign-brand-image brand-medallion" data-live={live ? 'true' : 'false'}>
-    <img className="brand-medallion-image" src="/images/galeo-logo-3d.webp" alt="" width="1100" height="1100" decoding="async" fetchPriority={fetchPriority} />
+    <img className="brand-medallion-image" src="/images/galeo-logo-3d.webp" srcSet="/images/galeo-logo-3d-640.webp 640w, /images/galeo-logo-3d.webp 1100w"
+      sizes="(max-width: 760px) min(78vw, 340px), min(46vw, 620px)" alt="" width="1100" height="1100" decoding="async" fetchPriority={fetchPriority} />
   </div>
 }

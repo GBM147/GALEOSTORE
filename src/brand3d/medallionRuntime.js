@@ -39,7 +39,7 @@ export function mountMedallion(container, { pose, onReady } = {}) {
   }
 
   const [width, height] = measure()
-  createGaleoScene(canvas, { width, height, pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5) }).then(created => {
+  createGaleoScene(canvas, { width, height, pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), failIfMajorPerformanceCaveat: true }).then(created => {
     if (disposed) return created.dispose()
     scene = created
     scene.setPose(current)
