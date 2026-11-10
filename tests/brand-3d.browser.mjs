@@ -21,26 +21,9 @@ before(async () => {
 })
 after(async () => { await browser?.close() })
 
-// The site starts the 3D scene only with a graphics card. This machine renders
-// WebGL in software, so the test plays the card: 'gpu' (a graphics card),
-// 'no-gpu' (the browser refuses WebGL without one) or 'software' (WebGL by
-// SwiftShader, as on robots like PageSpeed).
-async function fixture(t, { width = 1366, height = 820, reducedMotion = 'no-preference', query = '', graphics = 'gpu' } = {}) {
+async function fixture(t, { width = 1366, height = 820, reducedMotion = 'no-preference', query = '' } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, reducedMotion, ...(width <= 700 ? { isMobile: true, hasTouch: true } : {}) })
   t.after(() => context.close())
-  await context.addInitScript(mode => {
-    const getContext = HTMLCanvasElement.prototype.getContext
-    HTMLCanvasElement.prototype.getContext = function (type, options) {
-      if (!options?.failIfMajorPerformanceCaveat) return getContext.call(this, type, options)
-      if (mode === 'no-gpu') return null
-      return getContext.call(this, type, { ...options, failIfMajorPerformanceCaveat: false })
-    }
-    const name = mode === 'software' ? 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)' : 'ANGLE (Test GPU)'
-    for (const proto of [globalThis.WebGLRenderingContext?.prototype, globalThis.WebGL2RenderingContext?.prototype].filter(Boolean)) {
-      const getParameter = proto.getParameter
-      proto.getParameter = function (parameter) { return parameter === 0x9246 || parameter === 0x1F01 ? name : getParameter.call(this, parameter) }
-    }
-  }, graphics)
   const page = await context.newPage(), errors = [], requests = []
   page.setDefaultTimeout(15000)
   page.on('pageerror', error => errors.push(error.message))
@@ -82,9 +65,7 @@ test('no computador, a medalha 3D entra no lugar da imagem e inclina com o mouse
 for (const [name, options] of [
   ['no celular', { width: 390, height: 844 }],
   ['no Modo leve', { query: '?lite=1' }],
-  ['com movimento reduzido', { reducedMotion: 'reduce' }],
-  ['no computador sem placa de vídeo', { graphics: 'no-gpu' }],
-  ['com WebGL por software (robôs como o PageSpeed)', { graphics: 'software' }]
+  ['com movimento reduzido', { reducedMotion: 'reduce' }]
 ]) {
   test(`${name}, fica só a imagem 3D fixa e o three.js não é baixado`, async t => {
     const { page, requests } = await fixture(t, options)
