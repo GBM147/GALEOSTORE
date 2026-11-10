@@ -15,7 +15,7 @@
   border-right: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  font: 14px/1.5 Roboto, Arial, sans-serif;
+  font: 14px/1.5 var(--font-body);
 }
 .visual-home-editor[data-panel-open="true"] .visual-editor-panel { display: block; }
 .visual-parts-toggle { order: -1; }
@@ -75,7 +75,7 @@
   border-radius: 10px;
   background: transparent;
   color: var(--text);
-  font: 700 12px/1 Roboto, Arial, sans-serif;
+  font: 700 12px/1 var(--font-body);
   cursor: pointer;
 }
 .visual-editor-panel .visual-part-actions button:disabled { opacity: .35; cursor: default; }
@@ -106,7 +106,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--text);
-  font: 600 14px/1 Roboto, Arial, sans-serif;
+  font: 600 14px/1 var(--font-body);
   cursor: pointer;
 }
 .visual-editor-panel .visual-highlight-words button[aria-pressed="true"] { border-color: var(--accent-soft); background: color-mix(in srgb, var(--accent-soft) 18%, transparent); color: var(--accent-soft); font-style: italic; }
@@ -124,7 +124,7 @@
 .visual-editable-section { scroll-margin-top: calc(var(--visual-toolbar-height, 0px) + 12px); }
 .visual-editable-section.is-current::before { border: 2px solid var(--accent-soft); }
 .visual-editable-section.is-current .visual-section-toolbar { background: color-mix(in srgb, var(--accent-soft) 14%, var(--surface)); }
-.visual-section-state { padding: 2px 10px; border: 1px solid #e0a43a; border-radius: 999px; color: #e0a43a; font: 700 11px/1.4 Roboto, Arial, sans-serif; }
+.visual-section-state { padding: 2px 10px; border: 1px solid #e0a43a; border-radius: 999px; color: #e0a43a; font: 700 11px/1.4 var(--font-body); }
 :root[data-theme="light"] .visual-section-state { border-color: #9a6412; color: #9a6412; }
 
 /* Computer: the panel stays beside the page. */

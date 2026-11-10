@@ -205,7 +205,7 @@ function CardPaymentForm({ publicKey, order, disabled, submit, methods, initialM
   // CardFormMap.style applies inside Mercado Pago's cross-origin iframes; the
   // application's CSS cannot set the text size or color in those documents, so
   // the fields are mounted again when the theme changes.
-  const secureFieldStyle = { fontSize: '16px', fontFamily: 'Roboto, Arial, sans-serif', fontWeight: '400', height: '100%', ...secureFieldColors[theme] }
+  const secureFieldStyle = { fontSize: '16px', fontFamily: 'Inter, Arial, sans-serif', fontWeight: '400', height: '100%', ...secureFieldColors[theme] }
 
   useEffect(() => {
     if (lockedMethod === 'credit_card' || lockedMethod === 'debit_card') setCardType(lockedMethod)

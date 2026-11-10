@@ -205,9 +205,9 @@ test('CMS visibility, order, categories and responsive media preserve typography
     const italic = getComputedStyle(title.querySelector('em'))
     return { family:normal.fontFamily, weight:Number(normal.fontWeight), editorialFamily:italic.fontFamily, editorialStyle:italic.fontStyle }
   })
-  assert.ok(typography.family.includes('Roboto'))
+  assert.ok(typography.family.includes('Bodoni Moda'))
   assert.ok(typography.weight >= 400 && typography.weight <= 600)
-  assert.ok(typography.editorialFamily.includes('Roboto'))
+  assert.ok(typography.editorialFamily.includes('Bodoni Moda'))
   assert.equal(typography.editorialStyle, 'italic')
   await page.setViewportSize({ width:390, height:844 })
   await page.waitForFunction(() => document.querySelector('.hero-full picture img')?.currentSrc.endsWith('test-hero-mobile.svg'))

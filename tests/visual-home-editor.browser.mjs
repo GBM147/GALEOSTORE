@@ -291,7 +291,7 @@ test('editing the actual draft heading preserves typography and saves only chang
   const { page, calls } = await fixture(t)
   assert.equal(mutations(calls).length, 0)
   const title = page.locator('.hero-title')
-  assert.equal(await title.locator('em').evaluate(element => getComputedStyle(element).fontFamily.includes('Roboto')), true)
+  assert.equal(await title.locator('em').evaluate(element => getComputedStyle(element).fontFamily.includes('Bodoni Moda')), true)
   await page.getByRole('button', { name:'Editar Título do Hero', exact:true }).click()
   await page.getByRole('textbox', { name:'Título do Hero', exact:true }).fill('Vista o que representa a sua história')
   assert.equal(mutations(calls).length, 0, 'digitar deve alterar somente o rascunho em memória')
@@ -338,7 +338,7 @@ for (const width of [1440, 390]) test(`a custom highlighted phrase survives draf
     const headingStyle = getComputedStyle(document.querySelector('.hero-title'))
     return { family:emphasisStyle.fontFamily, italic:emphasisStyle.fontStyle, color:emphasisStyle.color, normalColor:headingStyle.color }
   })
-  assert.ok(style.family.includes('Roboto'))
+  assert.ok(style.family.includes('Bodoni Moda'))
   assert.equal(style.italic, 'italic')
   assert.notEqual(style.color, style.normalColor, 'the highlighted phrase must visibly differ from normal text')
   await saveDraft(page)
@@ -441,18 +441,28 @@ test('the section options restore a deleted featured heading and publish that ex
   assert.equal(await page.locator('[data-home-section="featured_products"] h2 em').innerText(), 'seu dia')
 })
 
-test('Roboto is loaded locally with a lighter heading on the draft', async t => {
+test('the store fonts are local: Bodoni Moda titles, Inter text and the Cinzel name', async t => {
   const { page } = await fixture(t)
   const typography = await page.locator('.hero-title').evaluate(async title => {
-    await document.fonts.load('500 24px Roboto')
+    await Promise.all(['500 24px "Bodoni Moda"', 'italic 400 24px "Bodoni Moda"', '400 16px Inter', '700 18px Cinzel'].map(font => document.fonts.load(font, 'GALEO')))
     const computed = getComputedStyle(title)
-    return { family: computed.fontFamily, weight: Number(computed.fontWeight), loaded: document.fonts.check('500 24px Roboto'), sources: [...document.fonts].filter(face => face.family === 'Roboto').map(face => face.status) }
+    const loaded = family => [...document.fonts].filter(face => face.family.replace(/"/g, '') === family).map(face => face.status)
+    return {
+      family: computed.fontFamily, weight: Number(computed.fontWeight),
+      body: getComputedStyle(document.body).fontFamily, brand: getComputedStyle(document.querySelector('.brand-wordmark')).fontFamily,
+      faces: { bodoni: loaded('Bodoni Moda'), inter: loaded('Inter'), cinzel: loaded('Cinzel') },
+      sources: [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules] } catch { return [] } }).filter(rule => rule instanceof CSSFontFaceRule).map(rule => rule.style.getPropertyValue('src')).join(' ')
+    }
   })
-  assert.ok(typography.family.includes('Roboto'))
+  assert.ok(typography.family.includes('Bodoni Moda'))
   assert.ok(typography.weight >= 400 && typography.weight <= 600)
-  assert.equal(typography.loaded, true)
-  assert.ok(typography.sources.includes('loaded'))
-  assert.equal(await page.locator('link[rel="preload"][href="/fonts/roboto-latin-normal.woff2"]').count(), 1)
+  assert.ok(typography.body.startsWith('Inter'))
+  assert.ok(typography.brand.startsWith('Cinzel'))
+  for (const [name, faces] of Object.entries(typography.faces)) assert.ok(faces.includes('loaded'), name + ' carregada')
+  assert.doesNotMatch(typography.sources, /https?:/, 'nenhuma fonte vem de outro site')
+  for (const file of ['inter-latin-normal.woff2', 'bodoni-moda-latin-normal.woff2', 'bodoni-moda-latin-italic.woff2']) {
+    assert.equal(await page.locator(`link[rel="preload"][href="/fonts/${file}"]`).count(), 1, file)
+  }
 })
 
 test('publication is a separate confirmed action after saving and never follows typing automatically', async t => {

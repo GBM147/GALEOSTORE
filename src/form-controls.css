@@ -31,7 +31,7 @@
   background-color: var(--field-background);
   color: var(--text);
   caret-color: var(--text);
-  font-family: var(--font-body, Roboto, Arial, sans-serif);
+  font-family: var(--font-body);
   font-size: 16px;
   font-weight: 400;
   line-height: 1.5;
@@ -84,7 +84,7 @@
   min-width: 0;
   max-width: 100%;
   color: var(--field-label);
-  font-family: var(--font-body, Roboto, Arial, sans-serif);
+  font-family: var(--font-body);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.5;
@@ -150,7 +150,7 @@
   color: var(--text);
   border-color: var(--field-border);
   background-color: var(--field-background);
-  font-family: var(--font-body, Roboto, Arial, sans-serif);
+  font-family: var(--font-body);
   font-size: 16px;
   font-weight: 400;
   line-height: 1.5;

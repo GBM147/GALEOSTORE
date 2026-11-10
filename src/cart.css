@@ -62,7 +62,7 @@
 .app main .cart-summary { top: 96px; gap: 0; padding: 22px; }
 .app main .cart-summary > div:not(.cart-login-box) { padding: 12px 0; font-size: 14px; }
 .app main .cart-summary .cart-summary-total { padding-top: 16px; font-size: 15px; font-weight: 700; }
-.app main .cart-summary-total strong { font-size: 24px; font-weight: 800; }
+.app main .cart-summary-total strong { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 :root[data-theme="light"] .app main .cart-summary-total strong { color: var(--accent-deep) !important; }
 .app main .cart-submit {
   justify-content: center;

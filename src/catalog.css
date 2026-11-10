@@ -6,7 +6,7 @@
 /* Page headings (catalog, cart, account): smaller and bolder. */
 .app main.page-space { padding-block: clamp(28px, 5vw, 56px) clamp(56px, 8vw, 104px); }
 .app main .page-heading { margin-bottom: clamp(20px, 3vw, 32px); }
-.app main .page-heading h1 { font-size: clamp(32px, 4.5vw, 56px); font-weight: 700; line-height: 1.04; letter-spacing: -.02em; }
+.app main .page-heading h1 { font-family: var(--font-display); font-size: clamp(32px, 4.5vw, 56px); font-weight: 500; line-height: 1.06; letter-spacing: -.015em; }
 
 /* Search: the icon and the clear button sit inside the field, the submit
    button beside it, on one line on every screen. */
@@ -162,7 +162,7 @@
 .app main .product-info { padding-top: 4px; top: 96px; }
 .app main .product-detail-brand { margin: 0 0 10px; color: var(--accent-soft); font-size: 11px; font-weight: 800; line-height: 1.4; letter-spacing: .2em; text-transform: uppercase; }
 .app main .product-info h1 { margin-bottom: 12px; font-size: clamp(28px, 3.2vw, 44px); font-weight: 700; line-height: 1.1; letter-spacing: -.015em; overflow-wrap: anywhere; }
-.app main .product-detail-price { margin-bottom: 20px; color: var(--accent-soft); font-size: 26px; font-weight: 800; letter-spacing: -.01em; }
+.app main .product-detail-price { margin-bottom: 20px; color: var(--accent-soft); font-size: 26px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 :root[data-theme="light"] .app main :is(.product-detail-brand, .product-detail-price) { color: var(--accent-deep); }
 .app main .product-detail-description { margin-bottom: 24px; font-size: 15px; line-height: 1.7; }
 

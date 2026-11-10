@@ -33,7 +33,7 @@
   height: 44px;
 }
 .brand-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
-.brand-wordmark { color: var(--accent-soft); font-size: 16px; font-weight: 800; letter-spacing: .24em; }
+.brand-wordmark { color: var(--accent-soft); font-family: var(--font-brand); font-size: 18px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 :root[data-theme="light"] .brand-wordmark { color: var(--text); }
 
 .desktop-nav { display: flex; align-items: center; justify-content: center; gap: clamp(18px, 2.4vw, 34px); min-width: 0; }
@@ -244,10 +244,11 @@ html.menu-open { overflow: hidden; }
 .site-footer-band span {
   display: block;
   color: var(--accent-soft);
-  font-size: clamp(72px, 19vw, 260px);
-  font-weight: 900;
-  line-height: .78;
-  letter-spacing: -.02em;
+  font-family: var(--font-brand);
+  font-size: clamp(60px, 15.5vw, 212px);
+  font-weight: 700;
+  line-height: .82;
+  letter-spacing: .02em;
   text-transform: uppercase;
 }
 :root[data-theme="light"] .site-footer-band span { color: var(--text); }
@@ -265,7 +266,7 @@ html.menu-open { overflow: hidden; }
 .site-footer-about { display: grid; align-content: start; gap: 14px; }
 .site-footer-about img { width: 60px; height: 60px; object-fit: contain; }
 .site-footer-about p { margin: 0; font-size: 14px; line-height: 1.6; }
-.site-footer-about strong { display: block; color: var(--text); font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
+.site-footer-about strong { display: block; color: var(--text); font-family: var(--font-brand); font-size: 15px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .site-footer-grid .payment-badges { display: flex; flex-wrap: wrap; gap: 8px; }
 .payment-badges li {
   padding: 6px 10px;

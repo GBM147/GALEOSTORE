@@ -192,6 +192,15 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   à parte só no computador e depois da página pronta; celular, Modo leve e movimento
   reduzido ficam com a imagem 3D fixa. A arte original do círculo tem só ~540 px: com o
   arquivo original do logo em alta, a medalha fica mais nítida.
+- [x] **Fontes por função** (Técnico, 10/11; publica no próximo deploy): no lugar da
+  Roboto em tudo, cada escrita tem a sua letra, como na Zara. **Bodoni Moda** (serifa de
+  revista de moda) nos títulos editoriais: capa, seções, categorias, campanhas, manifesto,
+  newsletter e títulos de página (catálogo, carrinho, conta), com o trecho dourado em
+  itálico. **Inter** nos textos, menus, botões, formulários, nomes de produto e preços
+  (números alinhados). **Cinzel**, a letra do logo 3D, no nome GALEO do topo, no rodapé e
+  na campanha sem foto. Fontes hospedadas no próprio site (licença OFL), em versões
+  menores (Bodoni com tamanho óptico fixo; Cinzel só com maiúsculas), com fonte reserva
+  do mesmo tamanho para o texto não pular enquanto carrega.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

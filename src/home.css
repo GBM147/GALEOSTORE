@@ -5,7 +5,7 @@
 /* Rhythm and section headings */
 .app main .section-block { padding-block: clamp(56px, 8vw, 104px); }
 .app .section-heading h2,
-.app .featured-selection .section-heading h2 { font-size: clamp(32px, 4.2vw, 56px); font-weight: 700; line-height: 1.04; letter-spacing: -.02em; }
+.app .featured-selection .section-heading h2 { font-family: var(--font-display); font-size: clamp(32px, 4.2vw, 56px); font-weight: 500; line-height: 1.06; letter-spacing: -.015em; }
 .hero-eyebrow, .section-eyebrow {
   display: inline-block;
   margin-bottom: 14px;
@@ -34,7 +34,7 @@
   padding: clamp(40px, 6vw, 80px) clamp(16px, 5vw, 72px);
 }
 /* The banner title keeps its lighter 500 weight (a standing rule of the store). */
-.app .hero-full h1 { font-size: var(--hero-title-fit, clamp(40px, 6vw, 88px)); line-height: 1.02; letter-spacing: -.03em; }
+.app .hero-full h1 { font-family: var(--font-display); font-size: var(--hero-title-fit, clamp(40px, 6vw, 88px)); line-height: 1.04; letter-spacing: -.02em; }
 .app .hero-full p { margin: 20px 0 30px; font-size: 16px; }
 .app .hero-full-actions { flex-wrap: wrap; gap: 12px; }
 .hero-full-actions .hero-secondary { min-height: 52px; }
@@ -132,15 +132,16 @@
   border: 0;
   border-radius: 0;
   color: color-mix(in srgb, var(--accent-soft) 13%, transparent);
+  font-family: var(--font-display);
   font-size: 190px;
-  font-weight: 900;
+  font-weight: 500;
   line-height: 1;
   z-index: 0;
 }
 .app main .category-card.has-media::before { content: none; }
 .app main .category-card.has-media::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, transparent 25%, rgba(0, 0, 0, .78)); }
 .category-card .category-media { opacity: .6; }
-.app main .category-card strong { margin-block: auto 0; font-size: clamp(24px, 2.6vw, 34px); font-weight: 800; line-height: 1.05; letter-spacing: .005em; text-transform: uppercase; }
+.app main .category-card strong { margin-block: auto 0; font-family: var(--font-display); font-size: clamp(24px, 2.6vw, 34px); font-weight: 500; line-height: 1.05; letter-spacing: .02em; text-transform: uppercase; }
 .app main .category-card small { margin-top: 12px; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
 .app main .category-card.has-media :is(strong, small) { color: #f6efe2; }
 @media (max-width: 650px) {
@@ -152,8 +153,8 @@
 
 /* Product cards (Home and catalog) */
 .app .product-meta { gap: 4px; padding-top: 12px; }
-.app .product-meta strong { font-size: 15px; font-weight: 600; line-height: 1.3; }
-.app .product-meta b { font-size: 15px; font-weight: 800; }
+.app .product-meta strong { font-size: 15px; font-weight: 500; line-height: 1.3; }
+.app .product-meta b { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* Campaigns: brand panels when there is no photo, never the repeated artwork. */
 .app main .campaign-card { min-height: 420px; }
@@ -171,16 +172,17 @@
 }
 .campaign-fallback span {
   color: transparent;
-  font-size: clamp(90px, 15vw, 210px);
-  font-weight: 900;
+  font-family: var(--font-brand);
+  font-size: clamp(76px, 12.5vw, 176px);
+  font-weight: 700;
   line-height: .8;
-  letter-spacing: -.03em;
+  letter-spacing: .02em;
   -webkit-text-stroke: 1px color-mix(in srgb, #e2c27f 38%, transparent);
 }
 .campaign-carousel[data-has-media="false"] :is(.campaign-orb, .campaign-line, .campaign-scan, .campaign-carousel-shade),
 .campaign-carousel[data-has-media="false"] .campaign-visual::after { display: none; }
 .campaign-carousel[data-has-media="false"] .campaign-visual::before { animation: none; opacity: 0; }
-.campaign-carousel[data-has-media="false"] .campaign-card-copy strong { font-weight: 800; text-transform: uppercase; letter-spacing: -.01em; }
+.campaign-carousel[data-has-media="false"] .campaign-card-copy strong { font-weight: 500; text-transform: uppercase; letter-spacing: .01em; }
 .campaign-carousel[data-has-media="false"] .campaign-card-copy :is(strong, small, em) { color: #f6efe2; }
 .campaign-carousel[data-has-media="false"] .campaign-card-copy em { color: #e2c27f; }
 /* 1: solid gold with dark text */
@@ -199,7 +201,7 @@
 
 /* Manifesto */
 .app main .manifesto { padding-block: clamp(56px, 9vw, 120px); }
-.app main .manifesto p { font-size: clamp(36px, 6vw, 80px); font-weight: 800; line-height: 1.02; letter-spacing: -.02em; text-transform: uppercase; }
+.app main .manifesto p { font-family: var(--font-display); font-size: clamp(36px, 6vw, 80px); font-weight: 500; line-height: 1.04; letter-spacing: -.01em; text-transform: uppercase; }
 .app main .manifesto p::before { content: ""; display: block; width: 56px; height: 3px; margin-bottom: 28px; background: var(--accent-soft); }
 
 /* Newsletter */
@@ -212,7 +214,7 @@
   border: 1px solid var(--line);
   background: var(--surface);
 }
-.app main .newsletter h2 { font-size: clamp(28px, 3.4vw, 44px); font-weight: 700; }
+.app main .newsletter h2 { font-family: var(--font-display); font-size: clamp(28px, 3.4vw, 44px); font-weight: 500; }
 @media (max-width: 1000px) {
   .app main .newsletter { grid-template-columns: 1fr; }
 }
