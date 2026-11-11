@@ -13,6 +13,7 @@ import ProductWizard from './admin/ProductWizard'
 import { SearchIcon } from './icons'
 import { ResponsiveImage } from './ResponsiveImage'
 import { imageWidths } from './cloudinaryImage'
+import { DEFAULT_GOOGLE_REVIEW_URL } from './siteNavigation'
 import './product-variants.css'
 import './Admin.css'
 import './shipping.css'
@@ -556,7 +557,7 @@ function HomeEditor({ user }) {
             </div>
           )}
 
-          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><label>Instagram (@perfil ou link)<input value={footer.instagram || ''} onChange={(e) => setFooter((current) => ({ ...current, instagram: e.target.value }))} placeholder="@galeostore" /></label><label>WhatsApp com DDD<input value={footer.whatsapp || ''} inputMode="tel" onChange={(e) => setFooter((current) => ({ ...current, whatsapp: e.target.value }))} placeholder="11 99999-9999" /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé no rascunho ↗</button></div></div>}
+          {area === 'footer' && footer && <div className="home-editor-form single"><label>Nome<input value={footer.brand || ''} onChange={(e) => setFooter((current) => ({ ...current, brand: e.target.value }))} /></label><label>Ano<input value={footer.year || ''} onChange={(e) => setFooter((current) => ({ ...current, year: e.target.value }))} /></label><label>Instagram (@perfil ou link)<input value={footer.instagram || ''} onChange={(e) => setFooter((current) => ({ ...current, instagram: e.target.value }))} placeholder="@galeostore" /></label><label>WhatsApp com DDD<input value={footer.whatsapp || ''} inputMode="tel" onChange={(e) => setFooter((current) => ({ ...current, whatsapp: e.target.value }))} placeholder="11 99999-9999" /></label><label>Link de avaliação do Google (vazio esconde as estrelas)<input value={footer.google_review ?? DEFAULT_GOOGLE_REVIEW_URL} onChange={(e) => setFooter((current) => ({ ...current, google_review: e.target.value }))} placeholder="Link da loja no Google Maps" /></label><div className="home-editor-savebar"><button className="button button-primary" type="button" onClick={() => saveSetting('footer', footer)} disabled={saving}>Salvar rodapé no rascunho ↗</button></div></div>}
 
           {area === 'campaign' && campaignDefaults && (
             <div className="home-editor-form">

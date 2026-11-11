@@ -41,6 +41,42 @@ export const whatsappUrl = value => {
   return number ? 'https://wa.me/' + number : ''
 }
 
+// The store on Google (GaleoStore on Google Maps, reviews tab). The footer stars
+// lead here so customers can write a review.
+export const DEFAULT_GOOGLE_REVIEW_URL = 'https://www.google.com/maps/place/GaleoStore/@-23.5561312,-46.4726521,17z/data=!4m8!3m7!1s0x94ce675e943b374f:0xfcc1a871fee53d0e!8m2!3d-23.5561312!4d-46.4700772!9m1!1b1!16s%2Fg%2F11zwp02xns'
+
+const GOOGLE_MAPS_HOSTS = ['www.google.com', 'google.com', 'maps.google.com', 'www.google.com.br', 'google.com.br']
+const TRACKING_PARAMS = ['entry', 'g_ep', 'g_st', 'utm_source', 'utm_medium', 'utm_campaign']
+
+// Only an https link to the store on Google becomes the review link: Google
+// Maps, a maps.app.goo.gl or g.page short link, or Google's review form.
+// Tracking parameters are dropped; anything else is ignored.
+export function googleReviewUrl(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text || text.length > 1000) return ''
+  try {
+    const url = new URL(text)
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return ''
+    const path = url.pathname
+    const valid = (GOOGLE_MAPS_HOSTS.includes(url.hostname) && path.startsWith('/maps'))
+      || (['maps.app.goo.gl', 'g.page'].includes(url.hostname) && path.length > 1)
+      || (url.hostname === 'search.google.com' && path.startsWith('/local/writereview'))
+    if (!valid) return ''
+    for (const key of TRACKING_PARAMS) url.searchParams.delete(key)
+    url.hash = ''
+    return url.href
+  } catch {
+    return ''
+  }
+}
+
+// Review link shown in the footer: without the field, the store's own page on
+// Google; an empty field hides the stars.
+export function footerReviewUrl(footer) {
+  const value = footer && typeof footer === 'object' ? footer.google_review : undefined
+  return value === undefined || value === null ? DEFAULT_GOOGLE_REVIEW_URL : googleReviewUrl(value)
+}
+
 // Stored footer settings keep only known, bounded fields.
 export function normalizeFooterSettings(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -51,6 +87,7 @@ export function normalizeFooterSettings(value) {
     year: text(source.year, 10),
     ...(location ? { location } : {}),
     instagram: instagramUrl(source.instagram),
-    whatsapp: whatsappNumber(source.whatsapp)
+    whatsapp: whatsappNumber(source.whatsapp),
+    ...(source.google_review !== undefined && source.google_review !== null ? { google_review: googleReviewUrl(source.google_review) } : {})
   }
 }

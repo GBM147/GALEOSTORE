@@ -6,6 +6,7 @@ import { CAMPAIGN_DEFAULTS, MAX_CAMPAIGN_SLIDES, isCampaignVideo } from './campa
 import { textHighlightPath, editorialType, defaultTextHighlight } from './editorialText'
 import LinkChooser from './editor/LinkChooser'
 import { uploadToLibrary } from './editor/libraryUpload'
+import { DEFAULT_GOOGLE_REVIEW_URL } from './siteNavigation'
 import './VisualHomeEditor.css'
 import './editor/editor-panel.css'
 
@@ -238,7 +239,7 @@ const summaries = {
   manifesto: content => String(content.text || '').split('\n')[0],
   newsletter: content => content.title
 }
-const storeParts = [['navigation', 'Menu do topo', 'Links do menu da loja'], ['footer', 'Rodapé', 'Nome da loja, Instagram e WhatsApp'], ['visual', 'Cores e tema', 'Tema escuro ou claro e cores'], ['campaign', 'Movimento das campanhas', 'Como as fotos das campanhas se movem']]
+const storeParts = [['navigation', 'Menu do topo', 'Links do menu da loja'], ['footer', 'Rodapé', 'Nome da loja, redes e avaliação no Google'], ['visual', 'Cores e tema', 'Tema escuro ou claro e cores'], ['campaign', 'Movimento das campanhas', 'Como as fotos das campanhas se movem']]
 
 // Every part of the Home in page order, with show/hide and move, plus the
 // settings that apply to the whole store.
@@ -460,7 +461,7 @@ function SettingsOptions({ tab,settings,update,links }) {
     function setItem(index,fields) { update('navigation',(old) => ({ ...old,items:items.map((item,currentIndex) => currentIndex === index ? { ...item,...fields } : item) })) }
     return <><p>Links que aparecem no menu da loja.</p>{items.map((item,index) => <div className="visual-list-row" key={index}><Field label={'Nome do link ' + (index + 1)} value={item.label} onChange={(value) => setItem(index,{label:value})} /><LinkChooser label={'Destino do link ' + (index + 1)} value={item.url} onChange={(value) => setItem(index,{url:value})} {...links} /><button type="button" onClick={() => update('navigation',() => ({ ...current,items:items.filter((_,currentIndex) => currentIndex !== index) }))}>{'Remover link ' + (index + 1)}</button></div>)}<button type="button" disabled={items.length >= 8} onClick={() => update('navigation',() => ({ ...current,items:[...items,{label:'Novo link',url:'/shop'}] }))}>+ Adicionar link</button></>
   }
-  if (tab === 'footer') return <>{[['brand','Nome da loja'],['year','Ano'],['instagram','Instagram (@perfil ou link)'],['whatsapp','WhatsApp com DDD']].map(([key,label]) => <Field key={key} label={label} value={settings.footer?.[key]} onChange={(value) => update('footer',(old) => ({ ...old,[key]:value }))} />)}<p className="visual-field-note">Instagram e WhatsApp aparecem no rodapé só quando preenchidos.</p></>
+  if (tab === 'footer') return <>{[['brand','Nome da loja'],['year','Ano'],['instagram','Instagram (@perfil ou link)'],['whatsapp','WhatsApp com DDD']].map(([key,label]) => <Field key={key} label={label} value={settings.footer?.[key]} onChange={(value) => update('footer',(old) => ({ ...old,[key]:value }))} />)}<Field label="Link de avaliação do Google" value={settings.footer?.google_review ?? DEFAULT_GOOGLE_REVIEW_URL} onChange={(value) => update('footer',(old) => ({ ...old,google_review:value }))} placeholder="Link da loja no Google Maps" /><p className="visual-field-note">Instagram e WhatsApp aparecem no rodapé só quando preenchidos. As estrelas do rodapé levam ao link do Google; deixe o link vazio para escondê-las.</p></>
   if (tab === 'campaign') return <><p>Este padrão é aplicado às campanhas automaticamente.</p><AnimationFields value={settings.campaign_defaults} onChange={(value) => update('campaign_defaults',() => value)} /></>
   const current = settings.storefront_visual_defaults || {}
   return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>Letras da loja: Bodoni Moda nos títulos, Inter nos textos e Cinzel no nome GALEO.</p><div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([key,label]) => <Field key={key} type="color" label={label} value={/^#[\da-f]{6}$/i.test(current.palette?.[key] || '') ? current.palette[key] : '#000000'} onChange={(value) => update('storefront_visual_defaults',(old) => ({ ...old,palette:{ ...old.palette,[key]:value } }))} />)}</div></>

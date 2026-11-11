@@ -116,6 +116,35 @@ test('rodapé: links, formas de pagamento e redes só quando configuradas com en
   assert.equal(await plain.getByRole('navigation', { name:'Redes sociais' }).count(), 0)
 })
 
+test('rodapé: as estrelas levam a GaleoStore no Google e somem com o link vazio', async t => {
+  const google = 'https://www.google.com/maps/place/GaleoStore/@-23.5561312,-46.4726521,17z/data=!4m8!3m7!1s0x94ce675e943b374f:0xfcc1a871fee53d0e!8m2!3d-23.5561312!4d-46.4700772!9m1!1b1!16s%2Fg%2F11zwp02xns'
+  for (const width of [1280, 390]) {
+    const page = await fixture(t, { width, touch: width < 700 })
+    await page.context().route('https://www.google.com/**', route => route.fulfill({ contentType:'text/html', body:'<title>Google</title>' }))
+    await page.goto(baseUrl + '/')
+    const review = page.locator('footer .site-footer-review')
+    await review.scrollIntoViewIfNeeded()
+    await review.getByRole('heading', { name:/Comprou com a gente/ }).waitFor()
+    const stars = review.getByRole('group', { name:'Avaliar no Google' }).getByRole('link')
+    assert.deepEqual(await stars.evaluateAll(links => links.map(link => link.getAttribute('aria-label'))), ['Dar 1 estrela no Google', 'Dar 2 estrelas no Google', 'Dar 3 estrelas no Google', 'Dar 4 estrelas no Google', 'Dar 5 estrelas no Google'])
+    for (const link of [...await stars.all(), review.getByRole('link', { name:/Avaliar no Google/ })]) {
+      assert.equal(await link.getAttribute('href'), google)
+      assert.equal(await link.getAttribute('target'), '_blank')
+      assert.equal(await link.getAttribute('rel'), 'noopener noreferrer')
+      const box = await link.boundingBox()
+      assert.ok(box.width >= 44 && box.height >= 44, 'área de toque')
+    }
+    assert.ok(await noHorizontalScroll(page))
+    const [popup] = await Promise.all([page.waitForEvent('popup'), stars.nth(4).click()])
+    assert.equal(popup.url(), google)
+    await review.getByText('Obrigado! Termine sua avaliação no Google.').waitFor()
+  }
+  const hidden = await fixture(t, { footer:{ brand:'GALEO STORE', year:'2026', google_review:'' } })
+  await hidden.goto(baseUrl + '/')
+  await hidden.locator('footer.site-footer').waitFor()
+  assert.equal(await hidden.locator('.site-footer-review').count(), 0)
+})
+
 test('textos do topo e do rodapé têm contraste de leitura nos modos claro e escuro', async t => {
   for (const theme of ['dark', 'light']) {
     const page = await fixture(t)

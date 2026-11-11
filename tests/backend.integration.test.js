@@ -347,6 +347,25 @@ test('configurações visuais aceitam as cores CSS usadas no padrão da loja', a
   }
 })
 
+test('rodapé salvo no rascunho mantém Instagram, WhatsApp e o link de avaliação do Google', async () => {
+  const existing = await execute("SELECT setting_value,draft_value,updated_by,updated_at FROM home_settings WHERE setting_key='footer'")
+  const client = await operationsClient()
+  try {
+    const value = { brand: 'GALEO STORE', year: '2026', instagram: '@galeo.store', whatsapp: '11 99999-9999', google_review: 'https://maps.app.goo.gl/AbC123xyz?g_st=ic' }
+    const saved = await client.request('/api/admin/home/settings/footer', { method: 'PUT', body: { value } })
+    assert.equal(saved.response.status, 200, saved.data.error)
+    const settings = await client.request('/api/admin/home/settings')
+    const footer = settings.data.settings.find(setting => setting.key === 'footer').value
+    assert.equal(footer.instagram, 'https://www.instagram.com/galeo.store/')
+    assert.equal(footer.whatsapp, '5511999999999')
+    assert.equal(footer.google_review, 'https://maps.app.goo.gl/AbC123xyz')
+    const unsafe = await client.request('/api/admin/home/settings/footer', { method: 'PUT', body: { value: { ...value, google_review: 'https://example.invalid/maps' } } })
+    assert.equal(unsafe.response.status, 400)
+  } finally {
+    if (existing.length) await execute("UPDATE home_settings SET setting_value=?,draft_value=?,updated_by=?,updated_at=? WHERE setting_key='footer'", [jsonParameter(existing[0].setting_value), jsonParameter(existing[0].draft_value), existing[0].updated_by, existing[0].updated_at])
+  }
+})
+
 test('consultas simultâneas ao dashboard não registram gastos recorrentes antes da confirmação do dono', async () => {
   const recurring = await execute('INSERT INTO recurring_expenses(description,amount,due_day) VALUES(?,10,31)', ['Recorrência de teste ' + suffix])
   fixtures.recurring.push(recurring.insertId)

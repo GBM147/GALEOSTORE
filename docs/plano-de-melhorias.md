@@ -204,6 +204,13 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   do mesmo tamanho para o texto não pular enquanto carrega. Lighthouse local da Home no
   celular: 87 (antes 84–87; CLS de 0,011 para 0). No computador o Lighthouse dá cerca de
   68, porque o robô desenha a medalha 3D sem vídeo; o 3D fica para todos os PCs.
+- [x] **Avaliação no Google** (Técnico, 11/11; publica no próximo deploy): faixa "Comprou
+  com a gente? Conte como foi" no rodapé de todas as páginas, com 5 estrelas e o botão
+  "Avaliar no Google". Qualquer estrela abre a GaleoStore no Google Maps, na aba de
+  avaliações, em nova aba. O Google proíbe filtrar notas, então todas levam ao mesmo
+  lugar e o site não guarda nota. O link fica em Editor da loja → Rodapé ("Link de
+  avaliação do Google"); vazio esconde as estrelas. Corrigido o salvamento do rodapé, que
+  apagava Instagram e WhatsApp.
 - [ ] **Desempenho — JavaScript** (Técnico): o pacote inicial ainda tem 470 KB
   (158 KB comprimidos; React DOM 205 KB, GSAP 112 KB, React Router 38 KB, editor
   visual 31 KB, App 28 KB). Carregar o GSAP depois da página exige revisar as

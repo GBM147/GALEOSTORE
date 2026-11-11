@@ -263,6 +263,35 @@ html.menu-open { overflow: hidden; }
 .site-footer-grid ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .site-footer-grid a { display: inline-flex; align-items: center; min-height: 36px; color: var(--muted); font-size: 14px; transition: color .2s ease; }
 .site-footer-grid a:hover { color: var(--text); }
+/* Review on Google: five stars and a button, all leading to the store on Google. */
+.site-footer-review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px 28px;
+  margin: clamp(28px, 4vw, 44px) clamp(16px, 3vw, 40px) 0;
+  padding: clamp(20px, 3vw, 28px) clamp(18px, 3vw, 32px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent-soft) 6%, transparent);
+}
+.site-footer-review h2 { margin: 0; color: var(--text); font-family: var(--font-display); font-size: clamp(24px, 2.6vw, 34px); font-weight: 500; line-height: 1.12; letter-spacing: -.01em; }
+.site-footer-review-copy p { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.site-footer-review-stars { display: flex; gap: 2px; color: var(--accent-soft); }
+.site-footer-review-stars a { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; color: inherit; }
+.site-footer-review-stars svg { width: 30px; height: 30px; fill: transparent; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; transition: fill .15s ease, transform .15s ease; }
+.site-footer-review-stars a.is-lit svg { fill: currentColor; transform: scale(1.08); }
+.site-footer-review-stars a:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.app .site-footer-review-button { min-width: 0; gap: 14px; white-space: nowrap; }
+.site-footer-review-thanks { grid-column: 1 / -1; margin: 0; color: var(--accent-soft); font-size: 13px; font-weight: 600; }
+.site-footer-review-thanks:empty { display: none; }
+:root[data-theme="light"] .site-footer-review-stars, :root[data-theme="light"] .site-footer-review-thanks { color: var(--accent-deep); }
+:root[data-theme="light"] .site-footer-review h2 em { color: var(--accent); }
+@media (max-width: 900px) {
+  .site-footer-review { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  .site-footer-review-stars a { width: 48px; height: 48px; }
+  .site-footer-review-stars svg { width: 34px; height: 34px; }
+}
 .site-footer-about { display: grid; align-content: start; gap: 14px; }
 .site-footer-about img { width: 60px; height: 60px; object-fit: contain; }
 .site-footer-about p { margin: 0; font-size: 14px; line-height: 1.6; }

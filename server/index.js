@@ -6,7 +6,7 @@ import bcrypt from 'bcrypt'
 import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
 import { registerSeoRoutes } from './seo.js'
-import { instagramUrl, normalizeFooterSettings, whatsappNumber } from '../src/siteNavigation.js'
+import { googleReviewUrl, instagramUrl, normalizeFooterSettings, whatsappNumber } from '../src/siteNavigation.js'
 import { registerStaticSite } from './static-site.js'
 import { cachePublicResponse, markStorefrontChanges } from './storefront-cache.js'
 import { captureConsoleErrors, createErrorLog, ERROR_EVENTS_DDL } from './error-log.js'
@@ -1954,6 +1954,7 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
   if (key === 'footer') {
     if (String(value.instagram ?? '').trim() && !instagramUrl(value.instagram)) return res.status(400).json({ error:'Instagram inválido. Use @perfil ou o link do perfil no instagram.com.' })
     if (String(value.whatsapp ?? '').trim() && !whatsappNumber(value.whatsapp)) return res.status(400).json({ error:'WhatsApp inválido. Use o número com DDD, por exemplo 11 99999-9999.' })
+    if (String(value.google_review ?? '').trim() && !googleReviewUrl(value.google_review)) return res.status(400).json({ error:'Link do Google inválido. Cole o link da loja no Google Maps ou o link de avaliação do Perfil da Empresa.' })
     setting = normalizeFooterSettings(value)
   }
   if (key === 'campaign_defaults') {
@@ -1984,10 +1985,6 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
   if (key === 'navigation') {
     const items = Array.isArray(value.items) ? value.items.slice(0,8).map((item) => ({ label:String(item?.label || '').trim().slice(0,80), url:String(item?.url || '/shop').trim().slice(0,300) })).filter((item) => item.label) : []
     setting = { items }
-  }
-
-  if (key === 'footer') {
-    setting = { brand:String(value.brand || 'GALEO STORE').trim().slice(0,120), location:String(value.location || 'São Paulo / BR').trim().slice(0,120), year:String(value.year || '2026').trim().slice(0,12) }
   }
 
   const payload = JSON.stringify(setting)
