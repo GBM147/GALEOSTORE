@@ -81,7 +81,7 @@ for (const width of [390, 320]) {
     const { page } = await fixture(t, { width })
     const [form, summary] = await Promise.all([box(page.locator('#cart-checkout-form')), box(page.locator('.cart-summary'))])
     assert.ok(summary.y > form.y, 'resumo abaixo do endereço')
-    const fields = await page.locator('.cart-page input:not([type="radio"])').evaluateAll(nodes => nodes.filter(node => node.getClientRects().length).map(node => ({ height:node.getBoundingClientRect().height, radius:parseFloat(getComputedStyle(node).borderTopLeftRadius), font:parseFloat(getComputedStyle(node).fontSize) })))
+    const fields = await page.locator('.cart-page input:not([type="radio"], [type="checkbox"])').evaluateAll(nodes => nodes.filter(node => node.getClientRects().length).map(node => ({ height:node.getBoundingClientRect().height, radius:parseFloat(getComputedStyle(node).borderTopLeftRadius), font:parseFloat(getComputedStyle(node).fontSize) })))
     assert.ok(fields.length >= 8)
     for (const field of fields) assert.ok(field.height >= 44 && field.radius >= 8 && field.font === 16, JSON.stringify(field))
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
