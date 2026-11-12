@@ -141,7 +141,7 @@
         medal = { size, x: x0 + (x1 - x0) * intoTagline, y: y0 + (y1 - y0) * intoTagline, o: Math.min(easeOut(ramp(t, 0, .9)), 1 - ramp(t, 7.4, 7.9)) }
       } else {
         const size = v ? 760 : 760
-        medal = { size, x: v ? 540 : 520, y: v ? 820 : 540, o: window_(t, 21.6, 25.6, .6) }
+        medal = { size, x: v ? 540 : 520, y: v ? 820 : 540, o: easeOut(ramp(t, 21.6, 22.3)) }
       }
       const pop = t < 1.2 ? .86 + .14 * easeOut(ramp(t, 0, 1.2)) : 1
       css($('medal'), { width: medal.size + 'px', height: medal.size + 'px', left: medal.x - medal.size / 2 + 'px', top: medal.y - medal.size / 2 + 'px', opacity: String(medal.o), transform: `scale(${pop})` })
