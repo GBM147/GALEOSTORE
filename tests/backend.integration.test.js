@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import bcrypt from 'bcrypt'
 import mysql from 'mysql2/promise'
+import { LEGAL_VERSION } from '../src/legal/pages.js'
 
 const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 if (!loopbackHosts.has(process.env.DB_HOST) || process.env.DB_NAME !== 'galeo_store_test') {
@@ -126,6 +127,7 @@ async function customerFixture() {
 
 function orderBody(productId, quantity) {
   return {
+    accept_terms: true,
     items: [{ product_id: productId, quantity }],
     shipping: { name: 'Cliente de teste', phone: '11999999999', postal_code: '01001000', street: 'Rua de teste', number: '1', neighborhood: 'Centro', city: 'São Paulo', state: 'SP' }
   }
@@ -142,6 +144,9 @@ async function orderFixture(quantity = 2) {
   assert.equal(created.response.status, 200, created.data.error)
   const order = created.data.order
   fixtures.orders.push(order.id)
+  const [terms] = await execute('SELECT terms_version,terms_accepted_at FROM store_orders WHERE id=?', [order.id])
+  assert.equal(terms.terms_version, LEGAL_VERSION, 'o pedido guarda a versão dos Termos aceitos')
+  assert.ok(terms.terms_accepted_at)
   return { productId, client, order, quantity, body }
 }
 
@@ -347,6 +352,29 @@ test('configurações visuais aceitam as cores CSS usadas no padrão da loja', a
   }
 })
 
+test('dados da empresa: CNPJ e e-mail inválidos são recusados e o válido fica no rascunho', async () => {
+  const existing = await execute("SELECT setting_value,draft_value,updated_by,updated_at FROM home_settings WHERE setting_key='company'")
+  const client = await operationsClient()
+  try {
+    const invalid = await client.request('/api/admin/home/settings/company', { method: 'PUT', body: { value: { legal_name: 'GALEO LTDA', cnpj: '11.222.333/0001-80' } } })
+    assert.equal(invalid.response.status, 400)
+    const badEmail = await client.request('/api/admin/home/settings/company', { method: 'PUT', body: { value: { legal_name: 'GALEO LTDA', email: 'sem-arroba' } } })
+    assert.equal(badEmail.response.status, 400)
+    const saved = await client.request('/api/admin/home/settings/company', { method: 'PUT', body: { value: { legal_name: ' GALEO LTDA ', cnpj: '11222333000181', email: 'Contato@Galeo.test', state: 'sp', script: '<x>' } } })
+    assert.equal(saved.response.status, 200, saved.data.error)
+    const settings = await client.request('/api/admin/home/settings')
+    const company = settings.data.settings.find(setting => setting.key === 'company').value
+    assert.equal(company.legal_name, 'GALEO LTDA')
+    assert.equal(company.cnpj, '11.222.333/0001-81')
+    assert.equal(company.email, 'contato@galeo.test')
+    assert.equal(company.state, 'SP')
+    assert.equal('script' in company, false)
+  } finally {
+    if (existing.length) await execute("UPDATE home_settings SET setting_value=?,draft_value=?,updated_by=?,updated_at=? WHERE setting_key='company'", [jsonParameter(existing[0].setting_value), jsonParameter(existing[0].draft_value), existing[0].updated_by, existing[0].updated_at])
+    else await execute("DELETE FROM home_settings WHERE setting_key='company'")
+  }
+})
+
 test('rodapé salvo no rascunho mantém Instagram, WhatsApp e o link de avaliação do Google', async () => {
   const existing = await execute("SELECT setting_value,draft_value,updated_by,updated_at FROM home_settings WHERE setting_key='footer'")
   const client = await operationsClient()
@@ -492,7 +520,7 @@ test('login verificado renova sessão persistente e cadastro sem envio não cria
   assert.equal(availability.data.registration_available, false)
   const registrationEmail = `registered-${suffix}@example.invalid`
   const registered = await anonymous.request('/api/customer/register', {
-    method: 'POST', body: { name: 'Cliente cadastrado no teste', email: registrationEmail, password, phone: '11999999999' }
+    method: 'POST', body: { accept_terms: true, name: 'Cliente cadastrado no teste', email: registrationEmail, password, phone: '11999999999' }
   })
   const created = await execute('SELECT id FROM customers WHERE email=?', [registrationEmail])
   fixtures.customers.push(...created.map(row => row.id))
@@ -687,4 +715,16 @@ test('PDV rejeita total desatualizado sem efeitos e permite confirmar a mesma re
   assert.equal(income.length, 1)
   assert.equal(Number(income[0].amount), 40)
   assert.equal(income[0].status, 'PAGO')
+})
+
+test('pedido sem aceite dos Termos é recusado e não reserva estoque', async () => {
+  const productId = await productFixture()
+  const { client } = await customerFixture()
+  const before = await execute('SELECT stock FROM products WHERE id=?', [productId])
+  const { accept_terms, ...withoutTerms } = orderBody(productId, 1)
+  const refused = await client.request('/api/store/orders', { method: 'POST', body: withoutTerms })
+  assert.equal(refused.response.status, 400)
+  assert.match(refused.data.error, /aceite os Termos de Uso/)
+  const after = await execute('SELECT stock FROM products WHERE id=?', [productId])
+  assert.equal(after[0].stock, before[0].stock)
 })

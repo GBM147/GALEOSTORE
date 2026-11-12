@@ -59,6 +59,7 @@ test('navegador real: cadastro pendente, confirmação explícita com senha, log
   const email = runtime.email('browser-confirm')
   const name = 'Cliente local navegador'
   await fillRegistration(page, email, name)
+  await page.getByRole('checkbox', { name: /Li e aceito os Termos/ }).check()
   await page.getByRole('button', { name: 'Criar conta ↗', exact: true }).click()
   await page.getByRole('heading', { name: 'Confirme seu e-mail', exact: true }).waitFor()
   const { id, token } = await runtime.trackMailAccount(email)
@@ -94,6 +95,7 @@ test('navegador real: cadastro pendente, confirmação explícita com senha, log
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click()
   await page.waitForURL(baseUrl + '/')
   await fillRegistration(page, runtime.email('browser-after-logout'))
+  await page.getByRole('checkbox', { name: /Li e aceito os Termos/ }).check()
   await page.getByRole('button', { name: 'Criar conta ↗', exact: true }).click()
   await page.getByRole('heading', { name: 'Confirme seu e-mail', exact: true }).waitFor()
   await runtime.trackMailAccount(runtime.email('browser-after-logout'))
@@ -135,6 +137,7 @@ test('navegador real: login pendente, reenvio com limite, link antigo recusado e
   await runtime.setMailStatus(503)
   try {
     await fillRegistration(page, runtime.email('browser-delivery-failed'))
+    await page.getByRole('checkbox', { name: /Li e aceito os Termos/ }).check()
     await page.getByRole('button', { name: 'Criar conta ↗', exact: true }).click()
     await page.getByText('Não foi possível enviar o e-mail de confirmação. Tente novamente mais tarde.', { exact: true }).waitFor()
     assert.equal(await page.getByRole('heading', { name: 'Crie sua conta', exact: true }).count(), 1)

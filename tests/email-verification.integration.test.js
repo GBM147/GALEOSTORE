@@ -2,6 +2,7 @@ import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { VerificationRuntime, tokenDigest } from './helpers/email-verification-runtime.mjs'
+import { LEGAL_VERSION } from '../src/legal/pages.js'
 
 const runtime = new VerificationRuntime()
 before(async () => { await runtime.initialize() })
@@ -30,6 +31,12 @@ test('cadastro aguarda e-mail, não cria sessão e guarda somente digest com pra
   assert.equal(response.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false)
   assert.equal(client.cookie, '')
   await assertPending(id)
+  const [terms] = await runtime.query('SELECT terms_version,terms_accepted_at FROM customers WHERE id=?', [id])
+  assert.equal(terms.terms_version, LEGAL_VERSION, 'o aceite dos Termos fica registrado com a versão')
+  assert.ok(terms.terms_accepted_at, 'e com a data')
+  const refused = await runtime.client().request('/api/customer/register', { method: 'POST', body: { name: 'Sem aceite', email: runtime.email('sem-aceite'), password: runtime.password } })
+  assert.equal(refused.status, 400)
+  assert.match(refused.data.error, /aceite os Termos de Uso/)
   if (runtime.protection) {
     const [stored] = await runtime.query('SELECT name,email,phone,password_hash,private_data FROM customers WHERE id=?', [id])
     assert.equal(stored.name, '')
@@ -173,7 +180,7 @@ test('cadastro repetido pendente não troca nome, senha ou telefone de outra pes
     if (error.code !== 'ER_BAD_FIELD_ERROR') throw error
     return runtime.query('SELECT name,password_hash,phone FROM customers WHERE id=?', [fixture.id])
   }))[0]
-  const request = body => fixture.client.request('/api/customer/register', { method: 'POST', body: { name: 'Outra identidade local', email: fixture.email, phone: '11000000000', ...body } })
+  const request = body => fixture.client.request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Outra identidade local', email: fixture.email, phone: '11000000000', ...body } })
   assert.equal((await request({ password: 'Different-password-' + runtime.suffix })).status, 409)
   assert.equal((await request({ password: runtime.password })).status, 429)
   await runtime.query('UPDATE customer_email_verifications SET sent_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 61 SECOND) WHERE customer_id=?', [fixture.id])
@@ -233,7 +240,7 @@ test('falha do provedor desfaz novo cadastro e mantém token pendente anterior',
   await runtime.setMailStatus(503)
   try {
     const client = runtime.client()
-    const registered = await client.request('/api/customer/register', { method: 'POST', body: { name: 'Falha local', email: runtime.email('provider-failed'), password: runtime.password } })
+    const registered = await client.request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Falha local', email: runtime.email('provider-failed'), password: runtime.password } })
     assert.equal(registered.status, 503)
     assert.equal(registered.data.code, 'EMAIL_DELIVERY_UNAVAILABLE')
     assert.equal(registered.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false)
@@ -257,7 +264,7 @@ test('provedor ausente retorna503 sem criar conta, verificar e-mail ou liberar s
   await runtime.startApi({ provider: false })
   try {
     const client = runtime.client()
-    const response = await client.request('/api/customer/register', { method: 'POST', body: { name: 'Sem provedor local', email: runtime.email('provider-missing'), password: runtime.password } })
+    const response = await client.request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Sem provedor local', email: runtime.email('provider-missing'), password: runtime.password } })
     assert.equal(response.status, 503)
     assert.equal(response.data.code, 'EMAIL_DELIVERY_UNAVAILABLE')
     assert.equal(response.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false)

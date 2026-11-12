@@ -42,7 +42,7 @@ async function product(variants=[{size:'M',stock:3},{size:'G',stock:4}],extra={}
 }
 const variant=(product,size)=>product.variants.find(row=>row.size===size)
 const item=(product,size,quantity=1)=>({product_id:product.id,...(size?{variant_id:variant(product,size).id}:{}),quantity})
-const order=items=>customer.request('/api/store/orders',{method:'POST',body:{items,shipping}})
+const order=items=>customer.request('/api/store/orders',{method:'POST',body:{accept_terms:true,items,shipping}})
 const sale=(items,extra={})=>runtime.request('/api/admin/sales',{method:'POST',body:{items,payment_method:'PIX',...extra}})
 const cancelOrder=id=>runtime.request('/api/admin/store-orders/'+id+'/status',{method:'PATCH',body:{status:'CANCELLED'}})
 const cancelSale=id=>runtime.request('/api/admin/sales/'+id+'/cancel',{method:'PATCH',body:{}})

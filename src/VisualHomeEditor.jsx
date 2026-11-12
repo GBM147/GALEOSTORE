@@ -7,6 +7,7 @@ import { textHighlightPath, editorialType, defaultTextHighlight } from './editor
 import LinkChooser from './editor/LinkChooser'
 import { uploadToLibrary } from './editor/libraryUpload'
 import { DEFAULT_GOOGLE_REVIEW_URL } from './siteNavigation'
+import { missingCompanyFields } from './legal/company'
 import './VisualHomeEditor.css'
 import './editor/editor-panel.css'
 
@@ -239,7 +240,7 @@ const summaries = {
   manifesto: content => String(content.text || '').split('\n')[0],
   newsletter: content => content.title
 }
-const storeParts = [['navigation', 'Menu do topo', 'Links do menu da loja'], ['footer', 'Rodapé', 'Nome da loja, redes e avaliação no Google'], ['visual', 'Cores e tema', 'Tema escuro ou claro e cores'], ['campaign', 'Movimento das campanhas', 'Como as fotos das campanhas se movem']]
+const storeParts = [['company', 'Dados da empresa', 'Razão social, CNPJ, endereço e atendimento'], ['navigation', 'Menu do topo', 'Links do menu da loja'], ['footer', 'Rodapé', 'Nome da loja, redes e avaliação no Google'], ['visual', 'Cores e tema', 'Tema escuro ou claro e cores'], ['campaign', 'Movimento das campanhas', 'Como as fotos das campanhas se movem']]
 
 // Every part of the Home in page order, with show/hide and move, plus the
 // settings that apply to the whole store.
@@ -273,7 +274,10 @@ function PartsList({ editor, onOpen, onSettings, onHide }) {
       </ol>
       <h3 className="visual-parts-title">Toda a loja</h3>
       <ul className="visual-parts-list">
-        {storeParts.map(([tab, title, hint]) => <li key={tab} className="visual-part"><button type="button" className="visual-part-open" disabled={editor.busy} onClick={() => onSettings(tab)}><strong>{title}</strong><small>{hint}</small></button></li>)}
+        {storeParts.map(([tab, title, hint]) => {
+          const missing = tab === 'company' ? missingCompanyFields(editor.settings.company) : []
+          return <li key={tab} className={'visual-part' + (missing.length ? ' is-pending' : '')}><button type="button" className="visual-part-open" disabled={editor.busy} onClick={() => onSettings(tab)}><strong>{title}</strong><small>{missing.length ? 'Falta: ' + missing.join(', ') : hint}</small></button></li>
+        })}
       </ul>
     </div>
   </section>
@@ -424,7 +428,7 @@ function SelectionPanel({ selection, editor, onClose }) {
       {kind === 'campaign' && item && <CampaignOptions item={item} links={links} defaults={editor.settings.campaign_defaults} onChange={updateItem} onChoose={(target) => chooseTarget({ ...target,campaign:true,campaignIndex:itemIndex })} />}
       {kind === 'products' && <ProductChoices content={content} products={editor.products} onChange={(value) => editor.updateSection(section.key,() => value)} />}
       {kind === 'section' && <><p>Clique nos textos desta seção para editar diretamente na página.</p>{section?.key === 'newsletter' && <Field label="Texto do botão da newsletter" value={content.button_label} onChange={(value) => update('button_label',value)} />}</>}
-      {kind === 'settings' && <><div className="visual-settings-tabs" role="group" aria-label="Áreas de configurações">{[['navigation','Menu'],['footer','Rodapé'],['visual','Cores e tema'],['campaign','Movimento']].map(([key,label]) => <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div><SettingsOptions tab={tab} settings={editor.settings} update={editor.updateSetting} links={links} /><a href="/admin?tab=editor&mode=advanced">Mais opções e histórico de versões ↗</a></>}
+      {kind === 'settings' && <><div className="visual-settings-tabs" role="group" aria-label="Áreas de configurações">{[['company','Empresa'],['navigation','Menu'],['footer','Rodapé'],['visual','Cores e tema'],['campaign','Movimento']].map(([key,label]) => <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div><SettingsOptions tab={tab} settings={editor.settings} update={editor.updateSetting} links={links} /><a href="/admin?tab=editor&mode=advanced">Mais opções e histórico de versões ↗</a></>}
       {(kind === 'category' || kind === 'campaign') && !item && <p>Este item foi removido. Feche as opções e escolha outro.</p>}
     </fieldset>}
   </PanelFrame>
@@ -462,6 +466,16 @@ function SettingsOptions({ tab,settings,update,links }) {
     return <><p>Links que aparecem no menu da loja.</p>{items.map((item,index) => <div className="visual-list-row" key={index}><Field label={'Nome do link ' + (index + 1)} value={item.label} onChange={(value) => setItem(index,{label:value})} /><LinkChooser label={'Destino do link ' + (index + 1)} value={item.url} onChange={(value) => setItem(index,{url:value})} {...links} /><button type="button" onClick={() => update('navigation',() => ({ ...current,items:items.filter((_,currentIndex) => currentIndex !== index) }))}>{'Remover link ' + (index + 1)}</button></div>)}<button type="button" disabled={items.length >= 8} onClick={() => update('navigation',() => ({ ...current,items:[...items,{label:'Novo link',url:'/shop'}] }))}>+ Adicionar link</button></>
   }
   if (tab === 'footer') return <>{[['brand','Nome da loja'],['year','Ano'],['instagram','Instagram (@perfil ou link)'],['whatsapp','WhatsApp com DDD']].map(([key,label]) => <Field key={key} label={label} value={settings.footer?.[key]} onChange={(value) => update('footer',(old) => ({ ...old,[key]:value }))} />)}<Field label="Link de avaliação do Google" value={settings.footer?.google_review ?? DEFAULT_GOOGLE_REVIEW_URL} onChange={(value) => update('footer',(old) => ({ ...old,google_review:value }))} placeholder="Link da loja no Google Maps" /><p className="visual-field-note">Instagram e WhatsApp aparecem no rodapé só quando preenchidos. As estrelas do rodapé levam ao link do Google; deixe o link vazio para escondê-las.</p></>
+  if (tab === 'company') {
+    const company = settings.company || {}
+    const missing = missingCompanyFields(company)
+    const set = key => value => update('company',(old) => ({ ...old,[key]:value }))
+    return <><p>Esses dados aparecem no Contato, nos Termos, na Privacidade e no rodapé, como exige a lei do comércio online (Decreto 7.962/2013).</p>
+      {missing.length > 0 && <p className="visual-company-missing" role="status">Preencha os Dados da empresa antes de divulgar a loja. Falta: {missing.join(', ')}.</p>}
+      {[['legal_name','Razão social'],['trade_name','Nome fantasia (opcional)'],['cnpj','CNPJ'],['street','Rua'],['number','Número'],['complement','Complemento (opcional)'],['neighborhood','Bairro'],['city','Cidade'],['state','UF'],['postal_code','CEP'],['email','E-mail de atendimento'],['hours','Horário de atendimento (ex.: seg. a sex., 9h às 18h)']].map(([key,label]) => <Field key={key} label={label} value={company[key]} onChange={set(key)}
+        {...(key === 'cnpj' ? { inputMode:'numeric', placeholder:'00.000.000/0000-00' } : key === 'postal_code' ? { inputMode:'numeric', placeholder:'00000-000' } : key === 'email' ? { type:'email', placeholder:'atendimento@…' } : key === 'state' ? { maxLength:2, placeholder:'SP' } : {})} />)}
+      <p className="visual-field-note">O WhatsApp de atendimento é o do Rodapé.</p></>
+  }
   if (tab === 'campaign') return <><p>Este padrão é aplicado às campanhas automaticamente.</p><AnimationFields value={settings.campaign_defaults} onChange={(value) => update('campaign_defaults',() => value)} /></>
   const current = settings.storefront_visual_defaults || {}
   return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>Letras da loja: Bodoni Moda nos títulos, Inter nos textos e Cinzel no nome GALEO.</p><div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([key,label]) => <Field key={key} type="color" label={label} value={/^#[\da-f]{6}$/i.test(current.palette?.[key] || '') ? current.palette[key] : '#000000'} onChange={(value) => update('storefront_visual_defaults',(old) => ({ ...old,palette:{ ...old.palette,[key]:value } }))} />)}</div></>

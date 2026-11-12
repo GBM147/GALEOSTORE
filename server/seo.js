@@ -1,5 +1,7 @@
 // robots.txt and sitemap.xml for the public storefront. Homologation (test
 // database or Mercado Pago test mode) is never indexed.
+import { LEGAL_PAGES } from '../src/legal/pages.js'
+
 export function storeIndexable(env = process.env) {
   return env.MERCADO_PAGO_MODE !== 'test' && !/_test$/.test(String(env.DB_NAME || ''))
 }
@@ -19,7 +21,7 @@ export function robotsTxt({ origin, indexable }) {
 }
 
 export function sitemapXml({ origin, productIds }) {
-  const urls = [origin + '/', origin + '/shop', ...productIds.map(id => origin + '/produto/' + id)]
+  const urls = [origin + '/', origin + '/shop', ...LEGAL_PAGES.map(page => origin + page.path), ...productIds.map(id => origin + '/produto/' + id)]
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
     urls.map(url => '  <url><loc>' + xml(url) + '</loc></url>').join('\n') + '\n</urlset>\n'
 }

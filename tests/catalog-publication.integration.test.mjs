@@ -38,7 +38,7 @@ test('published products without a positive price cannot create an order or rese
   for (const price of [0, -1]) {
     const id = await product('Produto local com preço pendente ' + price, price)
     const before = await orderState([id])
-    const response = await runtime.request('/api/store/orders', { method: 'POST', body: { items: [{ product_id: id, quantity: 1, price: 100 }], shipping } })
+    const response = await runtime.request('/api/store/orders', { method: 'POST', body: { accept_terms: true, items: [{ product_id: id, quantity: 1, price: 100 }], shipping } })
     assert.equal(response.status, 400)
     assert.match(response.data.error, /preço.*ainda não foi definido/i)
     assert.deepEqual(await orderState([id]), before)
@@ -49,7 +49,7 @@ test('a pending-price item rejects the whole cart without reserving any correctl
   const ready = await product('Produto local pronto no carrinho misto', 59.9)
   const pending = await product('Produto local pendente no carrinho misto', 0)
   const before = await orderState([ready, pending])
-  const response = await runtime.request('/api/store/orders', { method: 'POST', body: { items: [{ product_id: ready, quantity: 2 }, { product_id: pending, quantity: 1 }], shipping } })
+  const response = await runtime.request('/api/store/orders', { method: 'POST', body: { accept_terms: true, items: [{ product_id: ready, quantity: 2 }, { product_id: pending, quantity: 1 }], shipping } })
   assert.equal(response.status, 400)
   assert.match(response.data.error, /preço.*ainda não foi definido/i)
   assert.deepEqual(await orderState([ready, pending]), before)
@@ -58,7 +58,7 @@ test('a pending-price item rejects the whole cart without reserving any correctl
 test('a correctly priced product still records the server price and reserves exactly the ordered quantity', async () => {
   const id = await product('Produto local pronto para venda', 59.9)
   const before = await orderState([id])
-  const response = await runtime.request('/api/store/orders', { method: 'POST', body: { items: [{ product_id: id, quantity: 2, price: 0 }], shipping } })
+  const response = await runtime.request('/api/store/orders', { method: 'POST', body: { accept_terms: true, items: [{ product_id: id, quantity: 2, price: 0 }], shipping } })
   assert.equal(response.status, 200)
   assert.equal(Number(response.data.order.subtotal), 119.8)
   assert.equal(Number(response.data.order.total), 119.8)

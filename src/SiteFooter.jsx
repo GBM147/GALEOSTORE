@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { setLiteMode, useLiteMode } from './liteMode'
 import { footerReviewUrl, instagramUrl, navigationLinks, whatsappUrl } from './siteNavigation'
+import { normalizeCompanySettings } from './legal/company'
+import { LEGAL_PAGES } from './legal/pages'
 import { useVisualEditor } from './VisualHomeEditor'
 
 const STAR = 'M12 2.8l2.84 5.75 6.35.92-4.6 4.48 1.09 6.32L12 17.29l-5.68 2.98 1.09-6.32-4.6-4.48 6.35-.92z'
@@ -30,7 +32,7 @@ function GoogleReview({ url }) {
   </section>
 }
 
-export default function SiteFooter({ footer, navigation }) {
+export default function SiteFooter({ footer, company, navigation }) {
   const editor = useVisualEditor()
   const lite = useLiteMode()
   const brand = footer?.brand || 'GALEO STORE'
@@ -38,6 +40,7 @@ export default function SiteFooter({ footer, navigation }) {
   const instagram = instagramUrl(footer?.instagram)
   const whatsapp = whatsappUrl(footer?.whatsapp)
   const review = footerReviewUrl(footer)
+  const seller = normalizeCompanySettings(company)
   const categories = navigationLinks(navigation, 5)
 
   return <footer className="site-footer">
@@ -62,6 +65,12 @@ export default function SiteFooter({ footer, navigation }) {
           <li><Link to="/carrinho">Carrinho</Link></li>
         </ul>
       </nav>
+      <nav aria-label="Institucional">
+        <h2>Institucional</h2>
+        <ul>
+          {LEGAL_PAGES.map(page => <li key={page.key}><Link to={page.path}>{page.label}</Link></li>)}
+        </ul>
+      </nav>
       <div className="site-footer-payment">
         <h2>Pagamento</h2>
         <ul className="payment-badges">
@@ -78,7 +87,7 @@ export default function SiteFooter({ footer, navigation }) {
       </nav>}
     </div>
     <div className="site-footer-bottom">
-      <span>© {year} · {brand}</span>
+      <span>© {year} · {brand}{seller.legal_name ? ' · ' + seller.legal_name : ''}{seller.cnpj ? ' · CNPJ ' + seller.cnpj : ''}</span>
       <button type="button" className="lite-mode-toggle" onClick={() => setLiteMode(!lite)}
         title="Sem animações, vídeos automáticos e efeitos de desfoque">Modo leve: {lite ? 'ligado' : 'desligado'}</button>
     </div>

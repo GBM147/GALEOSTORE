@@ -16,3 +16,4 @@
 .admin-error-events p { color: var(--muted); font-size: 13px; line-height: 1.6; }
 .admin-error-events td { vertical-align: top; overflow-wrap: anywhere; }
 .admin-error-events code { font-size: 12px; }
+.online-order-terms { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }

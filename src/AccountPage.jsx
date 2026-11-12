@@ -25,6 +25,7 @@ export default function AccountPage() {
   const [resendCooldown, setResendCooldown] = useState(0)
   const [loginForm, setLoginForm] = useState({ email:'', password:'' })
   const [registerForm, setRegisterForm] = useState({ name:'', email:'', phone:'', password:'', passwordConfirm:'' })
+  const [acceptTerms, setAcceptTerms] = useState(false)
   const [profile, setProfile] = useState({ name:'', phone:'' })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -127,8 +128,9 @@ export default function AccountPage() {
     if (registrationStatus !== 'available' || saving) return
     setSaving(true); setError(''); setSuccess('')
     if (registerForm.password !== registerForm.passwordConfirm) { setError('As senhas não coincidem'); setSaving(false); return }
+    if (!acceptTerms) { setError('Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.'); setSaving(false); return }
     try {
-      const data = await customerApi('/api/customer/register',{ method:'POST', body:registerForm })
+      const data = await customerApi('/api/customer/register',{ method:'POST', body:{ ...registerForm, accept_terms:true } })
       if (!data?.verification_required) throw new Error('Não foi possível iniciar a confirmação do e-mail. Tente novamente.')
       showVerification(registerForm.email, data.message)
       setResendCooldown(60)
@@ -209,6 +211,7 @@ export default function AccountPage() {
               <label>Telefone<input autoComplete="tel" value={registerForm.phone} onChange={(e) => setRegisterForm({...registerForm,phone:e.target.value})} /></label>
               <label>Senha<input type="password" autoComplete="new-password" minLength="10" value={registerForm.password} onChange={(e) => setRegisterForm({...registerForm,password:e.target.value})} required /></label>
               <label>Confirmar senha<input type="password" autoComplete="new-password" minLength="10" value={registerForm.passwordConfirm} onChange={(e) => setRegisterForm({...registerForm,passwordConfirm:e.target.value})} required /></label>
+              <label className="terms-accept"><input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} required /><span>Li e aceito os <Link to="/termos" target="_blank" rel="noopener noreferrer">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</Link>.</span></label>
               <p>Você receberá um link para confirmar seu e-mail. A conta será liberada após a confirmação.</p>
               {error && <p className="form-error">{error}</p>}
               <button className="button button-primary" disabled={saving}>{saving ? 'Criando…' : 'Criar conta ↗'}</button>

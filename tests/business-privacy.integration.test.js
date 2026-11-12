@@ -202,7 +202,7 @@ test('startup migra identidades anteriores e o perfil restaura dados sem expor c
 test('pedido protege cópias da identidade e endereço, mantém total e devolve reserva ao cancelar', async () => {
   const productId = await product()
   const shipping = { name:customerName, phone, postal_code:'01001000', street:'Rua local ' + suffix, number:'27', complement:'Casa local', neighborhood:'Centro local', city:'São Paulo', state:'SP' }
-  const created = await customer.request('/api/store/orders', { method:'POST', body:{ items:[{ product_id:productId, quantity:2 }], shipping } })
+  const created = await customer.request('/api/store/orders', { method:'POST', body:{ accept_terms:true, items:[{ product_id:productId, quantity:2 }], shipping } })
   assert.equal(created.status, 200, created.data.error)
   const order = created.data.order
   fixtures.orders.add(order.id)

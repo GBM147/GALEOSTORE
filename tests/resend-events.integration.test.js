@@ -80,6 +80,7 @@ async function product() {
 async function order(customer, { notifications = true } = {}) {
   const productId = await product()
   const response = await customer.client.request('/api/store/orders', { method: 'POST', body: {
+    accept_terms: true,
     items: [{ product_id: productId, quantity: 2 }],
     shipping: { name: 'Cliente local ' + runtime.suffix, phone: '11999887766', postal_code: '01001000', street: 'Rua local', number: '1', neighborhood: 'Centro', city: 'São Paulo', state: 'SP' }
   } })
@@ -298,7 +299,7 @@ test('remetente em aberto mantém cadastro bloqueado, lista apenas EMAIL_FROM pe
     assert.equal(serialized.includes('local-email-verification-fixture'), false)
     assert.equal(serialized.includes('notification@example.invalid'), false)
     const customersBefore = Number((await runtime.query('SELECT COUNT(*) AS total FROM customers'))[0].total)
-    const newCustomer = await runtime.client().request('/api/customer/register', { method: 'POST', body: { name: 'Remetente pendente local', email: runtime.email('events-no-sender'), password: runtime.password } })
+    const newCustomer = await runtime.client().request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Remetente pendente local', email: runtime.email('events-no-sender'), password: runtime.password } })
     assert.equal(newCustomer.status, 503)
     assert.equal(newCustomer.data.code, 'EMAIL_DELIVERY_UNAVAILABLE')
     assert.equal(Number((await runtime.query('SELECT COUNT(*) AS total FROM customers'))[0].total), customersBefore)

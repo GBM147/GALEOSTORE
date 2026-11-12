@@ -306,3 +306,19 @@
 #root :is(.mp-payment-form, .mp-buyer-address) {
   --field-min-height: 50px;
 }
+
+/* "Li e aceito os Termos…" boxes at registration and checkout. */
+#root :is(.account-form, .checkout-form, .cart-summary) label.terms-accept {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  cursor: pointer;
+}
+#root label.terms-accept input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--accent-soft); }
+:root[data-theme="light"] #root label.terms-accept input { accent-color: var(--accent-deep); }
+#root label.terms-accept a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+#root .cart-summary label.terms-accept { margin: 4px 0 14px; }

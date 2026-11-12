@@ -64,8 +64,9 @@ controle da loja; pode ser um domínio que os donos já possuam.
 
 - Configurar a integração de envio quando a chave e o remetente estiverem
   disponíveis, validar o domínio e comprovar o fluxo de entrega/confirmação.
-- Criar as páginas aprovadas de Contato, Privacidade, Termos e
-  Entregas/Trocas. Essas rotas ainda não existem na loja pública.
+- Páginas de Contato, Privacidade, Termos, Trocas e Entregas criadas em 12/11, com
+  aceite registrado no cadastro e na compra. Falta os donos preencherem os Dados da
+  empresa no editor e a revisão dos textos por contador ou advogado.
 - Implementar o fluxo inicial de cobrança/entrega definido pelos donos, sem
   apresentar pagamento ou frete automáticos como concluídos.
 - Ativar a proteção adicional dos dados pessoais e verificar backups e

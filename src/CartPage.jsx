@@ -35,6 +35,7 @@ export default function CartPage() {
   const postalAddress = usePostalCodeAddress(form, setForm)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [acceptTerms, setAcceptTerms] = useState(false)
   const [error, setError] = useState('')
   const [catalogError, setCatalogError] = useState('')
   const [registeredOrder, setRegisteredOrder] = useState(pendingOrderFromUrl)
@@ -196,12 +197,13 @@ export default function CartPage() {
     if (!items.length) return
     if (availabilityError) { setError(availabilityError); return }
     if (shippingBlocked) { setError(shippingBlocked); return }
+    if (!acceptTerms) { setError('Para finalizar, aceite os Termos de Uso e a Política de Trocas e Devoluções.'); return }
     submittingRef.current = true
     setSubmitting(true); setError('')
     try {
       const data = await customerApi('/api/store/orders', {
         method:'POST',
-        body:{ items:quoteItems, shipping:form, ...(selectedQuote ? { shipping_quote:selectedQuote.token } : {}) }
+        body:{ items:quoteItems, shipping:form, accept_terms:true, ...(selectedQuote ? { shipping_quote:selectedQuote.token } : {}) }
       })
       const order = { id:Number(data.order?.id || 0), code:data.order?.code || '', paymentConfigured:Boolean(data.payment_configured) }
       if (!Number.isInteger(order.id) || order.id <= 0) throw new Error('O servidor não confirmou o registro do pedido.')
@@ -244,7 +246,7 @@ export default function CartPage() {
             {!availabilityError && customer && <form id="cart-checkout-form" className="checkout-form" onSubmit={submitOrder}><h2 className="checkout-title">Endereço de entrega</h2><label>Nome<input value={form.name} onChange={(e) => setForm((c)=>({...c,name:e.target.value}))} autoComplete="shipping name" required /></label><label>Telefone<input value={form.phone} onChange={(e) => setForm((c)=>({...c,phone:e.target.value}))} autoComplete="shipping tel" required /></label><label>Estado<input value={form.state} onChange={(e) => postalAddress.changeAddressField('state', e.target.value.toUpperCase())} autoComplete="shipping address-level1" maxLength="2" required /></label><label>Rua<input value={form.street} onChange={(e) => postalAddress.changeAddressField('street', e.target.value)} autoComplete="shipping address-line1" required /></label><div className="checkout-grid"><label>Número<input value={form.number} onChange={(e) => setForm((c)=>({...c,number:e.target.value}))} required /></label><label>Complemento<input value={form.complement} onChange={(e) => setForm((c)=>({...c,complement:e.target.value}))} autoComplete="shipping address-line2" /></label></div><label>Bairro<input value={form.neighborhood} onChange={(e) => postalAddress.changeAddressField('neighborhood', e.target.value)} autoComplete="shipping address-level3" required /></label><label>Cidade<input value={form.city} onChange={(e) => postalAddress.changeAddressField('city', e.target.value)} autoComplete="shipping address-level2" required /></label></form>}
           </div>
           <aside className="cart-summary" aria-labelledby="cart-summary-title"><h2 id="cart-summary-title">Resumo do pedido</h2><div><span>Subtotal</span><strong>{pricePending ? 'Preço a definir' : money(subtotal)}</strong></div><div><span>Frete</span><strong>{selectedQuote ? money(selectedQuote.price) : shippingConfigError ? 'Indisponível' : shippingConfig?.configured ? 'A calcular' : shippingConfig ? 'A combinar' : 'Conferindo…'}</strong></div><div className="cart-summary-total"><span>{selectedQuote ? 'Total do pedido' : 'Subtotal sem frete'}</span><strong>{pricePending ? 'Preço a definir' : money(subtotal + (selectedQuote ? Number(selectedQuote.price) : 0))}</strong></div>
-            {availabilityError ? <p className="form-error" role="alert">{availabilityError}</p> : !customer ? <div className="cart-login-box"><span>Para finalizar o pedido</span><strong>Entre ou crie sua conta</strong><Link className="button button-primary" to="/conta?return=/carrinho">Entrar / criar conta ↗</Link></div> : <>{error && <p className="form-error">{error}</p>}<button className="button button-primary cart-submit" type="submit" form="cart-checkout-form" data-mp-checkout-cta="checkout-api" disabled={submitting || Boolean(shippingBlocked)}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></>}
+            {availabilityError ? <p className="form-error" role="alert">{availabilityError}</p> : !customer ? <div className="cart-login-box"><span>Para finalizar o pedido</span><strong>Entre ou crie sua conta</strong><Link className="button button-primary" to="/conta?return=/carrinho">Entrar / criar conta ↗</Link></div> : <>{!registeredOrder && <label className="terms-accept"><input type="checkbox" form="cart-checkout-form" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} required /><span>Li e concordo com os <Link to="/termos" target="_blank" rel="noopener noreferrer">Termos de Uso</Link> e a <Link to="/trocas" target="_blank" rel="noopener noreferrer">Política de Trocas e Devoluções</Link>.</span></label>}{error && <p className="form-error">{error}</p>}<button className="button button-primary cart-submit" type="submit" form="cart-checkout-form" data-mp-checkout-cta="checkout-api" disabled={submitting || Boolean(shippingBlocked)}>{submitting ? 'Enviando pedido…' : 'Solicitar pedido ↗'}</button></>}
             <p className="cart-secure"><LockIcon /><span><strong>Pagamento seguro</strong> Pix, crédito ou débito pelo Mercado Pago</span></p>
           </aside>
         </div>

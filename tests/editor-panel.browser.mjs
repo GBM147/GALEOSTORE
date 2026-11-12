@@ -58,6 +58,7 @@ async function fixture(t, { width = 1366 } = {}) {
     if (path === '/api/admin/media-library' && method === 'POST') return json({ success: true, items: [{ id: 77, title: 'foto-nova', media_type: 'image', url: '/images/product-placeholder.svg?nova=77' }] }, 201)
     const sectionKey = path.match(/^\/api\/admin\/home\/([^/]+)$/)?.[1]
     if (keys.includes(sectionKey) && method === 'PUT') return json({ success: true, key: sectionKey, saved_as: 'draft' })
+    if (/^\/api\/admin\/home\/settings\/[a-z_]+$/.test(path) && method === 'PUT') return json({ success: true, saved_as: 'draft', value: body.value })
     return json({ error: 'API não prevista: ' + method + ' ' + path }, 404)
   })
   t.after(() => assert.deepEqual(errors, []))
@@ -145,3 +146,20 @@ for (const width of [390, 320]) {
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
   })
 }
+
+test('Dados da empresa: o editor avisa o que falta e salva no rascunho', async t => {
+  const { page, calls } = await fixture(t)
+  const company = panel(page).getByRole('button', { name: /Dados da empresa/ })
+  assert.match(await company.innerText(), /Falta: razão social, CNPJ, endereço, cidade, e-mail de atendimento/)
+  await company.click()
+  await panel(page).getByText(/Preencha os Dados da empresa antes de divulgar a loja/).waitFor()
+  for (const [label, value] of [['Razão social', 'GALEO Comércio de Roupas LTDA'], ['CNPJ', '11.222.333/0001-81'], ['Rua', 'Rua Augusta'], ['Número', '100'], ['Bairro', 'Consolação'], ['Cidade', 'São Paulo'], ['UF', 'SP'], ['CEP', '01304-000'], ['E-mail de atendimento', 'contato@galeo.test']]) {
+    await panel(page).getByLabel(label, { exact: true }).fill(value)
+  }
+  assert.equal(await panel(page).getByText(/Preencha os Dados da empresa/).count(), 0)
+  await saveDraft(page)
+  const saved = calls.filter(call => call.method === 'PUT' && call.path === '/api/admin/home/settings/company').at(-1)?.body.value
+  assert.equal(saved.legal_name, 'GALEO Comércio de Roupas LTDA')
+  assert.equal(saved.cnpj, '11.222.333/0001-81')
+  assert.equal(saved.email, 'contato@galeo.test')
+})

@@ -19,10 +19,10 @@ test('origem pública vem somente de APP_URL http(s)', () => {
   assert.equal(publicOrigin({}), '')
 })
 
-test('sitemap lista início, catálogo e produtos com XML escapado', () => {
+test('sitemap lista início, catálogo, políticas e produtos com XML escapado', () => {
   const sitemap = sitemapXml({ origin: 'https://loja.test', productIds: [3, 1] })
   assert.match(sitemap, /^<\?xml version="1.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">\n/)
-  assert.deepEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1]), ['https://loja.test/', 'https://loja.test/shop', 'https://loja.test/produto/3', 'https://loja.test/produto/1'])
+  assert.deepEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1]), ['https://loja.test/', 'https://loja.test/shop', 'https://loja.test/termos', 'https://loja.test/privacidade', 'https://loja.test/trocas', 'https://loja.test/entregas', 'https://loja.test/contato', 'https://loja.test/produto/3', 'https://loja.test/produto/1'])
   assert.match(sitemapXml({ origin: 'https://a.test/?x=1&y=2', productIds: [] }), /<loc>https:\/\/a\.test\/\?x=1&amp;y=2\/<\/loc>/)
 })
 

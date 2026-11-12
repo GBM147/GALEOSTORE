@@ -79,6 +79,9 @@ test('checkout abre tela dedicada e retoma o mesmo pedido após recarregar', asy
     await page.getByLabel(field, { exact:true }).fill(value)
   }
   await page.getByRole('button', { name:'Solicitar pedido ↗', exact:true }).click()
+  assert.equal(calls.filter(call => call.path === '/api/store/orders' && call.method === 'POST').length, 0, 'sem aceitar os Termos o pedido não sai')
+  await page.getByRole('checkbox', { name: /Li e concordo com os Termos/ }).check()
+  await page.getByRole('button', { name:'Solicitar pedido ↗', exact:true }).click()
   await page.waitForURL('**/pagamento/42')
   await page.getByRole('heading', { name:'Pagamento', exact:true }).waitFor()
   assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('galeo-cart-v2'))), [])
@@ -92,6 +95,7 @@ test('checkout abre tela dedicada e retoma o mesmo pedido após recarregar', asy
   await page.getByRole('heading', { name:'Aguardando pagamento', exact:true }).waitFor()
   assert.equal(await page.getByLabel('Pix copia e cola').inputValue(), 'PIX-LOCAL-CODE')
   assert.equal(calls.filter(call => call.path === '/api/store/orders' && call.method === 'POST').length, 1)
+  assert.equal(calls.find(call => call.path === '/api/store/orders' && call.method === 'POST').body.accept_terms, true)
   assert.equal(calls.filter(call => call.path === '/api/store/orders/42/payment' && call.method === 'POST').length, 1)
   assert.ok(calls.filter(call => call.method === 'POST').every(call => call.headers['x-csrf-token'] === 'test-csrf'))
   assert.deepEqual(pageErrors, [])

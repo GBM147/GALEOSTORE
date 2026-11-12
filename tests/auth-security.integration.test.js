@@ -308,7 +308,7 @@ test('cadastro rejeita senha inválida sem linha e aceita72 bytes ou mínimo10 p
   ]) {
     const email = `customer-invalid-${label}-${suffix}@example.invalid`
     customerEmails.add(email)
-    const rejected = await new Client().request('/api/customer/register', { method: 'POST', body: { name: 'Cliente teste segurança', email, password } })
+    const rejected = await new Client().request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Cliente teste segurança', email, password } })
     assert.equal(rejected.status, 400)
     assert.equal((await query('SELECT id FROM customers WHERE email=?', [email])).length, 0)
   }
@@ -316,7 +316,7 @@ test('cadastro rejeita senha inválida sem linha e aceita72 bytes ou mínimo10 p
     const email = `customer-valid-${label}-${suffix}@example.invalid`
     customerEmails.add(email)
     const client = new Client()
-    const created = await client.request('/api/customer/register', { method: 'POST', body: { name: 'Cliente teste segurança', email, password } })
+    const created = await client.request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Cliente teste segurança', email, password } })
     assert.equal(created.status, 202)
     assert.equal(created.data.verification_required, true)
     assert.equal(created.cookies.some(cookie => cookie.startsWith('galeo_sid=')), false)
@@ -351,7 +351,7 @@ test('clientes continuam autenticando na loja e não acessam Admin nem o login a
   const password = 'Cliente-' + randomBytes(10).toString('hex')
   customerEmails.add(email)
   const client = new Client()
-  const registered = await client.request('/api/customer/register', { method: 'POST', body: { name: 'Cliente acesso separado', email, password } })
+  const registered = await client.request('/api/customer/register', { method: 'POST', body: { accept_terms: true, name: 'Cliente acesso separado', email, password } })
   assert.equal(registered.status, 202)
   assert.equal(registered.data.verification_required, true)
   const pending = await client.request('/api/customer/login', { method: 'POST', body: { email, password } })

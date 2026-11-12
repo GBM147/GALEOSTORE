@@ -63,6 +63,7 @@ test('carrinho mostra as etapas e o resumo ao lado no computador', async t => {
 
 test('o botão do resumo valida os campos do endereço antes de registrar o pedido', async t => {
   const { page, calls } = await fixture(t)
+  await page.getByRole('checkbox', { name: /Li e concordo com os Termos/ }).check()
   await page.getByRole('button', { name:'Solicitar pedido ↗', exact:true }).click()
   assert.equal(await page.evaluate(() => document.activeElement?.matches(':invalid')), true, 'o primeiro campo vazio recebe o foco')
   assert.equal(calls.some(call => call.method === 'POST'), false)

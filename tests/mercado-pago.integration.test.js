@@ -91,6 +91,7 @@ async function orderFixture(quantity = 2, { bind = true } = {}) {
   const created = await customer.request('/api/store/orders', {
     method: 'POST',
     body: {
+      accept_terms: true,
       items: [{ product_id: productId, quantity }],
       shipping: { name: 'Cliente teste MP', phone: '11999999999', postal_code: '01001000', street: 'Rua de teste', number: '1', neighborhood: 'Centro', city: 'São Paulo', state: 'SP' }
     }

@@ -48,7 +48,7 @@ export default function NewsletterSignup({ buttonLabel = 'Entrar' }) {
         <button type="submit" disabled={sending}>{sending ? 'Enviando…' : buttonLabel + ' ↗'}</button>
       </form>
       <p id={id + '-notice'} className="newsletter-signup-notice" role={error ? 'alert' : 'status'}>{error || notice}</p>
-      <small>Você confirma por e-mail e pode cancelar a inscrição a qualquer momento.</small>
+      <small>Você confirma por e-mail e pode cancelar a inscrição a qualquer momento. Ao assinar, você concorda com a <Link to="/privacidade">Política de Privacidade</Link>.</small>
     </div>
   )
 }

@@ -82,6 +82,7 @@ test('produto exige tamanho explícito e M e G permanecem separados no carrinho 
   await page.getByText('Tamanho: G', { exact: true }).waitFor()
   assert.equal(await page.locator('.cart-item').count(), 2)
   for (const [label, value] of [['CEP', '01001000'], ['Estado', 'SP'], ['Rua', 'Rua local'], ['Número', '1'], ['Bairro', 'Centro'], ['Cidade', 'São Paulo']]) await page.getByLabel(label, { exact: true }).fill(value)
+  await page.getByRole('checkbox', { name: /Li e concordo com os Termos/ }).check()
   await page.getByRole('button', { name: 'Solicitar pedido ↗', exact: true }).click()
   await page.getByRole('heading', { name: 'Pedido recebido', exact: true }).waitFor()
   assert.deepEqual(calls.find(call => call.path === '/api/store/orders' && call.method === 'POST').body.items, [{ product_id: 31, variant_id: 102, quantity: 1 }, { product_id: 31, variant_id: 103, quantity: 1 }])

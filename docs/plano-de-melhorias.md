@@ -17,15 +17,21 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
 - [ ] **Catálogo real** (Donos): só 2 produtos estão no ar e os dois aparecem com
   a imagem provisória. Faltam fotos, descrições, preços, tamanhos e estoque
   conferidos, além de peso e medidas da embalagem para o frete.
-- [ ] **Páginas obrigatórias** (Donos enviam os dados; Técnico cria): Contato
-  com razão social, CNPJ, endereço, WhatsApp, e-mail e horários; Política de
-  Privacidade (LGPD); Termos de Uso; Trocas e Devoluções, com o arrependimento em
-  7 dias; e Entregas. O Decreto 7.962/2013 exige identificação e contato visíveis.
-  Hoje `/contato`, `/privacidade`, `/termos` e `/trocas` mostram página vazia.
-- [ ] **Rodapé com links** (Técnico, junto com as páginas acima): políticas e contato.
-  Em 09/11 o topo e o rodapé foram refeitos (ver "Visual — topo, menu e rodapé"); o
-  rodapé já tem Loja, Ajuda, formas de pagamento e Instagram/WhatsApp configuráveis no
-  editor (Configurações → Rodapé). Faltam só os links das páginas acima.
+- [x] **Páginas obrigatórias e aceite** (Técnico, 12/11; publica no próximo deploy):
+  `/termos` (Termos de Uso e Condições de Compra), `/privacidade` (LGPD), `/trocas`
+  (arrependimento e troca em 7 dias; 1ª troca com frete pago pela loja; defeito em 90
+  dias), `/entregas` e `/contato`, com resumo no topo, índice e versão (12/11/2026).
+  Rodapé com a coluna "Institucional" e razão social + CNPJ na última linha; newsletter
+  com o link da Privacidade. Aceite obrigatório no cadastro ("Li e aceito os Termos de
+  Uso e a Política de Privacidade") e na compra ("Li e concordo com os Termos de Uso e a
+  Política de Trocas e Devoluções"), com versão e data gravadas na conta e no pedido; o
+  Admin mostra o aceite no pedido. Sitemap com as 5 páginas.
+- [ ] **Dados da empresa** (Donos): preencher em Editor da loja → Toda a loja → Dados
+  da empresa (razão social, CNPJ, endereço, e-mail de atendimento e horário) e publicar.
+  O WhatsApp é o do Rodapé. Enquanto faltar algo, o editor avisa. **Pedir ao contador ou
+  a um advogado que revise os textos** antes de divulgar; mudanças nos textos ficam em
+  `src/legal/documents.js` e pedem uma nova `LEGAL_VERSION` (`src/legal/pages.js`).
+  Definir também o prazo de postagem depois do pagamento, para incluir em Entregas.
 - [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, publica junto com o próximo deploy.
 - [ ] **Produtos e categorias de teste na vitrine** (Donos): a produção mostra os produtos "teste" e "teste2" (R$ 50, sem categoria e sem foto) e a categoria "Nova categoria". Remover ou substituir antes de divulgar.
 - [ ] **Conteúdo da Home** (Donos): campanhas e categorias no CMS estão sem

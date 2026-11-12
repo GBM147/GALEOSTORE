@@ -216,10 +216,10 @@ test('orders reject missing, tampered, changed CEP and changed quantity quotes a
   const selected=await quote(items)
   const before=await snapshot(p.id)
   for(const body of [
-    {items,shipping},
-    {items,shipping,shipping_quote:selected.token+'.tampered'},
-    {items,shipping:{...shipping,postal_code:'02002000'},shipping_quote:selected.token},
-    {items:[item(p,'M',2)],shipping,shipping_quote:selected.token}
+    {accept_terms:true,items,shipping},
+    {accept_terms:true,items,shipping,shipping_quote:selected.token+'.tampered'},
+    {accept_terms:true,items,shipping:{...shipping,postal_code:'02002000'},shipping_quote:selected.token},
+    {accept_terms:true,items:[item(p,'M',2)],shipping,shipping_quote:selected.token}
   ]) {
     const response=await customer.request('/api/store/orders',{method:'POST',body})
     assert.ok([400,409].includes(response.status),response.data?.error)
@@ -232,7 +232,7 @@ test('a changed catalog price invalidates a previously valid signed quote before
   const selected=await quote(items)
   await runtime.query('UPDATE products SET price=65 WHERE id=?',[p.id])
   const before=await snapshot(p.id)
-  const result=await customer.request('/api/store/orders',{method:'POST',body:{items,shipping,shipping_quote:selected.token}})
+  const result=await customer.request('/api/store/orders',{method:'POST',body:{accept_terms:true,items,shipping,shipping_quote:selected.token}})
   assert.equal(result.status,409,result.data?.error)
   assert.deepEqual(await snapshot(p.id),before)
 })
@@ -240,7 +240,7 @@ test('a changed catalog price invalidates a previously valid signed quote before
 test('valid quote persists shipping price/service, reserves exact sizes, and cancellation restores them once',async()=>{
   const p=await product(),items=[item(p,'M',2),item(p,'G')]
   const selected=await quote(items)
-  const response=await customer.request('/api/store/orders',{method:'POST',body:{items,shipping,shipping_quote:selected.token,shipping_fee:0,total:0}})
+  const response=await customer.request('/api/store/orders',{method:'POST',body:{accept_terms:true,items,shipping,shipping_quote:selected.token,shipping_fee:0,total:0}})
   assert.equal(response.status,200,response.data?.error)
   const order=response.data.order
   assert.equal(order.shipping_fee,18.75)

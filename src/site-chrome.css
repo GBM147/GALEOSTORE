@@ -254,7 +254,7 @@ html.menu-open { overflow: hidden; }
 :root[data-theme="light"] .site-footer-band span { color: var(--text); }
 .site-footer-grid {
   display: grid;
-  grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.4fr repeat(5, minmax(0, 1fr));
   gap: 32px;
   padding: clamp(32px, 4vw, 56px) clamp(16px, 3vw, 40px);
   border-top: 1px solid var(--line);

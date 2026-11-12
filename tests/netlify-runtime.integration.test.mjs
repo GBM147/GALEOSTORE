@@ -119,7 +119,7 @@ test('verified customers keep separate access and an order reserves stock using 
   customer = {}
   assert.equal((await call('/api/customer/login', { method: 'POST', body: { email: 'buyer@example.invalid', password: fixture.password }, client: customer, ip: '198.51.100.11' })).status, 200)
   assert.equal((await call('/api/admin/home', { client: customer })).status, 401)
-  const order = await call('/api/store/orders', { method: 'POST', client: customer, body: { items: [{ product_id: productId, quantity: 1 }], shipping: { name: 'Cliente local', phone: '11999999999', postal_code: '01001000', street: 'Rua local', number: '1', neighborhood: 'Centro', city: 'São Paulo', state: 'SP' } } })
+  const order = await call('/api/store/orders', { method: 'POST', client: customer, body: { accept_terms: true, items: [{ product_id: productId, quantity: 1 }], shipping: { name: 'Cliente local', phone: '11999999999', postal_code: '01001000', street: 'Rua local', number: '1', neighborhood: 'Centro', city: 'São Paulo', state: 'SP' } } })
   assert.equal(order.status, 200)
   const [product] = await fixture.query('SELECT stock FROM products WHERE id=?', [productId])
   assert.equal(product.stock, 3)

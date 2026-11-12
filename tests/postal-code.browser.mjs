@@ -154,6 +154,7 @@ test('falha da busca permite preencher e enviar endereço manualmente sem reserv
   await page.getByLabel('CEP', { exact: true }).fill(address.postal_code)
   await page.getByText('Não foi possível buscar o endereço agora. Você pode preenchê-lo manualmente.', { exact: true }).waitFor()
   for (const [label, entry] of [['Rua', 'Rua manual'], ['Bairro', 'Centro'], ['Cidade', 'São Paulo'], ['Estado', 'SP'], ['Número', '1']]) await page.getByLabel(label, { exact: true }).fill(entry)
+  await page.getByRole('checkbox', { name: /Li e concordo com os Termos/ }).check()
   await page.getByRole('button', { name: 'Solicitar pedido ↗', exact: true }).click()
   await page.getByRole('heading', { name: 'Pedido recebido', exact: true }).waitFor()
   const created = calls.filter(call => call.method === 'POST')

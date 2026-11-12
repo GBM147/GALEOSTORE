@@ -108,7 +108,7 @@ export class VerificationRuntime {
     const client = this.client()
     const email = this.email(label)
     const response = await client.request('/api/customer/register', { method: 'POST', body: {
-      name: 'Cliente local ' + label, email, password: this.password, phone: '11999999999', ...body
+      accept_terms: true, name: 'Cliente local ' + label, email, password: this.password, phone: '11999999999', ...body
     } })
     assert.equal(response.status, 202, 'registration must wait for email verification')
     const { id, token } = await this.trackMailAccount(email)

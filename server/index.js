@@ -7,6 +7,8 @@ import { newPasswordError } from './password-policy.js'
 import { syncStageCustomer } from './stage-customer.js'
 import { registerSeoRoutes } from './seo.js'
 import { googleReviewUrl, instagramUrl, normalizeFooterSettings, whatsappNumber } from '../src/siteNavigation.js'
+import { cnpjDigits, companyEmail, normalizeCompanySettings } from '../src/legal/company.js'
+import { LEGAL_VERSION } from '../src/legal/pages.js'
 import { registerStaticSite } from './static-site.js'
 import { cachePublicResponse, markStorefrontChanges } from './storefront-cache.js'
 import { captureConsoleErrors, createErrorLog, ERROR_EVENTS_DDL } from './error-log.js'
@@ -604,6 +606,11 @@ async function init({ preserveCategories = false } = {}) {
   // Existing customers retain their data, but must confirm ownership of their
   // email before a new or previously issued customer session can be used.
   await ensureColumn('customers', 'email_verified_at', 'DATETIME NULL')
+  // Version and date of the Terms/Privacy accepted at registration and per order.
+  await ensureColumn('customers', 'terms_version', 'VARCHAR(20) NULL')
+  await ensureColumn('customers', 'terms_accepted_at', 'DATETIME NULL')
+  await ensureColumn('store_orders', 'terms_version', 'VARCHAR(20) NULL')
+  await ensureColumn('store_orders', 'terms_accepted_at', 'DATETIME NULL')
   await ensureColumn('payments', 'payment_url', 'VARCHAR(1200) NULL')
   await ensureColumn('home_sections', 'published_sort_order', 'INT NULL')
   await ensureColumn('home_sections', 'published_visible', 'TINYINT(1) NULL')
@@ -1440,6 +1447,7 @@ app.post('/api/customer/register', limitarAutenticacao, async (req,res) => {
   const email=String(req.body?.email || '').trim().toLowerCase()
   const phone=String(req.body?.phone || '').trim()
   const password=String(req.body?.password || '')
+  if(req.body?.accept_terms!==true) return res.status(400).json({error:'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.'})
   if(name.length<2||name.length>180) return res.status(400).json({error:'Informe um nome válido.'})
   if(!/^\S+@\S+\.\S+$/.test(email)||email.length>255) return res.status(400).json({error:'Informe um e-mail válido.'})
   if(phone.length>40) return res.status(400).json({error:'Informe um telefone válido.'})
@@ -1457,12 +1465,14 @@ app.post('/api/customer/register', limitarAutenticacao, async (req,res) => {
       }
       // Repeating a pending registration only resends the link with the same
       // password. It never changes account identity or overrides credentials.
+      await conn.execute('UPDATE customers SET terms_version=?,terms_accepted_at=NOW() WHERE id=?',[LEGAL_VERSION,customer.id])
     } else {
       const passwordHash=await bcrypt.hash(password,12)
       const personal = { name, email, phone }
       const safe = privacy.pendingFields('customers', personal)
       const [result]=await conn.execute('INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',[safe.name,safe.email,passwordHash,safe.phone])
       await privacy.completeInsert('customers', result.insertId, personal, conn)
+      await conn.execute('UPDATE customers SET terms_version=?,terms_accepted_at=NOW() WHERE id=?',[LEGAL_VERSION,result.insertId])
       customer={id:result.insertId,name,email}
     }
     await issueEmailVerification(conn,customer,{appUrl,sendTransactionalEmail})
@@ -1624,6 +1634,7 @@ app.get('/api/customer/orders', exigirCliente, async (req,res) => {
 app.post('/api/store/orders', exigirCliente, async (req,res) => {
   const itemsInput=Array.isArray(req.body?.items)?req.body.items:[]
   if(!itemsInput.length||itemsInput.length>50) return res.status(400).json({error:'Seu carrinho está vazio.'})
+  if(req.body?.accept_terms!==true) return res.status(400).json({error:'Para finalizar, aceite os Termos de Uso e a Política de Trocas e Devoluções.'})
   const shipping=req.body?.shipping&&typeof req.body.shipping==='object'?req.body.shipping:{}
   const fields={
     name:String(shipping.name||req.customer.name||'').trim().slice(0,180),
@@ -1669,6 +1680,7 @@ app.post('/api/store/orders', exigirCliente, async (req,res) => {
     const orderResult=await insertPrivateBusiness(conn, 'store_orders', insertSql,
       [code,req.customer.id,fields.name,req.customer.email,fields.phone,subtotal,shippingFee,total,fields.postal_code,fields.street,fields.number,fields.complement,fields.neighborhood,fields.city,fields.state],
       { customer_name:2, customer_email:3, customer_phone:4, postal_code:8, street:9, number:10, complement:11, neighborhood:12, city:13, state:14 })
+    await conn.execute('UPDATE store_orders SET terms_version=?,terms_accepted_at=NOW() WHERE id=?', [LEGAL_VERSION,orderResult.insertId])
     if (mercadoPagoOnlineConfigured()) await conn.execute("UPDATE store_orders SET payment_provider='MERCADO_PAGO' WHERE id=?", [orderResult.insertId])
     if (delivery.details) await conn.execute('UPDATE store_orders SET shipping_details=? WHERE id=?', [JSON.stringify(delivery.details),orderResult.insertId])
     for(const line of lines){
@@ -1818,7 +1830,7 @@ app.get('/api/admin/security-status', async (req, res) => {
 })
 app.get('/api/admin/store-orders', async (req,res) => {
   try {
-    const orders=await query('SELECT id,private_data,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
+    const orders=await query('SELECT id,private_data,code,customer_id,customer_name,customer_email,customer_phone,status,payment_status,payment_provider,payment_method,payment_reference,payment_url,paid_at,sale_id,subtotal,shipping_fee,total,postal_code,street,number,complement,neighborhood,city,state,terms_version,terms_accepted_at,created_at,updated_at FROM store_orders ORDER BY id DESC LIMIT 500')
     const allItems=orders.length ? await query('SELECT id,order_id,product_id,variant_id,size_label,product_name,brand,quantity,unit_price,line_total FROM store_order_items WHERE order_id IN ('+orders.map(()=>'?').join(',')+') ORDER BY id',orders.map(order=>order.id)) : []
     for(const order of orders){
       order.items=allItems.filter(item=>Number(item.order_id)===Number(order.id))
@@ -1944,7 +1956,7 @@ app.get('/api/admin/home/settings', exigirLogin, exigirOwner, async (req, res) =
 app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, res) => {
   const key = String(req.params.key || '').trim()
   const value = req.body?.value
-  const allowedKeys = ['campaign_defaults','storefront_visual_defaults','navigation','footer']
+  const allowedKeys = ['campaign_defaults','storefront_visual_defaults','navigation','footer','company']
   if (!allowedKeys.includes(key)) return res.status(400).json({ error:'Configuração inválida.' })
   if (!value || typeof value !== 'object' || Array.isArray(value)) return res.status(400).json({ error:'A configuração deve ser um objeto JSON válido.' })
 
@@ -1956,6 +1968,12 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
     if (String(value.whatsapp ?? '').trim() && !whatsappNumber(value.whatsapp)) return res.status(400).json({ error:'WhatsApp inválido. Use o número com DDD, por exemplo 11 99999-9999.' })
     if (String(value.google_review ?? '').trim() && !googleReviewUrl(value.google_review)) return res.status(400).json({ error:'Link do Google inválido. Cole o link da loja no Google Maps ou o link de avaliação do Perfil da Empresa.' })
     setting = normalizeFooterSettings(value)
+  }
+  // Company data shown in the policies, the Contact page and the footer.
+  if (key === 'company') {
+    if (String(value.cnpj ?? '').trim() && !cnpjDigits(value.cnpj)) return res.status(400).json({ error:'CNPJ inválido. Confira os 14 números.' })
+    if (String(value.email ?? '').trim() && !companyEmail(value.email)) return res.status(400).json({ error:'E-mail de atendimento inválido.' })
+    setting = normalizeCompanySettings(value)
   }
   if (key === 'campaign_defaults') {
     const effects = ['static','zoom','pan-horizontal','pan-vertical','parallax','ken-burns']

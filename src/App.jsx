@@ -25,10 +25,12 @@ const AdminGate = lazy(() => import('./Admin'))
 const ProductPage = lazy(() => import('./ProductPage'))
 const CartPage = lazy(() => import('./CartPage'))
 const AccountPage = lazy(() => import('./AccountPage'))
+const LegalPage = lazy(() => import('./legal/LegalPage'))
 const MercadoPagoCheckout = lazy(() => import('./MercadoPagoCheckout'))
 import { activeProductVariants, compareSizes } from './productVariants'
 import './product-variants.css'
 import { usePageMeta } from './pageMeta'
+import { LEGAL_PAGES } from './legal/pages'
 import { ResponsiveImage } from './ResponsiveImage'
 import { imageWidths } from './cloudinaryImage'
 
@@ -731,9 +733,10 @@ export default function App() {
         <Route path="/newsletter" element={<NewsletterConfirmation />} />
         <Route path="/carrinho" element={<CartPage />} />
         <Route path="/pagamento/:orderId" element={<MercadoPagoCheckout />} />
+        {LEGAL_PAGES.map(page => <Route key={page.key} path={page.path} element={<LegalPage docKey={page.key} company={siteSettings.company} footer={siteSettings.footer} />} />)}
         <Route path="*" element={<NotFound />} />
       </Routes></Suspense>
-      {!adminRoute && <SiteFooter footer={siteSettings.footer} navigation={siteSettings.navigation} />}
+      {!adminRoute && <SiteFooter footer={siteSettings.footer} company={siteSettings.company} navigation={siteSettings.navigation} />}
     </div>
   )
   if (!visualMode) return storefront

@@ -153,3 +153,7 @@
   .visual-editor-top-actions { order: 2; }
   .visual-toolbar-message, .visual-client-note { order: 3; }
 }
+.visual-editor-panel .visual-company-missing { padding: 10px 12px; border: 1px solid #e0a43a; border-radius: 10px; color: #e0a43a; font-weight: 700; }
+:root[data-theme="light"] .visual-editor-panel .visual-company-missing { border-color: #9a6412; color: #9a6412; }
+.visual-part.is-pending .visual-part-open small { color: #e0a43a; font-weight: 700; }
+:root[data-theme="light"] .visual-part.is-pending .visual-part-open small { color: #9a6412; }
