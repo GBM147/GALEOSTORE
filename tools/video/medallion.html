@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>GALEO medalha (quadros)</title>
+  <style>html, body { margin: 0; background: #111; }</style>
+</head>
+<body>
+  <!-- Development-only page: tools/video/promo.mjs renders the 3D medallion frame by frame here. -->
+  <script type="module">
+    import { createGaleoScene } from '/src/brand3d/galeoScene.js'
+    let scene, canvas, baseZ
+    window.setupMedallion = async ({ width, height, includeName = true }) => {
+      canvas = document.createElement('canvas')
+      scene = await createGaleoScene(canvas, { width, height, background: null, includeName, preserveDrawingBuffer: true })
+      baseZ = scene.camera.position.z
+      return true
+    }
+    window.renderMedallion = ({ x = 0.05, y = -0.3, zoom = 1 }) => {
+      scene.setPose({ x, y })
+      scene.camera.position.z = baseZ / zoom
+      scene.render()
+      return canvas.toDataURL('image/png')
+    }
+    window.medallionReady = true
+  </script>
+</body>
+</html>

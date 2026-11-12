@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>GALEO divulgação</title>
+  <style>
+    @font-face { font-family: 'Bodoni Moda'; font-style: normal; font-weight: 400 700; src: url('/fonts/bodoni-moda-latin-normal.woff2') format('woff2'); }
+    @font-face { font-family: 'Bodoni Moda'; font-style: italic; font-weight: 400 700; src: url('/fonts/bodoni-moda-latin-italic.woff2') format('woff2'); }
+    @font-face { font-family: Inter; font-weight: 100 900; src: url('/fonts/inter-latin-normal.woff2') format('woff2'); }
+    @font-face { font-family: Cinzel; font-weight: 400 700; src: url('/fonts/cinzel-caps.woff2') format('woff2'); }
+    html, body { margin: 0; overflow: hidden; background: #050505; }
+    #stage { position: relative; overflow: hidden; background: #050505; color: #f2eadb; font-family: Inter, Arial, sans-serif; }
+    .v #stage { width: 1080px; height: 1920px; }
+    .h #stage { width: 1920px; height: 1080px; }
+    .layer { position: absolute; will-change: transform, opacity; }
+    #glow { inset: -20%; background: radial-gradient(circle at 50% 42%, rgba(226,194,127,.28), rgba(226,194,127,0) 46%), radial-gradient(circle at 20% 90%, rgba(127,37,27,.35), rgba(127,37,27,0) 50%); }
+    #grain { inset: 0; opacity: .07; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 3px); mix-blend-mode: overlay; }
+    #sweep { top: -40%; left: -60%; width: 40%; height: 180%; background: linear-gradient(90deg, rgba(255,240,205,0), rgba(255,240,205,.22), rgba(255,240,205,0)); transform: rotate(18deg); mix-blend-mode: screen; }
+    #medal { transform-origin: center; }
+    #medal canvas { display: block; width: 100%; height: 100%; }
+    .tag { font-family: 'Bodoni Moda', Georgia, serif; font-weight: 500; line-height: 1.04; letter-spacing: -.02em; white-space: nowrap; }
+    .tag em { color: #e2c27f; font-style: italic; font-weight: 400; }
+    .kicker { color: #e2c27f; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; }
+    #garments { display: flex; gap: 22px; }
+    #garments img { border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.55); }
+    #phone { border-radius: 64px; background: #0b0b0b; box-shadow: 0 0 0 3px #2a2520, 0 0 0 12px #0f0e0d, 0 40px 120px rgba(0,0,0,.7), 0 0 80px rgba(226,194,127,.18); }
+    #screen { position: absolute; overflow: hidden; border-radius: 48px; background: #050505; }
+    #screen img { position: absolute; left: 0; top: 0; width: 100%; }
+    #notch { position: absolute; left: 50%; top: 18px; width: 120px; height: 32px; border-radius: 20px; background: #000; transform: translateX(-50%); }
+    #tap { width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; border: 4px solid #e2c27f; box-shadow: 0 0 24px rgba(226,194,127,.8); }
+    .say { font-family: 'Bodoni Moda', Georgia, serif; font-weight: 500; line-height: 1.08; }
+    .say small { display: block; margin-bottom: 18px; font-family: Inter, sans-serif; color: #e2c27f; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; }
+    #benefits { display: grid; gap: 34px; }
+    .benefit { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 28px; }
+    .benefit svg { stroke: #e2c27f; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .benefit strong { display: block; font-family: 'Bodoni Moda', Georgia, serif; font-weight: 500; line-height: 1.1; }
+    .benefit span { color: #cfc4b2; }
+    #end { display: grid; justify-items: center; text-align: center; gap: 18px; }
+    #end .brand { font-family: Cinzel, Georgia, serif; font-weight: 700; letter-spacing: .16em; color: #e2c27f; }
+    #end .url { font-weight: 600; letter-spacing: .02em; }
+    #end .insta { color: #cfc4b2; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <!-- Development-only page: tools/video/promo.mjs captures it frame by frame. -->
+  <div id="stage">
+    <div id="glow" class="layer"></div>
+    <div id="sweep" class="layer"></div>
+    <div id="medal" class="layer"><canvas width="1080" height="1080"></canvas></div>
+    <div id="tagline" class="layer tag"><div class="kicker" id="kick1">GALEO / Multibrand store</div><div>Vista o que</div><div><em>representa você</em></div></div>
+    <div id="garments" class="layer"></div>
+    <div id="phone" class="layer"><div id="screen"></div><div id="notch"></div></div>
+    <div id="tap" class="layer"></div>
+    <div id="say1" class="layer say"><small>Na palma da mão</small>Escolha online</div>
+    <div id="say2" class="layer say"><small>Do seu jeito</small>No seu tamanho</div>
+    <div id="say3" class="layer say"><small>Rápido e seguro</small>Pague com Pix ou cartão</div>
+    <div id="benefits" class="layer">
+      <div class="benefit"><svg viewBox="0 0 48 48"><path d="M24 4 40 10v12c0 11-7 19-16 22C15 41 8 33 8 22V10z"/><path d="m16 24 6 6 11-12"/></svg><div><strong>Compra segura</strong><span>Pix, crédito e débito pelo Mercado Pago</span></div></div>
+      <div class="benefit"><svg viewBox="0 0 48 48"><path d="M4 12h26v22H4zM30 20h8l6 7v7H30z"/><circle cx="13" cy="36" r="4"/><circle cx="36" cy="36" r="4"/></svg><div><strong>Envio para todo o Brasil</strong><span>Frete e prazo na hora, pelo seu CEP</span></div></div>
+      <div class="benefit"><svg viewBox="0 0 48 48"><path d="M10 18a15 15 0 0 1 27-6l3 4M38 30a15 15 0 0 1-27 6l-3-4"/><path d="M40 8v8h-8M8 40v-8h8"/></svg><div><strong>Troca em até 7 dias</strong><span>A primeira troca tem frete por nossa conta</span></div></div>
+    </div>
+    <div id="end" class="layer"><div class="brand">GALEO STORE</div><div class="url" id="url">galeo-store.netlify.app</div><div class="insta">@galeostoreofc</div></div>
+  </div>
+  <script>
+    const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v))
+    const easeOut = t => 1 - Math.pow(1 - clamp(t), 3)
+    const easeInOut = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+    const ramp = (t, a, b) => clamp((t - a) / (b - a))
+    // Visible between start and end, fading in and out.
+    const window_ = (t, start, end, fade = .45) => Math.min(ramp(t, start, start + fade), 1 - ramp(t, end - fade, end))
+    const $ = id => document.getElementById(id)
+    let P = null, frames = [], screens = {}, ctx
+    const css = (el, props) => { for (const [k, v] of Object.entries(props)) el.style[k] = v }
+
+    window.setupPromo = async config => {
+      P = config
+      document.body.className = config.format
+      ctx = $('medal').querySelector('canvas').getContext('2d')
+      const load = src => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src })
+      frames = await Promise.all(config.medallionFrames.map(load))
+      for (const [key, screen] of Object.entries(config.screens)) {
+        const img = await load(screen.src)
+        img.dataset.key = key
+        $('screen').append(img)
+        screens[key] = { img, ...screen }
+      }
+      $('garments').innerHTML = config.garments.map(src => `<img src="${src}" alt="">`).join('')
+      await Promise.all([...$('garments').querySelectorAll('img')].map(img => img.decode().catch(() => {})))
+      await document.fonts.ready
+      layout()
+      return true
+    }
+
+    function layout() {
+      const v = P.format === 'v'
+      const G = v ? { w: 300, h: 375 } : { w: 250, h: 312 }
+      $('garments').querySelectorAll('img').forEach(img => { img.width = G.w; img.height = G.h })
+      css($('tagline'), v ? { left: '0', width: '1080px', top: '820px', textAlign: 'center', fontSize: '124px' } : { left: '1000px', top: '230px', fontSize: '112px' })
+      css($('kick1'), { fontFamily: 'Inter, sans-serif', fontSize: v ? '26px' : '24px', marginBottom: '26px', letterSpacing: '.24em' })
+      css($('garments'), v ? { left: '50%', top: '1260px' } : { left: '1000px', top: '640px' })
+      const phone = v ? { w: 640, h: 1340, x: 220, y: 440 } : { w: 470, h: 984, x: 1290, y: 48 }
+      css($('phone'), { left: phone.x + 'px', top: phone.y + 'px', width: phone.w + 'px', height: phone.h + 'px' })
+      const inset = v ? 22 : 16
+      P.screenBox = { x: phone.x + inset, y: phone.y + inset, w: phone.w - inset * 2, h: phone.h - inset * 2 }
+      css($('screen'), { left: inset + 'px', top: inset + 'px', width: P.screenBox.w + 'px', height: P.screenBox.h + 'px', borderRadius: (v ? 48 : 38) + 'px' })
+      for (const id of ['say1', 'say2', 'say3']) css($(id), v ? { left: '0', width: '1080px', top: '150px', textAlign: 'center', fontSize: '84px' } : { left: '150px', top: '360px', width: '980px', fontSize: '96px' })
+      document.querySelectorAll('.say small').forEach(el => css(el, { fontSize: v ? '26px' : '24px' }))
+      css($('benefits'), v ? { left: '110px', top: '640px', width: '860px' } : { left: '330px', top: '250px', width: '1260px' })
+      document.querySelectorAll('.benefit svg').forEach(el => { el.setAttribute('width', v ? 110 : 96); el.setAttribute('height', v ? 110 : 96) })
+      document.querySelectorAll('.benefit strong').forEach(el => css(el, { fontSize: v ? '62px' : '58px' }))
+      document.querySelectorAll('.benefit span').forEach(el => css(el, { fontSize: v ? '30px' : '28px' }))
+      css($('end'), v ? { left: '0', width: '1080px', top: '1290px' } : { left: '1000px', top: '420px', width: '820px' })
+      css($('end').querySelector('.brand'), { fontSize: v ? '78px' : '72px' })
+      css($('url'), { fontSize: v ? '44px' : '40px' })
+      css($('end').querySelector('.insta'), { fontSize: v ? '34px' : '32px' })
+    }
+
+    function drawMedal(index) {
+      const img = frames[Math.max(0, Math.min(frames.length - 1, index))]
+      ctx.clearRect(0, 0, 1080, 1080)
+      ctx.drawImage(img, 0, 0, 1080, 1080)
+    }
+
+    window.setTime = t => {
+      const v = P.format === 'v'
+      // Background glow breathes; the light band sweeps during the intro and the end.
+      css($('glow'), { opacity: String(.65 + .35 * Math.sin(t * 1.1) ** 2) })
+      const sweep = Math.max(ramp(t, .5, 2.6), 0) < 1 && t < 2.6 ? ramp(t, .5, 2.6) : ramp(t, 22.2, 24.2)
+      css($('sweep'), { transform: `translateX(${sweep * (v ? 2600 : 4200)}px) rotate(18deg)`, opacity: String((t < 2.6 || t > 22.2) && sweep > 0 && sweep < 1 ? 1 : 0) })
+
+      // 3D medallion: intro spin (frames 0–119), then end sway (120–179).
+      const intro = t < 4.4
+      const medalFrame = intro ? Math.round(clamp(t / 4) * (P.introFrames - 1)) : P.introFrames + Math.floor(((t - 21.6) * 30) % (frames.length - P.introFrames))
+      drawMedal(t >= 21.6 ? medalFrame : t < 4.4 ? medalFrame : P.introFrames - 1)
+      const intoTagline = easeInOut(ramp(t, 3.9, 4.7))
+      let medal
+      if (t < 8) {
+        const size0 = v ? 1000 : 960, size1 = v ? 560 : 820
+        const x0 = v ? 540 : 960, x1 = v ? 540 : 520, y0 = v ? 820 : 540, y1 = v ? 470 : 540
+        const size = size0 + (size1 - size0) * intoTagline
+        medal = { size, x: x0 + (x1 - x0) * intoTagline, y: y0 + (y1 - y0) * intoTagline, o: Math.min(easeOut(ramp(t, 0, .9)), 1 - ramp(t, 7.4, 7.9)) }
+      } else {
+        const size = v ? 760 : 760
+        medal = { size, x: v ? 540 : 520, y: v ? 820 : 540, o: window_(t, 21.6, 25.6, .6) }
+      }
+      const pop = t < 1.2 ? .86 + .14 * easeOut(ramp(t, 0, 1.2)) : 1
+      css($('medal'), { width: medal.size + 'px', height: medal.size + 'px', left: medal.x - medal.size / 2 + 'px', top: medal.y - medal.size / 2 + 'px', opacity: String(medal.o), transform: `scale(${pop})` })
+
+      // Tagline and garments (4.3–8 s)
+      const tagIn = easeOut(ramp(t, 4.3, 5.2))
+      css($('tagline'), { opacity: String(Math.min(tagIn, 1 - ramp(t, 7.5, 8))), transform: `translateY(${(1 - tagIn) * 40}px)` })
+      const gIn = easeOut(ramp(t, 4.9, 5.9))
+      const drift = (t - 5) * (v ? -14 : -10)
+      css($('garments'), { opacity: String(Math.min(gIn, 1 - ramp(t, 7.5, 8))), transform: `translateX(${v ? -50 : 0}%) translateX(${drift}px) translateY(${(1 - gIn) * 60}px)` })
+      if (v) $('garments').style.transform = `translateX(calc(-50% + ${drift}px)) translateY(${(1 - gIn) * 60}px)`
+
+      // Phone with the site (8.2–16.4 s)
+      const phoneIn = easeOut(ramp(t, 8.2, 9))
+      const phoneOut = ramp(t, 15.9, 16.4)
+      css($('phone'), { opacity: String(Math.min(phoneIn, 1 - phoneOut)), transform: `translateY(${(1 - phoneIn) * 120}px) scale(${.96 + .04 * phoneIn})` })
+      const box = P.screenBox
+      const show = { home: window_(t, 8.2, 12.4, .35), product: window_(t, 12.1, 14.5, .35), cart: window_(t, 14.2, 15.4, .3), pix: window_(t, 15.1, 16.4, .3) }
+      for (const [key, screen] of Object.entries(screens)) {
+        const scale = box.w / screen.width
+        let offset = 0
+        if (key === 'home') offset = easeInOut(ramp(t, 9.2, 12.2)) * Math.max(0, screen.height * scale - box.h) * .62
+        if (key === 'cart') offset = easeInOut(ramp(t, 14.4, 15.2)) * Math.max(0, screen.height * scale - box.h) * .5
+        screen.img.style.opacity = String(show[key] || 0)
+        screen.img.style.transform = `translateY(${-offset}px)`
+      }
+      // Tap on the size and on "Adicionar"
+      const taps = [[12.9, P.taps.size], [13.7, P.taps.add], [15.6, P.taps.pix]]
+      let tap = null
+      for (const [time, point] of taps) if (point && t >= time && t < time + .55) tap = { point, k: (t - time) / .55 }
+      if (tap) {
+        const s = box.w / screens.product.width
+        css($('tap'), { left: box.x + tap.point.x * s + 'px', top: box.y + tap.point.y * s + 'px', opacity: String(1 - tap.k), transform: `scale(${.6 + tap.k * 1.4})` })
+      } else $('tap').style.opacity = '0'
+      css($('say1'), { opacity: String(window_(t, 8.6, 12.3)), transform: `translateY(${(1 - easeOut(ramp(t, 8.6, 9.3))) * 30}px)` })
+      css($('say2'), { opacity: String(window_(t, 12.4, 14.3)), transform: `translateY(${(1 - easeOut(ramp(t, 12.4, 13))) * 30}px)` })
+      css($('say3'), { opacity: String(window_(t, 14.4, 16.3)), transform: `translateY(${(1 - easeOut(ramp(t, 14.4, 15))) * 30}px)` })
+
+      // Benefits (16.6–21.6 s), one row after the other
+      const rows = document.querySelectorAll('.benefit')
+      rows.forEach((row, index) => {
+        const k = easeOut(ramp(t, 16.8 + index * .9, 17.6 + index * .9))
+        row.style.opacity = String(Math.min(k, 1 - ramp(t, 21.1, 21.6)))
+        row.style.transform = `translateX(${(1 - k) * 60}px)`
+      })
+      $('benefits').style.opacity = t > 16.4 && t < 21.7 ? '1' : '0'
+
+      // End card (21.8–26 s)
+      const endIn = easeOut(ramp(t, 22.2, 23))
+      css($('end'), { opacity: String(endIn), transform: `translateY(${(1 - endIn) * 30}px)` })
+    }
+  </script>
+</body>
+</html>
