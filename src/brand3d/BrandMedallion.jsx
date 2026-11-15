@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Facing the front, so the medallion turns the same amount to each side.
+// Facing the front, so the sway and the turns go the same amount to each side.
 export const BASE_POSE = { x: 0.05, y: 0 }
 
 function canAnimate() {
@@ -15,9 +15,9 @@ function canAnimate() {
 
 // The GALEO mark on the banner. Everyone first sees the 3D image (rendered
 // from the same scene). On a computer, once the page is idle, the 3D scene is
-// loaded on its own and the medallion turns with the mouse or the finger, the
-// same to both sides, and rests facing the front. The light mode and reduced
-// motion keep the image only.
+// loaded on its own: the medallion sways slowly the same amount to both sides
+// of the front and turns with the mouse or the finger. The light mode and
+// reduced motion keep the image only.
 export default function BrandMedallion({ fetchPriority }) {
   const wrap = useRef(null)
   const [live, setLive] = useState(false)

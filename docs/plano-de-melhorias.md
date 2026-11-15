@@ -193,10 +193,10 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   Arquivos em alta para redes e materiais: PNG 2048 px transparente e com fundo preto, e
   só a medalha em 1024 px (foto de perfil); geram-se de novo com
   `node scripts/render-logo-3d.mjs` com o Vite ligado. No site: topo, rodapé, ícone da aba
-  e imagem de compartilhamento com a medalha 3D; na capa sem foto, a medalha fica **de
-  frente e vira com o mouse** no computador e **com o toque** no celular, igual para os
-  dois lados, e volta ao centro ao soltar (15/11, a pedido dos donos: sem balanço
-  automático nem zoom; a página continua rolando normalmente). O three.js (150 KB
+  e imagem de compartilhamento com a medalha 3D; na capa sem foto, a medalha **balança
+  devagar o mesmo tanto para os dois lados** a partir de frente e **vira com o mouse** no
+  computador e **com o toque** no celular, também igual para os dois lados (15/11, a
+  pedido dos donos: sem o zoom de "flutuar"; a página continua rolando normalmente). O three.js (150 KB
   comprimidos) é baixado à parte depois da página pronta, em qualquer aparelho com
   WebGL; Modo leve (internet lenta, economia de dados, celular fraco) e movimento
   reduzido ficam com a imagem 3D fixa, que no celular vem em 640 px. A arte original do círculo tem só ~540 px: com o

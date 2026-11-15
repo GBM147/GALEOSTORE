@@ -52,23 +52,23 @@ test('no computador, a medalha 3D entra no lugar da imagem e inclina com o mouse
   if (!webgl) return t.skip('este navegador não tem WebGL')
   await page.locator('.hero-full .brand-medallion[data-live="true"] canvas[data-brand3d]').waitFor()
   assert.ok(requests.some(path => runtimeRequest.test(path)), 'a cena 3D é baixada à parte')
-  // At rest it faces the front and stays still (no automatic sway).
-  const rest = await tilt(page)
-  await page.waitForTimeout(1500)
-  assert.ok(Math.abs(rest) < 0.02 && Math.abs((await tilt(page)) - rest) < 0.005, 'parada e de frente sem o mouse')
+  // Without the mouse it keeps swaying, the same amount to both sides of the
+  // front: never past ±0.3 rad (before, it leaned to one side up to -0.6).
+  const samples = []
+  for (let i = 0; i < 16; i++) { samples.push(await tilt(page)); await page.waitForTimeout(250) }
+  assert.ok(Math.max(...samples) - Math.min(...samples) > 0.05, 'balança sozinha: ' + samples.join(', '))
+  assert.ok(samples.every(value => Math.abs(value) <= 0.32), 'balança igual para os dois lados: ' + samples.join(', '))
   const area = await page.locator('.hero-full').boundingBox()
   const middle = area.y + area.height / 2
   await page.mouse.move(area.x + 4, middle)
-  await page.waitForFunction(() => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) < -0.38)
+  await page.waitForTimeout(2000)
   const left = await tilt(page)
   await page.mouse.move(area.x + area.width - 4, middle)
-  await page.waitForFunction(() => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) > 0.38)
-  const right = await tilt(page)
-  assert.ok(Math.abs(left + right) < 0.06, 'vira igual para os dois lados: ' + left + ' / ' + right)
+  await page.waitForFunction(start => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) > start + 0.5, left)
   assert.equal(await page.locator('.brand-medallion-image').evaluate(image => getComputedStyle(image).opacity), '0', 'a imagem fixa some atrás da cena 3D')
 })
 
-test('no celular, a medalha 3D anima e segue o toque sem atrapalhar a rolagem', async t => {
+test('no celular, a medalha 3D balança e segue o toque sem atrapalhar a rolagem', async t => {
   const { page, requests } = await fixture(t, { width: 390, height: 844 })
   const webgl = await page.evaluate(() => Boolean(document.createElement('canvas').getContext('webgl2') || document.createElement('canvas').getContext('webgl')))
   if (!webgl) return t.skip('este navegador não tem WebGL')
@@ -79,13 +79,11 @@ test('no celular, a medalha 3D anima e segue o toque sem atrapalhar a rolagem', 
   const cdp = await page.context().newCDPSession(page)
   const touch = (type, x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] })
   await touch('touchStart', area.x + 4)
-  await page.waitForFunction(() => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) < -0.38)
+  await page.waitForTimeout(2000)
   const left = await tilt(page)
   for (let step = 1; step <= 8; step++) await touch('touchMove', area.x + 4 + (area.width - 8) * step / 8)
-  await page.waitForFunction(() => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) > 0.38)
-  assert.ok(Math.abs(left + await tilt(page)) < 0.06, 'vira igual para os dois lados')
+  await page.waitForFunction(start => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) > start + 0.5, left)
   await touch('touchEnd')
-  await page.waitForFunction(() => Math.abs(Number(document.querySelector('canvas[data-brand3d]').dataset.tilt)) < 0.02)
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'sem rolagem lateral')
 })
 

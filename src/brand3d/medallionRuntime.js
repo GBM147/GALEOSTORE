@@ -1,8 +1,8 @@
 import { createGaleoScene } from './galeoScene.js'
 
-// Live medallion: it rests facing the front and turns with the mouse or the
-// finger over the banner, the same to both sides. It draws only while it moves
-// (at most ~30 frames per second) and only while visible.
+// Live medallion: a slow sway the same amount to both sides of the front, plus
+// a turn that follows the mouse or the finger over the banner (also the same to
+// both sides). At most ~30 frames per second, and only while visible.
 export function mountMedallion(container, { pose, onReady } = {}) {
   const canvas = document.createElement('canvas')
   canvas.className = 'brand-medallion-canvas'
@@ -11,7 +11,7 @@ export function mountMedallion(container, { pose, onReady } = {}) {
   const area = container.closest('.hero-full') || container
   const pointer = { x: 0, y: 0 }
   const current = { ...pose }
-  let scene = null, frame = 0, last = 0, visible = true, disposed = false, dirty = true
+  let scene = null, frame = 0, last = 0, start = 0, visible = true, disposed = false, dirty = true
 
   const measure = () => {
     const rect = container.getBoundingClientRect()
@@ -37,7 +37,11 @@ export function mountMedallion(container, { pose, onReady } = {}) {
     frame = requestAnimationFrame(loop)
     if (!visible || document.hidden || time - last < 32) return
     last = time
-    const target = { x: pose.x + pointer.y * 0.22, y: pose.y + pointer.x * 0.42 }
+    if (!start) start = time
+    // The sway starts at the center (like the image it replaces) and goes
+    // ±0.3 rad, about 17°, to each side.
+    const sway = Math.sin((time - start) / 1000 * 0.45) * 0.3
+    const target = { x: pose.x + pointer.y * 0.22, y: pose.y + sway + pointer.x * 0.42 }
     const dx = target.x - current.x, dy = target.y - current.y
     if (!dirty && Math.abs(dx) < 0.0005 && Math.abs(dy) < 0.0005) return
     current.x += dx * 0.1
