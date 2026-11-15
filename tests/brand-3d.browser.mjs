@@ -62,8 +62,26 @@ test('no computador, a medalha 3D entra no lugar da imagem e inclina com o mouse
   assert.equal(await page.locator('.brand-medallion-image').evaluate(image => getComputedStyle(image).opacity), '0', 'a imagem fixa some atrás da cena 3D')
 })
 
+test('no celular, a medalha 3D anima e segue o toque sem atrapalhar a rolagem', async t => {
+  const { page, requests } = await fixture(t, { width: 390, height: 844 })
+  const webgl = await page.evaluate(() => Boolean(document.createElement('canvas').getContext('webgl2') || document.createElement('canvas').getContext('webgl')))
+  if (!webgl) return t.skip('este navegador não tem WebGL')
+  await page.locator('.hero-full .brand-medallion[data-live="true"] canvas[data-brand3d]').waitFor()
+  assert.ok(requests.some(path => runtimeRequest.test(path)), 'a cena 3D é baixada à parte')
+  const area = await page.locator('.hero-full').boundingBox()
+  const y = area.y + area.height * 0.3
+  const cdp = await page.context().newCDPSession(page)
+  const touch = (type, x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] })
+  await touch('touchStart', area.x + 6)
+  await page.waitForTimeout(2500)
+  const left = await tilt(page)
+  for (let step = 1; step <= 8; step++) await touch('touchMove', area.x + 6 + (area.width - 12) * step / 8)
+  await page.waitForFunction(start => Number(document.querySelector('canvas[data-brand3d]').dataset.tilt) > start + 0.35, left)
+  await touch('touchEnd')
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'sem rolagem lateral')
+})
+
 for (const [name, options] of [
-  ['no celular', { width: 390, height: 844 }],
   ['no Modo leve', { query: '?lite=1' }],
   ['com movimento reduzido', { reducedMotion: 'reduce' }]
 ]) {

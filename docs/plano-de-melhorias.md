@@ -194,10 +194,11 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   só a medalha em 1024 px (foto de perfil); geram-se de novo com
   `node scripts/render-logo-3d.mjs` com o Vite ligado. No site: topo, rodapé, ícone da aba
   e imagem de compartilhamento com a medalha 3D; na capa sem foto, a medalha **balança
-  devagar e inclina com o mouse** no computador. O three.js (150 KB comprimidos) é baixado
-  à parte só no computador e depois da página pronta, em qualquer PC com WebGL (com ou
-  sem placa de vídeo, a pedido dos donos); celular, Modo leve e movimento reduzido ficam
-  com a imagem 3D fixa, que no celular vem em 640 px. A arte original do círculo tem só ~540 px: com o
+  devagar e inclina com o mouse** no computador e **com o toque** no celular (15/11, a
+  pedido dos donos; a página continua rolando normalmente). O three.js (150 KB
+  comprimidos) é baixado à parte depois da página pronta, em qualquer aparelho com
+  WebGL; Modo leve (internet lenta, economia de dados, celular fraco) e movimento
+  reduzido ficam com a imagem 3D fixa, que no celular vem em 640 px. A arte original do círculo tem só ~540 px: com o
   arquivo original do logo em alta, a medalha fica mais nítida.
 - [x] **Fontes por função** (Técnico, 10/11; publica no próximo deploy): no lugar da
   Roboto em tudo, cada escrita tem a sua letra, como na Zara. **Bodoni Moda** (serifa de
@@ -208,8 +209,11 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   na campanha sem foto. Fontes hospedadas no próprio site (licença OFL), em versões
   menores (Bodoni com tamanho óptico fixo; Cinzel só com maiúsculas), com fonte reserva
   do mesmo tamanho para o texto não pular enquanto carrega. Lighthouse local da Home no
-  celular: 87 (antes 84–87; CLS de 0,011 para 0). No computador o Lighthouse dá cerca de
-  68, porque o robô desenha a medalha 3D sem vídeo; o 3D fica para todos os PCs.
+  celular: 87 (antes 84–87; CLS de 0,011 para 0), medido antes do 3D no celular. O
+  robô do Lighthouse desenha a medalha 3D sem placa de vídeo, então a nota de
+  laboratório cai no computador (~68) e, desde 15/11, também no celular; visitantes
+  reais têm vídeo no aparelho. Os sinais + - = _ | × ÷ e os travessões saem da serifa
+  reserva, porque na Bodoni eles são fios quase invisíveis na tela.
 - [x] **Avaliação no Google** (Técnico, 11/11; publica no próximo deploy): faixa "Comprou
   com a gente? Conte como foi" no rodapé de todas as páginas, com 5 estrelas e o botão
   "Avaliar no Google". Qualquer estrela abre a GaleoStore no Google Maps, na aba de

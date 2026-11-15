@@ -1,7 +1,7 @@
 import { createGaleoScene } from './galeoScene.js'
 
-// Live medallion: slow sway plus a tilt that follows the pointer over the
-// banner. It renders at most ~30 frames per second, only while visible.
+// Live medallion: slow sway plus a tilt that follows the mouse or the finger
+// over the banner. It renders at most ~30 frames per second, only while visible.
 export function mountMedallion(container, { pose, onReady } = {}) {
   const canvas = document.createElement('canvas')
   canvas.className = 'brand-medallion-canvas'
@@ -16,12 +16,19 @@ export function mountMedallion(container, { pose, onReady } = {}) {
     const rect = container.getBoundingClientRect()
     return [Math.max(1, Math.round(rect.width)), Math.max(1, Math.round(rect.height))]
   }
-  const move = event => {
+  const aim = (x, y) => {
     const rect = area.getBoundingClientRect()
-    pointer.x = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1))
-    pointer.y = Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height) * 2 - 1))
+    pointer.x = Math.max(-1, Math.min(1, ((x - rect.left) / rect.width) * 2 - 1))
+    pointer.y = Math.max(-1, Math.min(1, ((y - rect.top) / rect.height) * 2 - 1))
   }
-  const leave = () => { pointer.x = 0; pointer.y = 0 }
+  // Mouse and pen; a finger is followed by the touch events below.
+  const move = event => { if (event.pointerType !== 'touch') aim(event.clientX, event.clientY) }
+  const leave = event => { if (event?.pointerType !== 'touch') { pointer.x = 0; pointer.y = 0 } }
+  // Passive touch listeners: the medallion follows the finger and the page
+  // still scrolls normally. When the finger lifts, it eases back to the center.
+  const touch = event => { const point = event.touches[0]; if (point) aim(point.clientX, point.clientY) }
+  const release = () => { pointer.x = 0; pointer.y = 0 }
+  const passive = { passive: true }
   const resize = new ResizeObserver(() => { if (scene) scene.setSize(...measure()) })
   const seen = new IntersectionObserver(entries => { visible = entries.some(entry => entry.isIntersecting) })
 
@@ -47,6 +54,10 @@ export function mountMedallion(container, { pose, onReady } = {}) {
     container.appendChild(canvas)
     area.addEventListener('pointermove', move)
     area.addEventListener('pointerleave', leave)
+    area.addEventListener('touchstart', touch, passive)
+    area.addEventListener('touchmove', touch, passive)
+    area.addEventListener('touchend', release, passive)
+    area.addEventListener('touchcancel', release, passive)
     resize.observe(container)
     seen.observe(container)
     frame = requestAnimationFrame(loop)
@@ -58,6 +69,10 @@ export function mountMedallion(container, { pose, onReady } = {}) {
     cancelAnimationFrame(frame)
     area.removeEventListener('pointermove', move)
     area.removeEventListener('pointerleave', leave)
+    area.removeEventListener('touchstart', touch, passive)
+    area.removeEventListener('touchmove', touch, passive)
+    area.removeEventListener('touchend', release, passive)
+    area.removeEventListener('touchcancel', release, passive)
     resize.disconnect()
     seen.disconnect()
     scene?.dispose()

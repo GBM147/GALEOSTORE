@@ -4,7 +4,6 @@ export const BASE_POSE = { x: 0.05, y: -0.3 }
 
 function canAnimate() {
   if (typeof window === 'undefined' || !window.matchMedia) return false
-  if (!window.matchMedia('(min-width: 900px)').matches) return false
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
   if (document.documentElement.dataset.lite === 'true') return false
   try {
@@ -15,8 +14,8 @@ function canAnimate() {
 
 // The GALEO mark on the banner. Everyone first sees the 3D image (rendered
 // from the same scene). On a computer, once the page is idle, the 3D scene is
-// loaded on its own and the medallion sways slowly and follows the mouse.
-// Phones, the light mode and reduced motion keep the image only.
+// loaded on its own and the medallion sways slowly and follows the mouse or
+// the finger. The light mode and reduced motion keep the image only.
 export default function BrandMedallion({ fetchPriority }) {
   const wrap = useRef(null)
   const [live, setLive] = useState(false)
