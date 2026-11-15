@@ -53,7 +53,7 @@
 .hero-full .campaign-brand-image { width: min(46%, 620px); left: 74%; }
 /* 3D medallion: the rendered image first; on a computer the live 3D scene
    replaces it once loaded (see src/brand3d). */
-.app .hero-full .brand-medallion { aspect-ratio: 1; height: auto; }
+.app .hero-full .brand-medallion { aspect-ratio: 1; height: auto; animation: none; }
 .brand-medallion-image, .brand-medallion-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .brand-medallion-image { object-fit: contain; transition: opacity .5s ease; }
 .brand-medallion[data-live="true"] { filter: none; animation: none; transform: translate(-50%, -50%); }
