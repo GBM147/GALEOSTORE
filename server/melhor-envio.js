@@ -53,7 +53,7 @@ export function createMelhorEnvio({ db, query, sessionSecret, protection, env = 
   const base = BASES[environment]
   const redirectUri = String(env.MELHOR_ENVIO_REDIRECT_URI || (String(env.APP_URL || 'https://galeo-store.netlify.app').replace(/\/$/,'') + '/api/integrations/melhor-envio/callback')).trim()
   const origin = String(env.MELHOR_ENVIO_ORIGIN_POSTAL_CODE || '').trim().replace('-', '')
-  const contact = String(env.MELHOR_ENVIO_CONTACT_EMAIL || 'storegaleo@gmail.com').trim()
+  const contact = String(env.MELHOR_ENVIO_CONTACT_EMAIL || 'galeostore01@gmail.com').trim()
   let validRedirect = false
   try { const url = new URL(redirectUri); validRedirect = !url.username && !url.password && !url.hash && !url.search && (url.protocol === 'https:' || env.NODE_ENV === 'test' && url.protocol === 'http:' && ['localhost','127.0.0.1'].includes(url.hostname)) } catch {}
   const pending = [!clientId && 'MELHOR_ENVIO_CLIENT_ID', !clientSecret && 'MELHOR_ENVIO_CLIENT_SECRET', !validRedirect && 'MELHOR_ENVIO_REDIRECT_URI', !/^\d{8}$/.test(origin) && 'MELHOR_ENVIO_ORIGIN_POSTAL_CODE', !base && 'MELHOR_ENVIO_ENVIRONMENT', !/^\S+@\S+\.\S+$/.test(contact) && 'MELHOR_ENVIO_CONTACT_EMAIL'].filter(Boolean)

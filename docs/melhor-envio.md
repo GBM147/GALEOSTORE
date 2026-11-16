@@ -20,7 +20,7 @@ Variáveis de produção, disponíveis para Functions, sem prefixo `VITE_`:
 | `MELHOR_ENVIO_REDIRECT_URI` | `https://galeo-store.netlify.app/api/integrations/melhor-envio/callback` |
 | `MELHOR_ENVIO_ORIGIN_POSTAL_CODE` | `08285130` |
 | `MELHOR_ENVIO_ENVIRONMENT` | Opcional; padrão `production` |
-| `MELHOR_ENVIO_CONTACT_EMAIL` | Opcional; padrão `storegaleo@gmail.com`, informado no cadastro do aplicativo |
+| `MELHOR_ENVIO_CONTACT_EMAIL` | Opcional; padrão `galeostore01@gmail.com`, informado no cadastro do aplicativo |
 
 O aplicativo e suas credenciais devem corresponder ao ambiente escolhido. Sandbox usa conta e aplicativo próprios; não reutilizar credenciais de produção em sandbox. O callback deve ser exatamente igual no aplicativo e na hospedagem.
 

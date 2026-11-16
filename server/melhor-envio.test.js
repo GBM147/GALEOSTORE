@@ -161,7 +161,7 @@ test('quotation uses actual packaged metrics, per-size quantity and customized p
   const request=f.calls.at(-1)
   assert.equal(request.url,'https://melhorenvio.com.br/api/v2/me/shipment/calculate')
   assert.equal(request.options.headers.Authorization,'Bearer private-access-token')
-  assert.equal(request.options.headers['User-Agent'],'GALEO (storegaleo@gmail.com)')
+  assert.equal(request.options.headers['User-Agent'],'GALEO (galeostore01@gmail.com)')
   assert.deepEqual(request.body,{from:{postal_code:'08285130'},to:{postal_code:'01001000'},products:[{id:'11-V21',width:18,height:3,length:25,weight:0.3,insurance_value:100,quantity:2}],options:{receipt:false,own_hand:false}})
   const verified=f.service.validateQuote({token:result.quotes[0].token,items:[{product_id:11,variant_id:21,quantity:2}],postal_code,products:[p]})
   assert.equal(verified.price,21.35)
