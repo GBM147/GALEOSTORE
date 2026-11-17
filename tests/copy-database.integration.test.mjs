@@ -86,7 +86,7 @@ test('copia o schema real da loja e os dados para o TiDB, conferindo linha por l
   assert.ok(!lines.some(line => line.includes('ação') || line.includes('Camisetas')), 'a saída não mostra dados')
 
   await target.query('USE ' + TARGET_DB)
-  const [[row]] = await target.query("SELECT price, big, flag, status, DATE_FORMAT(happened,'%Y-%m-%d %H:%i:%s.%f') AS happened, day, note, HEX(raw) AS raw, JSON_EXTRACT(content,'$.a[1]') AS c FROM copy_types WHERE id=1000000020")
+  const [[row]] = await target.query("SELECT price, CAST(big AS CHAR) AS big, flag, status, DATE_FORMAT(happened,'%Y-%m-%d %H:%i:%s.%f') AS happened, day, note, HEX(raw) AS raw, JSON_EXTRACT(content,'$.a[1]') AS c FROM copy_types WHERE id=1000000020")
   assert.equal(String(row.price), '1234.50')
   assert.equal(String(row.big), '9007199254740993')
   assert.equal(Number(row.flag), 1)
@@ -94,7 +94,7 @@ test('copia o schema real da loja e os dados para o TiDB, conferindo linha por l
   assert.equal(row.happened, '2026-11-16 18:03:59.123000')
   assert.equal(row.note, 'Camiseta 👕 ação')
   assert.equal(row.raw, '00FF10')
-  assert.equal(String(row.c), '"ç"')
+  assert.equal(row.c, 'ç')
   const [[owner]] = await target.query("SELECT COUNT(*) AS n FROM admin_users WHERE role='owner'")
   assert.equal(Number(owner.n), 1)
 })
