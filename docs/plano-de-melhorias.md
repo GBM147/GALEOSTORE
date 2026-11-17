@@ -49,6 +49,17 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   a um advogado que revise os textos** antes de divulgar; mudanças nos textos ficam em
   `src/legal/documents.js` e pedem uma nova `LEGAL_VERSION` (`src/legal/pages.js`).
   Definir também o prazo de postagem depois do pagamento, para incluir em Entregas.
+- [x] **Conta do cliente: senha esquecida, troca de senha e exclusão** (Técnico, 17/11):
+  em **Minha conta**, sem tabela nova no banco.
+  - **Esqueci minha senha:** a resposta é a mesma para qualquer e-mail. O link
+    (`/conta#redefinir=…`) vale cerca de 1 hora, funciona uma vez só e confirma o
+    e-mail. Sai no máximo um e-mail a cada 10 minutos por conta.
+  - **Alterar senha**, com a senha atual. As outras sessões da conta caem.
+  - **Excluir minha conta**, com a senha e uma confirmação marcada. Fica bloqueada
+    enquanto houver um pedido pago em andamento. O cadastro é anonimizado, a
+    newsletter é cancelada e os pedidos ficam guardados, como diz a Privacidade.
+  - Avisos por e-mail de senha alterada e de conta excluída. Código em
+    `server/customer-account.js` e `src/AccountPage.jsx`; testes no MySQL e no TiDB.
 - [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, no ar desde 16/11.
 - [ ] **Produtos e categorias de teste na vitrine** (Donos): a produção mostra os produtos "teste" e "teste2" (R$ 50, sem categoria e sem foto) e a categoria "Nova categoria". Remover ou substituir antes de divulgar.
 - [ ] **Conteúdo da Home** (Donos): campanhas e categorias no CMS estão sem

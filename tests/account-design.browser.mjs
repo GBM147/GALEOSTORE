@@ -51,7 +51,7 @@ test('conta mostra os pedidos primeiro, com selo de pagamento e botão compacto'
   await heading.waitFor()
   assert.ok(await heading.evaluate(node => parseFloat(getComputedStyle(node).fontSize)) < 48)
   await page.locator('.account-heading').getByRole('button', { name:'Sair da conta', exact:true }).waitFor()
-  assert.equal(await page.locator('.account-orders-card + .account-profile-card').count(), 1, 'Perfil vem depois dos pedidos')
+  assert.equal(await page.locator('.account-orders-card + .account-side > .account-profile-card:first-child').count(), 1, 'Perfil vem depois dos pedidos')
   const payments = page.locator('.account-payment')
   assert.deepEqual(await payments.allTextContents(), ['Pagamento: Aguardando pagamento', 'Pagamento: Aprovado'])
   assert.deepEqual(await payments.evaluateAll(nodes => nodes.map(node => node.dataset.status)), ['PENDING', 'APPROVED'])

@@ -40,6 +40,8 @@ import { businessMonthStart, registerExpenseManagement } from './expense-managem
 import { createBackgroundTasks } from './background-tasks.js'
 import { MySqlRateLimitStore, RATE_LIMIT_DDL, pruneRateLimits } from './mysql-rate-limit-store.js'
 import { validateRuntimeSchema } from './runtime-schema.js'
+import { createResetToken, parseResetToken, passwordMark, removedCustomerEmail, resetLink, resetWindow, verifyResetToken } from './customer-account.js'
+import { emailButton } from './email-layout.js'
 import { createMelhorEnvio, ensureMelhorEnvioSchema, MelhorEnvioError } from './melhor-envio.js'
 import { createDirectUploads, getVerifiedDirectAsset } from './direct-uploads.js'
 import { registerPostalCodeLookup } from './postal-codes.js'
@@ -259,6 +261,8 @@ const limitarCotacaoFrete = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 3
 const limitarConsultaCep = criarLimitador({ janelaMs: 60 * 1000, maximo: 30, prefixo: 'postal-code-lookup' })
 const limitarPagamento = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 20, prefixo: 'online-payment-attempts' })
 const limitarStatusPagamento = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 180, prefixo: 'online-payment-status' })
+const limitarRecuperacaoSenha = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 5, prefixo: 'customer-password-reset' })
+const limitarRedefinicaoSenha = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-password-reset-confirm' })
 
 const Store = MySQLStoreFactory(session)
 // Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
@@ -823,7 +827,7 @@ function validarCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
   // Anonymous quotations are read-only, rate-limited and never buy labels.
   if (req.path === '/api/store/shipping/quotes') return next()
-  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/customer/verify-email' || req.path === '/api/customer/resend-verification' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
+  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/customer/verify-email' || req.path === '/api/customer/resend-verification' || req.path === '/api/customer/password-reset' || req.path === '/api/customer/password-reset/confirm' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
 
   const expected = String(req.session.csrfToken || '')
   const provided = String(req.get('X-CSRF-Token') || '')
@@ -1147,14 +1151,31 @@ const paymentReservationExpiry = createPaymentReservationExpiry({
   getProviderOrder: getMercadoPagoOrder, processProviderOrder: processarNotificacaoMercadoPago
 })
 
+// Sessions carry a mark of the password hash. After a password change or reset,
+// every other session of that customer stops matching and is signed out.
+async function sessaoClienteValida(req, passwordHash) {
+  const mark = passwordMark(passwordHash, process.env.SESSION_SECRET)
+  // Sessions opened before the mark existed get it once, then follow the same rule.
+  if (!req.session.customerMark) { req.session.customerMark = mark; await salvarSessao(req); return true }
+  if (req.session.customerMark === mark) return true
+  delete req.session.customerId
+  delete req.session.customerMark
+  if (!req.session.userId) delete req.session.csrfToken
+  await salvarSessao(req)
+  return false
+}
+
 async function exigirCliente(req,res,next) {
   if (!req.session.customerId) return res.status(401).json({ success:false,authenticated:false,error:'Faça login para continuar.' })
   try {
-    const rows=await query('SELECT id,name,email,phone,active,created_at,email_verified_at,private_data FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
+    const rows=await query('SELECT id,name,email,phone,active,created_at,email_verified_at,password_hash,private_data FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
     if (!rows.length || !rows[0].active) {
       delete req.session.customerId
       return res.status(401).json({ success:false,authenticated:false,error:'Esta conta não está disponível.' })
     }
+    const { password_hash: passwordHash, ...customerRow } = rows[0]
+    rows[0] = customerRow
+    if (!(await sessaoClienteValida(req, passwordHash))) return res.status(401).json({ success:false,authenticated:false,code:'SESSION_PASSWORD_CHANGED',error:'Sua senha foi alterada. Entre novamente.' })
     if (!rows[0].email_verified_at) {
       delete req.session.customerId
       if (!req.session.userId) delete req.session.csrfToken
@@ -1550,6 +1571,75 @@ app.post('/api/customer/verify-email', limitarConfirmacaoEmail, async (req,res) 
   }
 })
 
+// Self-service password reset. The answer never says whether the e-mail exists,
+// and the link is signed over the current password hash, so it works only once.
+const respostaRecuperacao = { success:true, message:'Se houver uma conta com este e-mail, enviamos um link para criar uma nova senha. Ele vale por 1 hora. Confira também a pasta de spam.' }
+const avisoSenhaAlterada = (to, id, key) => sendEmailSafely({
+  to, subject:'Sua senha da GALEO STORE foi alterada', idempotencyKey:'customer-password-changed-' + id + '-' + key,
+  preheader:'Se não foi você, fale com a loja respondendo este e-mail.',
+  text:'A senha da sua conta na GALEO STORE foi alterada agora. As sessões abertas em outros aparelhos foram encerradas.\n\nSe não foi você, responda este e-mail para falar com a loja.',
+  html:'<h1 style="font-size:22px;margin:0 0 12px;">Sua senha foi alterada</h1><p>A senha da sua conta na GALEO STORE foi alterada agora. As sessões abertas em outros aparelhos foram encerradas.</p><p>Se não foi você, responda este e-mail para falar com a loja.</p>'
+})
+
+app.post('/api/customer/password-reset', limitarRecuperacaoSenha, async (req,res) => {
+  const email=String(req.body?.email || '').trim().toLowerCase()
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length>255) return res.status(202).json(respostaRecuperacao)
+  try {
+    const rows=await query('SELECT id,name,email,password_hash,active,private_data FROM customers WHERE email=? LIMIT 1',[privacy.emailForLookup('customers', email)])
+    const customer=rows[0] || null
+    if (customer?.active && customer.email) {
+      const token=createResetToken({ customerId:customer.id, passwordHash:customer.password_hash, email:customer.email, secret:process.env.SESSION_SECRET, ...resetWindow() })
+      const link=resetLink(appUrl, token)
+      await sendEmailSafely({
+        to:customer.email, subject:'Crie uma nova senha na GALEO STORE', idempotencyKey:'customer-reset-' + customer.id + '-' + token.split('.')[2].slice(0, 32),
+        preheader:'Use o link em até 1 hora para criar uma nova senha.',
+        text:'Recebemos um pedido para criar uma nova senha na sua conta da GALEO STORE. Abra o link abaixo em até 1 hora:\n' + link + '\n\nSe não foi você, ignore este e-mail: sua senha atual continua valendo.',
+        html:'<h1 style="font-size:22px;margin:0 0 12px;">Crie uma nova senha</h1><p>Recebemos um pedido para criar uma nova senha na sua conta da GALEO STORE.</p>' +
+          emailButton(link, 'Criar nova senha') +
+          '<p style="font-size:13px;color:#6d655c;">O link vale por 1 hora e funciona uma vez só. Se não foi você, ignore este e-mail: sua senha atual continua valendo.</p>'
+      })
+    }
+  } catch(error) {
+    console.error('Erro ao pedir nova senha:', error?.code || 'INTERNAL_ERROR')
+  }
+  return res.status(202).json(respostaRecuperacao)
+})
+
+app.post('/api/customer/password-reset/confirm', limitarRedefinicaoSenha, async (req,res) => {
+  const token=String(req.body?.token || '')
+  const password=String(req.body?.password || '')
+  const linkInvalido={ success:false, code:'RESET_LINK_INVALID', error:'Este link é inválido, expirou ou já foi usado. Peça um novo link.' }
+  const passwordError=newPasswordError(password)
+  if (passwordError) return res.status(400).json({ success:false, error:passwordError })
+  const parsed=parseResetToken(token)
+  if (!parsed) return res.status(400).json(linkInvalido)
+  const conn=await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows]=await conn.execute('SELECT id,name,email,password_hash,active,private_data FROM customers WHERE id=? LIMIT 1 FOR UPDATE',[parsed.customerId])
+    const customer=rows[0] ? privacy.decodeRow('customers', rows[0]) : null
+    if (!customer?.active || !verifyResetToken(token, { passwordHash:customer.password_hash, email:customer.email, secret:process.env.SESSION_SECRET })) {
+      await conn.rollback()
+      return res.status(400).json(linkInvalido)
+    }
+    if (await bcrypt.compare(password, customer.password_hash)) {
+      await conn.rollback()
+      return res.status(400).json({ success:false, error:'A nova senha deve ser diferente da atual.' })
+    }
+    const passwordHash=await bcrypt.hash(password,12)
+    // Opening the link proves control of the e-mail, so it also confirms it.
+    await conn.execute('UPDATE customers SET password_hash=?,email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?',[passwordHash,customer.id])
+    await conn.execute('DELETE FROM customer_email_verifications WHERE customer_id=?',[customer.id])
+    await conn.commit()
+    await avisoSenhaAlterada(customer.email, customer.id, parsed.signature.slice(0, 24))
+    return res.json({ success:true, message:'Nova senha criada. Entre com ela para acessar a conta.' })
+  } catch(error) {
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao criar nova senha:', error?.code || 'INTERNAL_ERROR')
+    return res.status(500).json({ success:false, error:'Não foi possível criar a nova senha. Tente novamente.' })
+  } finally { conn.release() }
+})
+
 app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
   const email=String(req.body?.email || '').trim().toLowerCase()
   const password=String(req.body?.password || '')
@@ -1560,6 +1650,7 @@ app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
     if (!rows[0].email_verified_at) return res.status(403).json({...verificationRequired,email:rows[0].email})
     await renovarSessao(req)
     req.session.customerId=rows[0].id
+    req.session.customerMark=passwordMark(rows[0].password_hash, process.env.SESSION_SECRET)
     req.session.csrfToken=randomBytes(32).toString('hex')
     configurarPersistenciaSessao(req.session, true)
     await salvarSessao(req)
@@ -1573,8 +1664,9 @@ app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
 app.get('/api/customer/me', async (req,res) => {
   if(!req.session.customerId) return res.status(401).json({success:false,authenticated:false,error:'Não autenticado.'})
   try {
-    const rows=await query('SELECT id,name,email,phone,created_at,active,email_verified_at,private_data FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
+    const rows=await query('SELECT id,name,email,phone,created_at,active,email_verified_at,password_hash,private_data FROM customers WHERE id=? LIMIT 1',[req.session.customerId])
     if(!rows.length||!rows[0].active) return res.status(401).json({success:false,authenticated:false,error:'Não autenticado.'})
+    if (!(await sessaoClienteValida(req, rows[0].password_hash))) return res.status(401).json({success:false,authenticated:false,code:'SESSION_PASSWORD_CHANGED',error:'Sua senha foi alterada. Entre novamente.'})
     if (!rows[0].email_verified_at) {
       delete req.session.customerId
       if (!req.session.userId) delete req.session.csrfToken
@@ -1592,6 +1684,7 @@ app.get('/api/customer/me', async (req,res) => {
 
 app.post('/api/customer/logout', exigirCliente, async (req,res) => {
   delete req.session.customerId
+  delete req.session.customerMark
   req.session.csrfToken=randomBytes(32).toString('hex')
   await salvarSessao(req)
   res.json({success:true})
@@ -1613,6 +1706,79 @@ app.put('/api/customer/profile', exigirCliente, async (req,res) => {
     console.error('Erro ao atualizar cliente:',error?.code || 'INTERNAL_ERROR')
     res.status(500).json({error:'Não foi possível atualizar seus dados.'})
   } finally { connection.release() }
+})
+
+app.put('/api/customer/password', exigirCliente, limitarAlteracaoSenha, async (req,res) => {
+  const currentPassword=String(req.body?.currentPassword || '')
+  const newPassword=String(req.body?.newPassword || '')
+  if (!currentPassword || !newPassword) return res.status(400).json({ success:false, error:'Informe a senha atual e a nova senha.' })
+  const passwordError=newPasswordError(newPassword)
+  if (passwordError) return res.status(400).json({ success:false, error:passwordError })
+  if (currentPassword === newPassword) return res.status(400).json({ success:false, error:'A nova senha deve ser diferente da atual.' })
+  try {
+    const rows=await query('SELECT password_hash FROM customers WHERE id=? AND active=1 LIMIT 1',[req.customer.id])
+    // 400, not 401: a wrong current password must not sign the customer out.
+    if (!rows.length || !(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
+      return res.status(400).json({ success:false, code:'CURRENT_PASSWORD_INVALID', error:'A senha atual está incorreta.' })
+    }
+    const passwordHash=await bcrypt.hash(newPassword,12)
+    await query('UPDATE customers SET password_hash=? WHERE id=?',[passwordHash,req.customer.id])
+    // This session stays signed in; every other one no longer matches the mark.
+    req.session.customerMark=passwordMark(passwordHash, process.env.SESSION_SECRET)
+    await salvarSessao(req)
+    await avisoSenhaAlterada(req.customer.email, req.customer.id, passwordMark(passwordHash, process.env.SESSION_SECRET).slice(0, 24))
+    res.json({ success:true, message:'Senha alterada. As sessões em outros aparelhos foram encerradas.' })
+  } catch(error) {
+    console.error('Erro ao alterar senha do cliente:', error?.code || 'INTERNAL_ERROR')
+    res.status(500).json({ success:false, error:'Não foi possível alterar a senha.' })
+  }
+})
+
+// Account deletion (LGPD): personal data is anonymized; orders stay for the legal
+// retention period, as the Privacy Policy states. A paid order still in progress
+// blocks the deletion until it is delivered or cancelled.
+app.delete('/api/customer/account', exigirCliente, limitarAlteracaoSenha, async (req,res) => {
+  const password=String(req.body?.password || '')
+  if (req.body?.confirm !== true || !password) return res.status(400).json({ success:false, error:'Confirme a exclusão e informe sua senha.' })
+  const conn=await db.getConnection()
+  let email=''
+  try {
+    await conn.beginTransaction()
+    const [rows]=await conn.execute('SELECT id,name,email,password_hash,active,private_data FROM customers WHERE id=? LIMIT 1 FOR UPDATE',[req.customer.id])
+    const customer=rows[0] ? privacy.decodeRow('customers', rows[0]) : null
+    if (!customer?.active || !(await bcrypt.compare(password, customer.password_hash))) {
+      await conn.rollback()
+      return res.status(400).json({ success:false, code:'CURRENT_PASSWORD_INVALID', error:'A senha está incorreta.' })
+    }
+    const [open]=await conn.execute("SELECT COUNT(*) AS total FROM store_orders WHERE customer_id=? AND payment_status='APPROVED' AND status NOT IN ('DELIVERED','CANCELLED')",[customer.id])
+    if (Number(open[0]?.total) > 0) {
+      await conn.rollback()
+      return res.status(409).json({ success:false, code:'ACCOUNT_HAS_OPEN_ORDERS', error:'Você tem um pedido pago em andamento. Quando ele for entregue ou cancelado, você poderá excluir a conta. Se precisar, fale com a loja.' })
+    }
+    email=customer.email
+    await privacy.updateFields('customers', customer.id, { name:'Cliente removido', email:removedCustomerEmail(customer.id), phone:'' }, conn)
+    const unusable=await bcrypt.hash(randomBytes(32).toString('hex'),12)
+    await conn.execute('UPDATE customers SET password_hash=?,active=0,email_verified_at=NULL WHERE id=?',[unusable,customer.id])
+    await conn.execute('DELETE FROM customer_email_verifications WHERE customer_id=?',[customer.id])
+    await audit(null,'EXCLUIR_CONTA','cliente',customer.id,null,conn)
+    await conn.commit()
+  } catch(error) {
+    await conn.rollback().catch(() => {})
+    console.error('Erro ao excluir conta do cliente:', error?.code || 'INTERNAL_ERROR')
+    return res.status(500).json({ success:false, error:'Não foi possível excluir a conta. Tente novamente.' })
+  } finally { conn.release() }
+  try { await newsletter.forget(email) } catch(error) { console.error('Erro ao remover inscrição da newsletter:', error?.code || 'INTERNAL_ERROR') }
+  await sendEmailSafely({
+    to:email, subject:'Sua conta na GALEO STORE foi excluída', idempotencyKey:'customer-deleted-' + req.customer.id,
+    preheader:'Seus dados pessoais foram removidos da loja.',
+    text:'Sua conta na GALEO STORE foi excluída e seus dados pessoais foram removidos. Os pedidos já feitos ficam guardados pelo prazo exigido por lei.\n\nSe não foi você, responda este e-mail.',
+    html:'<h1 style="font-size:22px;margin:0 0 12px;">Sua conta foi excluída</h1><p>Sua conta na GALEO STORE foi excluída e seus dados pessoais foram removidos. Os pedidos já feitos ficam guardados pelo prazo exigido por lei.</p><p>Se não foi você, responda este e-mail.</p>'
+  })
+  delete req.session.customerId
+  delete req.session.customerMark
+  if (!req.session.userId) req.session.csrfToken=randomBytes(32).toString('hex')
+  await salvarSessao(req)
+  res.json({ success:true, authenticated:false, message:'Sua conta foi excluída e seus dados pessoais foram removidos. Enviamos uma confirmação para o seu e-mail.' })
 })
 
 app.get('/api/customer/orders', exigirCliente, async (req,res) => {

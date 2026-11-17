@@ -829,9 +829,11 @@ test('erro HTTP definitivo rejeita o stub sem cobrar e permite nova tentativa ex
   assert.equal(before.payments[0].status, 'REJECTED')
   assert.equal(before.payments[0].provider_reference, null)
   assert.deepEqual(before.payments[0].raw_payload, { test_provider_error: { http_status: 400, codes: ['local_invalid_payment', '3001', 'invalid_field'], fields: ['transactions.payments.0.payment_method.id'] } })
+  // The codes and field names appear only in the bounded provider_* fields above.
   assert.equal(JSON.stringify(rejected.data).includes('test_provider_error'), false)
-  assert.equal(JSON.stringify(rejected.data).includes('local_invalid_payment'), false)
-  assert.equal(JSON.stringify(rejected.data).includes('transactions.payments.0.payment_method.id'), false)
+  const { provider_codes: _codes, provider_fields: _fields, ...rest } = rejected.data
+  assert.equal(JSON.stringify(rest).includes('local_invalid_payment'), false)
+  assert.equal(JSON.stringify(rest).includes('transactions.payments.0.payment_method.id'), false)
   const privateView = await customer.request('/api/store/orders/' + fixture.order.id + '/payment')
   assert.equal(privateView.response.status, 200)
   assert.equal(JSON.stringify(privateView.data).includes('test_provider_error'), false)

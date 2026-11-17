@@ -196,7 +196,16 @@ export function createNewsletter({ db, emailService, appUrl, protection = null }
     } finally { conn.release() }
   }
 
-  return { initialize, initializeReadOnly, subscribe, confirm: token => consume(token), unsubscribe: token => consume(token, true), status: () => ({ available: ready() }) }
+  // Account deletion removes any subscription made with the same e-mail.
+  async function forget(input) {
+    let email
+    try { email = normalizeEmail(input) } catch { return { removed: 0 } }
+    if (!validEmail(email)) return { removed: 0 }
+    const [result] = await db.execute('DELETE FROM newsletter_subscriptions WHERE email_lookup=?', [protectedEmail(email)])
+    return { removed: Number(result?.affectedRows) || 0 }
+  }
+
+  return { initialize, initializeReadOnly, subscribe, forget, confirm: token => consume(token), unsubscribe: token => consume(token, true), status: () => ({ available: ready() }) }
 }
 
 export function registerNewsletter(app, { newsletter, createRateLimitStore = () => undefined }) {

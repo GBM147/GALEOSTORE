@@ -23,7 +23,7 @@
 
 /* Layout and cards */
 .app main .account-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: clamp(20px, 3vw, 32px); margin-top: 0; }
-.app main :is(.account-orders-card, .account-profile-card) { padding: clamp(18px, 2.4vw, 24px); border-radius: 16px; }
+.app main :is(.account-orders-card, .account-profile-card, .account-side-card) { padding: clamp(18px, 2.4vw, 24px); border-radius: 16px; }
 .app main .account-profile-card { position: sticky; top: 96px; }
 .app main .account-card-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0; padding: 0 0 14px; border: 0; }
 .app main .account-card-heading h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: normal; }
@@ -64,8 +64,32 @@
 .app main .account-orders-card .empty-catalog h3 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
 
 /* Profile */
-.app main .account-profile-card .account-form { gap: 16px; padding: 0; }
+.app main :is(.account-profile-card, .account-side-card) .account-form { gap: 16px; padding: 0; }
 .app main .account-form .button { justify-content: center; border-radius: 10px; font-weight: 800; }
+
+/* Side column: profile, password change and account deletion, stacked. */
+.app main .account-side { display: grid; gap: clamp(16px, 2vw, 20px); align-content: start; min-width: 0; }
+.app main .account-side .account-profile-card { position: static; }
+.app main .account-side-card { min-width: 0; border: 1px solid var(--line); background: var(--surface); }
+.app main .account-delete-card > p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.app main .account-delete-card > p a { color: var(--text); text-decoration: underline; }
+.app main :is(.account-delete-open, .account-form .account-delete-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #e0705a;
+  border-radius: 10px;
+  background: transparent;
+  color: #e0705a;
+  font-weight: 800;
+}
+.app main .account-form .account-delete-button { border-color: #b3412b; background: #b3412b; color: #fff; }
+:root[data-theme="light"] .app main .account-delete-open { border-color: #b3412b; color: #b3412b; }
+.app main .account-form .text-button { display: inline-flex; align-items: center; min-height: 40px; }
+.app main .account-form .account-forgot { justify-self: end; margin: -14px 0 -8px; }
+.app main .account-hint { margin: 0; color: var(--muted); font-size: 12px; }
 
 /* Signed out: centered heading, a rounded card and Entrar/Criar conta as a
    segmented control. */

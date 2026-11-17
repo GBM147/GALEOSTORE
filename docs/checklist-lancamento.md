@@ -76,6 +76,9 @@ controle da loja; pode ser um domínio que os donos já possuam.
 ## Trabalho técnico que fica conosco
 
 - Comprovar com os donos que o e-mail de confirmação chega no site novo (16/11).
+- Em 17/11, **Minha conta** ganhou "Esqueci minha senha", "Alterar senha" e "Excluir
+  minha conta". Falta conferir na produção: pedir o link com um e-mail real, criar a
+  senha nova e entrar; excluir uma conta de teste.
 - O banco passou do Aiven grátis (desligado em 21/12/2026) para o TiDB Cloud
   Starter em 17/11, sem perda de dados, conforme [a hospedagem](hospedagem-netlify.md).
   Depois de uns dias estável, apagar o projeto `galeo-tarefas` e o serviço no Aiven.

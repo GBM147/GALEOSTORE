@@ -8,17 +8,36 @@ const dateTime = (value) => value ? new Date(value).toLocaleString('pt-BR', { da
 const money = (value) => Number(value || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' })
 const paymentLabels = { PENDING:'Aguardando pagamento', APPROVED:'Aprovado', REJECTED:'Recusado', CANCELLED:'Cancelado', REFUNDED:'Estornado' }
 const verificationTokenFromHash = (hash) => /^#verify=([a-f0-9]{64})$/i.exec(hash)?.[1] || ''
+const resetTokenFromHash = (hash) => /^#redefinir=(\d{1,12}\.\d{10}\.[A-Za-z0-9_-]{43})$/.exec(hash)?.[1] || ''
+// E-mail links open the page with #verify= (confirm e-mail) or #redefinir= (new password).
+const linkMode = (hash) => hash.startsWith('#verify=') ? 'verify' : hash.startsWith('#redefinir=') ? 'reset' : ''
+const authTitles = { login:'Entre na sua conta', register:'Crie sua conta', forgot:'Recuperar senha', reset:'Crie uma nova senha' }
+const authSubtitles = {
+  verify:'Digite sua senha para confirmar que este e-mail é seu',
+  pending:'Abra o link enviado para seu e-mail antes de acessar a conta',
+  forgot:'Enviaremos um link para o e-mail da sua conta',
+  reset:'Escolha uma senha nova para entrar na sua conta'
+}
+const emptyPasswordForm = { current:'', next:'', confirm:'' }
+const closedDeleteForm = { open:false, password:'', confirm:false }
 
 export default function AccountPage() {
   usePageMeta('Minha conta')
   const location = useLocation()
   const navigate = useNavigate()
   const returnTo = new URLSearchParams(location.search).get('return') || '/'
-  const verificationLink = useRef(location.hash.startsWith('#verify='))
+  const verificationLink = useRef(Boolean(linkMode(location.hash)))
   const [user, setUser] = useState(null)
   const [orders, setOrders] = useState([])
-  const [mode, setMode] = useState(verificationLink.current ? 'verify' : 'login')
+  const [mode, setMode] = useState(() => linkMode(location.hash) || 'login')
   const [verificationToken, setVerificationToken] = useState(() => verificationTokenFromHash(location.hash))
+  const [resetToken, setResetToken] = useState(() => resetTokenFromHash(location.hash))
+  const [resetForm, setResetForm] = useState({ password:'', passwordConfirm:'' })
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [passwordForm, setPasswordForm] = useState(emptyPasswordForm)
+  const [passwordStatus, setPasswordStatus] = useState({ error:'', success:'' })
+  const [deleteForm, setDeleteForm] = useState(closedDeleteForm)
+  const [deleteError, setDeleteError] = useState('')
   const [verificationPassword, setVerificationPassword] = useState('')
   const [verificationEmail, setVerificationEmail] = useState('')
   const [resendPassword, setResendPassword] = useState('')
@@ -39,10 +58,14 @@ export default function AccountPage() {
     setRegisterForm((form) => ({ ...form, password:'', passwordConfirm:'' }))
     setVerificationPassword('')
     setResendPassword('')
+    setResetForm({ password:'', passwordConfirm:'' })
+    setPasswordForm(emptyPasswordForm)
+    setDeleteForm(closedDeleteForm)
   }
 
   function chooseMode(nextMode) {
-    clearPasswords(); setError(''); setSuccess(''); setVerificationToken('')
+    clearPasswords(); setError(''); setSuccess(''); setVerificationToken(''); setResetToken('')
+    setPasswordStatus({ error:'', success:'' }); setDeleteError('')
     if (nextMode === 'register') {
       setRegistrationStatus('checking')
       setRegistrationCheck((attempt) => attempt + 1)
@@ -60,13 +83,20 @@ export default function AccountPage() {
   }
 
   useEffect(() => {
-    if (!location.hash.startsWith('#verify=')) return
-    const token = verificationTokenFromHash(location.hash)
+    const flow = linkMode(location.hash)
+    if (!flow) return
+    const token = flow === 'verify' ? verificationTokenFromHash(location.hash) : resetTokenFromHash(location.hash)
     verificationLink.current = true
+    // The token leaves the address bar (and the browser history) right away.
     window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
-    setUser(null); setOrders([]); clearPasswords(); setSuccess(''); setMode('verify')
-    setVerificationToken(token)
-    setError(token ? '' : 'Este link de confirmação é inválido. Solicite um novo e-mail.')
+    setUser(null); setOrders([]); clearPasswords(); setSuccess(''); setMode(flow)
+    if (flow === 'verify') {
+      setVerificationToken(token)
+      setError(token ? '' : 'Este link de confirmação é inválido. Solicite um novo e-mail.')
+    } else {
+      setResetToken(token)
+      setError(token ? '' : 'Este link para criar uma nova senha é inválido. Peça um novo link.')
+    }
   }, [location.hash])
 
   useEffect(() => {
@@ -98,7 +128,7 @@ export default function AccountPage() {
     } catch (err) {
       if (verificationLink.current) return
       if (err.code === 'EMAIL_VERIFICATION_REQUIRED') showVerification(err.data?.email, err.message)
-      else if (err.status === 401) { setUser(null); setOrders([]) }
+      else if (err.status === 401) { setUser(null); setOrders([]); if (err.code === 'SESSION_PASSWORD_CHANGED') setError(err.message) }
       else setError(err.message)
     }
   }
@@ -164,6 +194,71 @@ export default function AccountPage() {
     } finally { setVerificationPassword(''); setSaving(false) }
   }
 
+  async function requestReset(event) {
+    event.preventDefault()
+    if (resendCooldown || saving) return
+    setSaving(true); setError(''); setSuccess('')
+    try {
+      const data = await customerApi('/api/customer/password-reset', { method:'POST', body:{ email:forgotEmail } })
+      setSuccess(data?.message || 'Se houver uma conta com este e-mail, enviamos um link para criar uma nova senha. Confira também a pasta de spam.')
+      setResendCooldown(60)
+    } catch (err) {
+      setError(err.message)
+      if (err.retryAfter) setResendCooldown(Math.ceil(err.retryAfter))
+    } finally { setSaving(false) }
+  }
+
+  async function confirmReset(event) {
+    event.preventDefault()
+    if (!resetToken || saving) return
+    if (resetForm.password !== resetForm.passwordConfirm) { setError('As senhas não coincidem'); return }
+    setSaving(true); setError(''); setSuccess('')
+    try {
+      const data = await customerApi('/api/customer/password-reset/confirm', { method:'POST', body:{ token:resetToken, password:resetForm.password } })
+      chooseMode('login')
+      setSuccess(data?.message || 'Nova senha criada. Entre com ela para acessar a conta.')
+    } catch (err) {
+      setError(err.message)
+      if (err.code === 'RESET_LINK_INVALID') setResetToken('')
+    } finally { setResetForm({ password:'', passwordConfirm:'' }); setSaving(false) }
+  }
+
+  function endSession(message = 'Sua sessão terminou. Entre novamente.') {
+    chooseMode('login'); setUser(null); setOrders([]); setError(message)
+  }
+
+  async function changePassword(event) {
+    event.preventDefault()
+    if (saving) return
+    if (passwordForm.next !== passwordForm.confirm) { setPasswordStatus({ error:'As senhas novas não coincidem', success:'' }); return }
+    setSaving(true); setPasswordStatus({ error:'', success:'' })
+    try {
+      const data = await customerApi('/api/customer/password', { method:'PUT', body:{ currentPassword:passwordForm.current, newPassword:passwordForm.next } })
+      setPasswordStatus({ error:'', success:data?.message || 'Senha alterada.' })
+    } catch (err) {
+      if (err.code === 'EMAIL_VERIFICATION_REQUIRED') showVerification(err.data?.email || user?.email, err.message)
+      else if (err.status === 401) endSession(err.code === 'SESSION_PASSWORD_CHANGED' ? err.message : undefined)
+      else setPasswordStatus({ error:err.message, success:'' })
+    } finally { setPasswordForm(emptyPasswordForm); setSaving(false) }
+  }
+
+  async function deleteAccount(event) {
+    event.preventDefault()
+    if (saving) return
+    if (!deleteForm.confirm) { setDeleteError('Marque a confirmação para excluir a conta.'); return }
+    setSaving(true); setDeleteError('')
+    try {
+      const data = await customerApi('/api/customer/account', { method:'DELETE', body:{ password:deleteForm.password, confirm:true } })
+      chooseMode('login'); setUser(null); setOrders([])
+      setLoginForm({ email:'', password:'' })
+      setSuccess(data?.message || 'Sua conta foi excluída.')
+    } catch (err) {
+      if (err.code === 'EMAIL_VERIFICATION_REQUIRED') showVerification(err.data?.email || user?.email, err.message)
+      else if (err.status === 401) endSession(err.code === 'SESSION_PASSWORD_CHANGED' ? err.message : undefined)
+      else { setDeleteError(err.message); setDeleteForm((form) => ({ ...form, password:'' })) }
+    } finally { setSaving(false) }
+  }
+
   async function saveProfile(event) {
     event.preventDefault(); setSaving(true); setError(''); setSuccess('')
     try {
@@ -186,17 +281,39 @@ export default function AccountPage() {
   if (!user) {
     return (
       <main className="section-shell account-page page-space">
-        <div className="page-heading account-auth-heading"><span className="section-eyebrow">Minha conta</span><h1>{mode === 'login' ? 'Entre na sua conta' : mode === 'register' ? 'Crie sua conta' : 'Confirme seu e-mail'}</h1><p>{mode === 'verify' ? 'Digite sua senha para confirmar que este e-mail é seu' : mode === 'pending' ? 'Abra o link enviado para seu e-mail antes de acessar a conta' : 'Guarde seus dados e acompanhe seus pedidos em um só lugar'}</p></div>
+        <div className="page-heading account-auth-heading"><span className="section-eyebrow">Minha conta</span><h1>{authTitles[mode] || 'Confirme seu e-mail'}</h1><p>{authSubtitles[mode] || 'Guarde seus dados e acompanhe seus pedidos em um só lugar'}</p></div>
         <div className="account-auth">
           <div className="account-auth-tabs"><button className={mode==='login'?'active':''} type="button" aria-pressed={mode==='login'} disabled={saving} onClick={() => chooseMode('login')}>Entrar</button><button className={mode==='register'?'active':''} type="button" aria-pressed={mode==='register'} disabled={saving} onClick={() => chooseMode('register')}>Criar conta</button></div>
           {mode === 'login' ? (
             <form className="account-form" onSubmit={login}>
               <label>E-mail<input type="email" autoComplete="email" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm,email:e.target.value})} required /></label>
               <label>Senha<input type="password" autoComplete="current-password" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm,password:e.target.value})} required /></label>
+              <button className="text-button account-forgot" type="button" disabled={saving} onClick={() => { const email = loginForm.email; chooseMode('forgot'); setForgotEmail(email) }}>Esqueci minha senha</button>
               {error && <p className="form-error">{error}</p>}
               {success && <p className="form-success" role="status">{success}</p>}
               <button className="button button-primary" disabled={saving}>{saving ? 'Entrando…' : 'Entrar ↗'}</button>
               <Link className="text-link" to="/">Continuar navegando ↗</Link>
+            </form>
+          ) : mode === 'forgot' ? (
+            <form className="account-form" onSubmit={requestReset}>
+              <p>Informe o e-mail da sua conta. Se ele estiver cadastrado, você recebe um link para criar uma nova senha.</p>
+              <label>E-mail<input type="email" autoComplete="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required /></label>
+              {error && <p className="form-error" role="alert">{error}</p>}
+              {success && <p className="form-success" role="status">{success}</p>}
+              <button className="button button-primary" disabled={saving || resendCooldown > 0}>{saving ? 'Enviando…' : resendCooldown > 0 ? `Enviar de novo em ${resendCooldown}s` : 'Enviar link ↗'}</button>
+              <button className="text-button" type="button" disabled={saving} onClick={() => chooseMode('login')}>Voltar para Entrar</button>
+            </form>
+          ) : mode === 'reset' ? (
+            <form className="account-form" onSubmit={confirmReset}>
+              {resetToken && <>
+                <label>Nova senha<input type="password" autoComplete="new-password" minLength="10" maxLength="72" value={resetForm.password} onChange={(e) => setResetForm({...resetForm,password:e.target.value})} required /></label>
+                <label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength="10" maxLength="72" value={resetForm.passwordConfirm} onChange={(e) => setResetForm({...resetForm,passwordConfirm:e.target.value})} required /></label>
+                <p className="account-hint">Use pelo menos 10 caracteres.</p>
+              </>}
+              {error && <p className="form-error" role="alert">{error}</p>}
+              {resetToken
+                ? <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar nova senha ↗'}</button>
+                : <button className="button button-primary" type="button" onClick={() => chooseMode('forgot')}>Pedir novo link ↗</button>}
             </form>
           ) : mode === 'register' && registrationStatus !== 'available' ? (
             <div className="account-form">
@@ -263,6 +380,7 @@ export default function AccountPage() {
             </article>
           ))}</div>}
         </section>
+        <div className="account-side">
         <section className="account-profile-card" aria-labelledby="account-profile-title">
           <div className="account-card-heading"><h2 id="account-profile-title">Perfil</h2></div>
           <form className="account-form" onSubmit={saveProfile}>
@@ -273,6 +391,34 @@ export default function AccountPage() {
             <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar dados ↗'}</button>
           </form>
         </section>
+        <section className="account-side-card" aria-labelledby="account-password-title">
+          <div className="account-card-heading"><h2 id="account-password-title">Alterar senha</h2></div>
+          <form className="account-form" onSubmit={changePassword}>
+            <label>Senha atual<input type="password" autoComplete="current-password" value={passwordForm.current} onChange={(e) => setPasswordForm({...passwordForm,current:e.target.value})} required /></label>
+            <label>Nova senha<input type="password" autoComplete="new-password" minLength="10" maxLength="72" value={passwordForm.next} onChange={(e) => setPasswordForm({...passwordForm,next:e.target.value})} required /></label>
+            <label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength="10" maxLength="72" value={passwordForm.confirm} onChange={(e) => setPasswordForm({...passwordForm,confirm:e.target.value})} required /></label>
+            {passwordStatus.error && <p className="form-error" role="alert">{passwordStatus.error}</p>}
+            {passwordStatus.success && <p className="form-success" role="status">{passwordStatus.success}</p>}
+            <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Alterar senha ↗'}</button>
+          </form>
+        </section>
+        <section className="account-side-card account-delete-card" aria-labelledby="account-delete-title">
+          <div className="account-card-heading"><h2 id="account-delete-title">Excluir conta</h2></div>
+          <p>Apagamos seu nome, e-mail e telefone do cadastro, cancelamos a newsletter e encerramos o acesso. Os pedidos já feitos ficam guardados pelo prazo exigido por lei, como explica a <Link to="/privacidade">Política de Privacidade</Link>. Não dá para desfazer.</p>
+          <p>Com um pedido pago ainda em andamento, a exclusão fica liberada depois da entrega ou do cancelamento.</p>
+          {!deleteForm.open ? (
+            <button className="button account-delete-open" type="button" disabled={saving} onClick={() => { setDeleteError(''); setDeleteForm({ ...closedDeleteForm, open:true }) }}>Excluir minha conta</button>
+          ) : (
+            <form className="account-form" onSubmit={deleteAccount}>
+              <label>Sua senha<input type="password" autoComplete="current-password" value={deleteForm.password} onChange={(e) => setDeleteForm({...deleteForm,password:e.target.value})} required /></label>
+              <label className="terms-accept"><input type="checkbox" checked={deleteForm.confirm} onChange={(e) => setDeleteForm({...deleteForm,confirm:e.target.checked})} required /><span>Entendo que a exclusão é definitiva.</span></label>
+              {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+              <button className="button account-delete-button" disabled={saving}>{saving ? 'Excluindo…' : 'Excluir definitivamente'}</button>
+              <button className="text-button" type="button" disabled={saving} onClick={() => { setDeleteError(''); setDeleteForm(closedDeleteForm) }}>Cancelar</button>
+            </form>
+          )}
+        </section>
+        </div>
       </div>
     </main>
   )
