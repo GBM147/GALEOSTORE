@@ -25,9 +25,11 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   `fix/mercado-pago-device-nonce` na homologação, fechar o item Notificações
   (95/100 na última medição), testar pelo site cartão aprovado, recusado, Pix e
   estorno. A branch foi para a `main` em 17/11.
-- [ ] **Mercado Pago — ativar em produção** (Donos + Técnico): credenciais de
-  produção, webhook de produção (URL, assinatura secreta e evento Order),
-  `MERCADO_PAGO_MODE=production`, compra real de valor baixo e estorno.
+- [x] **Mercado Pago — ativar em produção** (Donos + Técnico, 17/11): credenciais
+  de produção da aplicação GaleoStore, webhook de produção com o evento Order e
+  `MERCADO_PAGO_MODE=production`. Uma compra real no Pix foi aprovada e estornada, e
+  a loja atualizou o pedido sozinha, conforme [o guia](mercado-pago.md). O teste no
+  cartão é opcional.
 - [ ] **Catálogo real** (Donos): só 2 produtos estão no ar e os dois aparecem com
   a imagem provisória. Faltam fotos, descrições, preços, tamanhos e estoque
   conferidos, além de peso e medidas da embalagem para o frete.

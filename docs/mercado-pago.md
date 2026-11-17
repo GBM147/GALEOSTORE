@@ -12,6 +12,33 @@ Cartões usam `config.online.transaction_security.validation=on_fraud_risk` e `l
 
 ## Estado da validação
 
+**Produção ativa desde 17/11/2026.**
+- A loja usa a aplicação **GaleoStore** (User ID `272966455`), com as chaves
+  secretas no Netlify, o webhook de produção com o evento Order,
+  `MERCADO_PAGO_MODE=production` e `MERCADO_PAGO_LIVE_PAYMENTS_ENABLED=true`.
+- Teste real feito com a ferramenta de diagnóstico ligada: um Pix de R$ 17,56,
+  produto mais frete, foi aprovado. A página mudou sozinha para aprovado. O estorno
+  total no painel do Mercado Pago deixou o pedido como cancelado na loja, o que
+  confirma que o webhook e a conciliação funcionam.
+
+**O que só a produção mostrou e já está corrigido:**
+1. A soma dos itens precisa bater com `total_amount`
+   (`order_items_total_amount_mismatch`). O frete do Melhor Envio agora vai como
+   item próprio (`galeo-frete`).
+2. Uma tentativa recusada antes do provedor não prende mais a página de pagamento,
+   e o próximo clique cria uma tentativa nova.
+
+**Antes da primeira cobrança**, a loja confere se o Access Token pertence ao User ID
+configurado.
+
+**Diagnóstico de recusa:**
+- A recusa (`PAYMENT_NOT_CREATED`) sempre informa o código interno e o status HTTP
+  do Mercado Pago.
+- Para ver também os códigos de máquina e os nomes de campo (nunca valores), ligue
+  `MERCADO_PAGO_PRODUCTION_DIAGNOSTICS=true` só pelo tempo da investigação. Ela vale
+  a partir da próxima publicação.
+
+
 O código tem testes automatizados locais com MySQL isolado e respostas do provedor simuladas, usando o SDK oficial para construir as chamadas. Uma compra anterior pelo ambiente virtual foi aprovada e conciliada em uma única venda e receita; sua avaliação oficial ficou em 12/100 com o pedido mínimo anterior. Isso não valida os dados dos pedidos futuros, o navegador ou a entrega automática do webhook. Alterar o código não acrescenta campos retroativamente ao pedido já avaliado: a nova avaliação exige outra compra de teste. Não houve cobrança real durante o desenvolvimento.
 
 As ferramentas MCP do Mercado Pago não estão conectadas a esta sessão. Foram consultados os guias e o OpenAPI públicos do fornecedor; nenhuma aplicação ou conta foi criada por essas ferramentas.

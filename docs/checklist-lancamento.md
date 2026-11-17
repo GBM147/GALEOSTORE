@@ -8,8 +8,9 @@ https://galeo-store.netlify.app, na conta Netlify do galeostore01@gmail.com desd
 - o cadastro de clientes;
 - as páginas legais com aceite.
 
-O pagamento online continua desligado. A operação comercial ainda depende das
-providências abaixo.
+O pagamento online pelo Mercado Pago está ativo desde 17/11, com Pix, crédito e
+débito à vista. Uma compra real foi aprovada e estornada. A operação comercial
+ainda depende das providências abaixo.
 
 ## Providências dos donos
 
@@ -42,8 +43,8 @@ providências abaixo.
   Fornecer/aprovar as informações para Contato, Privacidade e Termos.
 - [ ] **Definir a cobrança e entrega da primeira fase.** O carrinho calcula o frete
   pelo Melhor Envio, e cada peça precisa de peso e medidas reais. O pagamento
-  online pelo Mercado Pago está em preparação para produção. Até lá, definir o
-  procedimento manual de cobrança ou a retirada.
+  online pelo Mercado Pago está ativo. Ainda falta definir se haverá retirada na
+  loja; hoje não existe essa opção no carrinho.
 - [ ] **Organizar a operação.** Definir responsáveis por atendimento,
   separação/entrega, atualização dos pedidos e emissão de nota fiscal pelo
   processo da loja. Conferir o estoque inicial e registrar vendas físicas no
