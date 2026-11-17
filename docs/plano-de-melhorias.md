@@ -7,17 +7,25 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
 
 ## 1. Antes de vender online
 
-- [ ] **Mercado Pago — concluir a homologação** (Técnico, após 29/11, quando os
-  créditos do Netlify renovam): publicar a branch `fix/mercado-pago-device-nonce`
-  na homologação, fechar o item Notificações (95/100 hoje), testar pelo site
-  cartão aprovado, recusado, Pix e estorno, e passar a branch para a `main`.
+- [x] **Site na conta do galeostore01** (Técnico + Donos, 16/11): o projeto foi
+  recriado na conta Netlify do galeostore01@gmail.com (equipe Galeos) e assumiu
+  `galeo-store.netlify.app`, conforme [a hospedagem](hospedagem-netlify.md).
+  - O banco ganhou as colunas do aceite e o login galeostore01 no Admin; o login
+    antigo continua como reserva.
+  - A versão nova está no ar, com as mesmas respostas da API de antes.
+  - Falta apagar `galeo-store-antigo` na conta antiga e passar para o galeostore01
+    as contas do Aiven, Cloudinary, Melhor Envio, Google e Render.
+- [ ] **Mercado Pago — concluir a homologação** (Técnico): publicar a branch
+  `fix/mercado-pago-device-nonce` na homologação, fechar o item Notificações
+  (95/100 na última medição), testar pelo site cartão aprovado, recusado, Pix e
+  estorno. A branch foi para a `main` em 17/11.
 - [ ] **Mercado Pago — ativar em produção** (Donos + Técnico): credenciais de
   produção, webhook de produção (URL, assinatura secreta e evento Order),
   `MERCADO_PAGO_MODE=production`, compra real de valor baixo e estorno.
 - [ ] **Catálogo real** (Donos): só 2 produtos estão no ar e os dois aparecem com
   a imagem provisória. Faltam fotos, descrições, preços, tamanhos e estoque
   conferidos, além de peso e medidas da embalagem para o frete.
-- [x] **Páginas obrigatórias e aceite** (Técnico, 12/11; publica no próximo deploy):
+- [x] **Páginas obrigatórias e aceite** (Técnico, 12/11; no ar desde 16/11):
   `/termos` (Termos de Uso e Condições de Compra), `/privacidade` (LGPD), `/trocas`
   (arrependimento e troca em 7 dias; 1ª troca com frete pago pela loja; defeito em 90
   dias), `/entregas` e `/contato`, com resumo no topo, índice e versão (12/11/2026).
@@ -32,13 +40,13 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   a um advogado que revise os textos** antes de divulgar; mudanças nos textos ficam em
   `src/legal/documents.js` e pedem uma nova `LEGAL_VERSION` (`src/legal/pages.js`).
   Definir também o prazo de postagem depois do pagamento, para incluir em Entregas.
-- [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, publica junto com o próximo deploy.
+- [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, no ar desde 16/11.
 - [ ] **Produtos e categorias de teste na vitrine** (Donos): a produção mostra os produtos "teste" e "teste2" (R$ 50, sem categoria e sem foto) e a categoria "Nova categoria". Remover ou substituir antes de divulgar.
 - [ ] **Conteúdo da Home** (Donos): campanhas e categorias no CMS estão sem
   textos e mídias; a logo aparece repetida no lugar das fotos e há cards vazios.
 - [ ] **Teste de cadastro real** (Donos): o cadastro de clientes já está aberto na
-  produção. Confirmar com um e-mail real que a confirmação chega, e trocar a
-  senha provisória do Admin.
+  produção. Confirmar com um e-mail real que a confirmação chega e entrar no Admin com
+  galeostore01@gmail.com, o login novo de 16/11.
 
 ## 2. Importante: segurança, estabilidade e custos
 
@@ -115,20 +123,20 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   salva): mesma loja, sem animações, rolagem suave, vídeo automático (mostra um
   quadro do vídeo), desfoque e brilhos. Telas de toque não baixam mais a rolagem
   suave (Lenis), que só age na roda do mouse.
-- [x] **Visual** (Técnico, 06/11; publica no próximo deploy): textos pequenos da
+- [x] **Visual** (Técnico, 06/11; no ar desde 16/11): textos pequenos da
   vitrine (menu, etiquetas, "Explorar", rodapé, filtros) passaram de 8–9 px para
   11 px; a última linha de categorias e campanhas é completada pelos próprios
   cards (antes sobrava um bloco marrom no computador); produto sem categoria não
   mostra mais "Sem categoria"; a imagem provisória de produto ganhou o monograma
   da marca. Identidade, cores e tipografia continuam as mesmas.
-- [x] **Visual — topo, menu e rodapé** (Técnico, 09/11; publica no próximo deploy):
+- [x] **Visual — topo, menu e rodapé** (Técnico, 09/11; no ar desde 16/11):
   topo com ícones (busca, tema, conta, sacola com contador), categorias do menu do
   CMS com a ativa sublinhada e, no celular, um **menu lateral** que antes não existia
   (as categorias ficavam inacessíveis). Rodapé com a marca grande, colunas Loja/Ajuda/
   Pagamento (Pix, crédito, débito pelo Mercado Pago) e redes sociais quando
   preenchidas. Modo escuro em preto e dourado, modo claro minimalista. Próximas
   rodadas: Home, Catálogo/Produto e Carrinho/Pagamento.
-- [x] **Visual — página inicial** (Técnico, 09/11; publica no próximo deploy): banner
+- [x] **Visual — página inicial** (Técnico, 09/11; no ar desde 16/11): banner
   em largura total (sem moldura, com o selo do CMS e o atalho "Ver catálogo"), faixa de
   diferenciais com ícones, categorias compactas (2 colunas no celular, inicial da
   categoria ao fundo quando não há foto), campanhas sem foto viram painéis da marca
@@ -146,7 +154,7 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   também pode gostar" usa o mesmo card do catálogo, com imagem responsiva. Corrigida a
   ordem do CSS da Home: títulos de seção e cards agora usam os tamanhos da rodada
   anterior (o título do banner mantém o peso leve). Próxima rodada: Carrinho/Pagamento.
-- [x] **Visual — carrinho e pagamento** (Técnico, 09/11; publica no próximo deploy):
+- [x] **Visual — carrinho e pagamento** (Técnico, 09/11; no ar desde 16/11):
   etapas da compra (Carrinho → Pagamento → Confirmação) no carrinho e no pagamento.
   Carrinho com itens, entrega e endereço à esquerda e um **resumo do pedido** fixo à
   direita (embaixo no celular), com total em destaque, botão "Solicitar pedido" e a
@@ -156,13 +164,13 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   escuro); ao trocar o tema, os campos seguros são montados de novo com a cor certa.
   Conferido com o SDK real do Mercado Pago nos dois temas. Os logotipos oficiais do
   Mercado Pago e do Pix podem entrar depois, com os arquivos oficiais das marcas.
-- [x] **Visual — Minha conta** (Técnico, 09/11; publica no próximo deploy): nome menor
+- [x] **Visual — Minha conta** (Técnico, 09/11; no ar desde 16/11): nome menor
   com o selo "Minha conta" e "Sair da conta" no topo; **pedidos primeiro** (o Perfil vai
   para a lateral, e abaixo no celular), cada um em linhas compactas com código, data,
   status em pílula, total e o pagamento como selo com bolinha colorida (aguardando,
   aprovado, recusado); "Continuar pagamento" compacto. Entrar/Criar conta em cartão
   arredondado, com seletor de abas (a ativa anunciada para leitores de tela).
-- [x] **Admin — cadastrar produtos e fotos** (Técnico, 09/11; publica no próximo deploy):
+- [x] **Admin — cadastrar produtos e fotos** (Técnico, 09/11; no ar desde 16/11):
   cadastro em **4 passos** (O básico → Fotos → Tamanhos e estoque → Revisar e publicar),
   em tela cheia no celular. O produto é guardado como rascunho logo no primeiro passo, e
   as fotos sobem **na hora**: tirar foto pela câmera, escolher várias ou arrastar no
@@ -175,7 +183,7 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   filtros (Na loja, Rascunhos, Estoque baixo, Sem foto); Excluir fica no menu "⋯". Nova
   rota para a ordem das fotos. Próxima rodada: visual do restante do Admin (menu no
   celular, tela inicial com atalhos).
-- [x] **Editor da loja — painel lateral** (Técnico, 10/11; publica no próximo deploy):
+- [x] **Editor da loja — painel lateral** (Técnico, 10/11; no ar desde 16/11):
   à esquerda, a lista das **partes da página** na ordem (Capa, Faixa, Categorias,
   Destaques, Campanhas, Sobre a GALEO, Newsletter), cada uma com Ocultar/Mostrar e ↑ ↓, e
   "Toda a loja" (Menu, Rodapé, Cores e tema, Movimento); à direita, a página ao vivo.
@@ -187,7 +195,7 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   dourado** escolhidas com um toque. Efeitos com nomes simples (Aproximação lenta,
   Profundidade ao rolar, Esmaecer…). Corrigido o ajuste do título da capa, que lia
   tamanhos atrasados com a regra de movimento reduzido.
-- [x] **Logo GALEO em 3D** (Técnico, 10/11; publica no próximo deploy): medalha de ouro
+- [x] **Logo GALEO em 3D** (Técnico, 10/11; no ar desde 16/11): medalha de ouro
   com o leão e o galo no esmalte preto, aro em relevo e "G" no verso, e o nome GALEO em
   letras douradas extrudadas (fonte Cinzel, licença OFL), com o friso e o losango.
   Arquivos em alta para redes e materiais: PNG 2048 px transparente e com fundo preto, e
@@ -201,7 +209,7 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   WebGL; Modo leve (internet lenta, economia de dados, celular fraco) e movimento
   reduzido ficam com a imagem 3D fixa, que no celular vem em 640 px. A arte original do círculo tem só ~540 px: com o
   arquivo original do logo em alta, a medalha fica mais nítida.
-- [x] **Fontes por função** (Técnico, 10/11; publica no próximo deploy): no lugar da
+- [x] **Fontes por função** (Técnico, 10/11; no ar desde 16/11): no lugar da
   Roboto em tudo, cada escrita tem a sua letra, como na Zara. **Bodoni Moda** (serifa de
   revista de moda) nos títulos editoriais: capa, seções, categorias, campanhas, manifesto,
   newsletter e títulos de página (catálogo, carrinho, conta), com o trecho dourado em
@@ -215,7 +223,7 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   laboratório cai no computador (~68) e, desde 15/11, também no celular; visitantes
   reais têm vídeo no aparelho. Os sinais + - = _ | × ÷ e os travessões saem da serifa
   reserva, porque na Bodoni eles são fios quase invisíveis na tela.
-- [x] **Avaliação no Google** (Técnico, 11/11; publica no próximo deploy): faixa "Comprou
+- [x] **Avaliação no Google** (Técnico, 11/11; no ar desde 16/11): faixa "Comprou
   com a gente? Conte como foi" no rodapé de todas as páginas, com 5 estrelas e o botão
   "Avaliar no Google". Qualquer estrela abre a GaleoStore no Google Maps, na aba de
   avaliações, em nova aba. O Google proíbe filtrar notas, então todas levam ao mesmo

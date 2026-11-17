@@ -15,18 +15,32 @@ ser pausado até a renovação. Cada publicação de código em produção conso
 
 ## Configuração do projeto
 
-Desde 29/10/2026, o projeto existente pertence à equipe **Galeo Store**,
-ID `6ae34373a583add92af1010d`, no plano Free. O ID do projeto permanece
-`1987b91f-dacd-4665-bda8-89d899b7b51b` e a URL é
-`https://galeo-store.netlify.app`. As 25 variáveis do projeto foram preservadas
-na transferência. Para administrar ou publicar, usar um token autorizado pela
-nova equipe; o token da equipe anterior deixou de acessar o projeto. No ambiente
-de desenvolvimento, reservar `NETLIFY_GALEO_AUTH_TOKEN` para esse acesso, sem
-registrar seu valor no repositório.
+Desde 16/11/2026, a loja roda na conta Netlify **galeostore01@gmail.com**, na
+equipe **Galeos** (ID `6afaffde148474e775ffbe02`, plano Free). O projeto tem o ID
+`b68ab513-906f-4f57-8cd5-b45c64a3c54f` e a URL continua
+`https://galeo-store.netlify.app`.
 
-A produção é pública e as prévias de deploy ficam privadas. A nova equipe
-aplicou login da Netlify por padrão à loja transferida, causando HTTP 401 antes
-da aplicação. A configuração do próprio projeto foi ajustada com
+**Como foi a mudança de conta:**
+- No Free, uma equipe aceita uma só pessoa, então a transferência oficial não era
+  possível. Por isso o projeto foi recriado:
+  - as 24 variáveis legíveis foram copiadas pela API;
+  - o dono cadastrou os 5 valores secretos (Cloudinary, Resend, Melhor Envio e a
+    senha do Admin);
+  - `ADMIN_EMAIL`, `EMAIL_REPLY_TO` e `STORE_NOTIFICATION_EMAIL` passaram para
+    galeostore01@gmail.com.
+- O banco foi atualizado num build avulso, que terminou com o marcador
+  `MIGRACAO_OK`. Depois, a revisão `4558536` foi publicada no deploy
+  `6afb4667aeae034d9d1c82b8`.
+- Na troca de nomes, o projeto anterior (`1987b91f-dacd-4665-bda8-89d899b7b51b`, da
+  equipe Galeo Store da conta antiga) virou `galeo-store-antigo`. As 7 respostas
+  públicas da API ficaram idênticas às de antes da troca.
+
+Para administrar ou publicar, use um token da equipe Galeos. No ambiente de
+desenvolvimento, a chave é injetada pelo proxy e nunca fica no repositório.
+
+A produção é pública e as prévias de deploy ficam privadas. A equipe nova aplica
+login da Netlify por padrão aos projetos, o que causava HTTP 401 antes de a loja
+abrir. A configuração do próprio projeto foi ajustada com
 `sso_login: true` e `sso_login_context: non_production`, sem alterar o padrão da
 equipe. O login administrativo da loja continua sendo exigido pela aplicação.
 
