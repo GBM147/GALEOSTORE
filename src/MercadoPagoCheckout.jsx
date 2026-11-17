@@ -117,9 +117,14 @@ function savedAttempt(key) {
 }
 
 function paymentStatus(snapshot) {
-  const status = String(snapshot?.order?.payment_status || snapshot?.payment?.status || 'PENDING').toUpperCase()
-  if (snapshot?.order?.status === 'CANCELLED' && status !== 'REFUNDED') return 'CANCELLED'
-  return status
+  const orderStatus = String(snapshot?.order?.payment_status || '').toUpperCase()
+  const attemptStatus = String(snapshot?.payment?.status || '').toUpperCase()
+  if (snapshot?.order?.status === 'CANCELLED' && orderStatus !== 'REFUNDED') return 'CANCELLED'
+  if (['APPROVED', 'REFUNDED'].includes(orderStatus)) return orderStatus
+  // A refused attempt leaves the order PENDING. The attempt's own status must
+  // win, or the page would resend the refused attempt forever.
+  if (['REJECTED', 'CANCELLED'].includes(attemptStatus)) return attemptStatus
+  return orderStatus || attemptStatus || 'PENDING'
 }
 
 function paymentReference(payment) {
@@ -371,7 +376,7 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
       pendingBody.current = null
       attempt.current = null
       try { sessionStorage.removeItem(attemptKey) } catch {}
-    } else if (data.payment?.attempt_id && /^[a-f\d-]{36}$/i.test(data.payment.attempt_id) && ['pix', 'credit_card', 'debit_card'].includes(data.payment.method)) {
+    } else if (String(data.payment?.status || '').toUpperCase() === 'PENDING' && data.payment?.attempt_id && /^[a-f\d-]{36}$/i.test(data.payment.attempt_id) && ['pix', 'credit_card', 'debit_card'].includes(data.payment.method)) {
       attempt.current = { id: data.payment.attempt_id, method: data.payment.method }
       try { sessionStorage.setItem(attemptKey, JSON.stringify(attempt.current)) } catch {}
       if (data.payment.awaiting_confirmation) setUncertain(true)

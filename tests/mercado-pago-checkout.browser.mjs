@@ -227,6 +227,25 @@ test('recusa definitiva permite nova tentativa com outro identificador', async t
   assert.notEqual(paymentPosts(calls)[0].body.attempt_id, paymentPosts(calls)[1].body.attempt_id)
 })
 
+test('tentativa recusada antes do Mercado Pago (pedido ainda pendente) libera nova tentativa', async t => {
+  // What the server really returns: the order stays PENDING and the refused
+  // attempt has no provider reference. Retrying must send a new attempt id.
+  let requests = 0
+  const refused = { provider_reference: '', status: 'REJECTED', method: 'pix', awaiting_confirmation: false, attempt_id: '0b1c2d3e-4f50-4a61-8b72-9c8d7e6f5a40' }
+  const { page, calls } = await fixture(t, { handle: ({ path, method }) => {
+    if (path === '/api/store/orders/42/payment' && method === 'POST' && ++requests === 1) return { data: { order: { ...order, payment_status: 'PENDING' }, payment: refused } }
+  } })
+  await page.getByLabel('CPF do comprador').fill('12345678909')
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByText('O pagamento não foi aprovado. Confira os dados ou escolha outra forma de pagamento.', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Gerar Pix', exact: true }).click()
+  await page.getByRole('heading', { name: 'Aguardando pagamento', exact: true }).waitFor()
+  const posts = paymentPosts(calls)
+  assert.equal(posts.length, 2)
+  assert.notEqual(posts[1].body.attempt_id, posts[0].body.attempt_id)
+  assert.notEqual(posts[1].body.attempt_id, refused.attempt_id)
+})
+
 test('cartão monta três iframes e envia token e metadados sem dados brutos do cartão', async t => {
   const { page, calls } = await fixture(t, { deviceId: 'LOCAL_PROVIDER_CARD_DEVICE' })
   await page.getByRole('button', { name: 'Cartão', exact: true }).click()
