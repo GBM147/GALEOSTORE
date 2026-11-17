@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createTransactionalEmail } from './transactional-email.js'
+import { emailDocument, emailText } from './email-layout.js'
 
 const configuration = {
   NODE_ENV: 'production',
@@ -168,7 +169,9 @@ test('Resend request preserves the payload and idempotency header while returnin
   })
   assert.deepEqual(JSON.parse(options.body), {
     from: 'GALEO Store <loja@galeo.test>', to: ['cliente@galeo.test'],
-    subject: payload.subject, html: payload.html, text: payload.text
+    subject: payload.subject,
+    html: emailDocument({ subject: payload.subject, html: payload.html, appUrl: configuration.APP_URL }),
+    text: emailText(payload.text)
   })
 })
 
@@ -180,7 +183,7 @@ test('a plain sender and recipient list work without inventing a text body or id
   })
   assert.deepEqual(await email.send({ to: ['cliente@galeo.test', 'Equipe <team@galeo.test>'], subject: 'Pedido recebido', html: '<p>Pedido</p>' }), { id: 'delivery-id' })
   assert.equal('Idempotency-Key' in request.headers, false)
-  assert.deepEqual(JSON.parse(request.body), { from: 'loja@galeo.test', to: ['cliente@galeo.test', 'Equipe <team@galeo.test>'], subject: 'Pedido recebido', html: '<p>Pedido</p>' })
+  assert.deepEqual(JSON.parse(request.body), { from: 'loja@galeo.test', to: ['cliente@galeo.test', 'Equipe <team@galeo.test>'], subject: 'Pedido recebido', html: emailDocument({ subject: 'Pedido recebido', html: '<p>Pedido</p>' }) })
 })
 
 test('malformed recipients, header injection and malformed payloads are rejected without a network call', async () => {

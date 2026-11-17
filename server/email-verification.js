@@ -1,3 +1,4 @@
+import { emailButton } from './email-layout.js'
 import { createHash, randomBytes } from 'node:crypto'
 import bcrypt from 'bcrypt'
 
@@ -60,10 +61,13 @@ export async function issueEmailVerification(conn, customer, { appUrl, sendTrans
   try {
     const delivery = await sendTransactionalEmail({
       to: customer.email,
-      subject: 'Confirme seu e-mail — GALEO',
+      subject: 'Confirme seu e-mail na GALEO STORE',
+      preheader: 'Falta só um passo para ativar sua conta na GALEO STORE.',
       idempotencyKey: 'verify-customer-' + customer.id + '-' + digest,
-      text: 'Confirme seu e-mail na GALEO abrindo este link e informando a senha que você escolheu: ' + link + '\nO link vale por 24 horas. Se você não criou esta conta, ignore este e-mail.',
-      html: '<div style="font-family:Arial,sans-serif"><h1>Confirme seu e-mail</h1><p>Para acessar sua conta na GALEO, abra o link abaixo e informe a senha que você escolheu no cadastro.</p><p><a href="' + link.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">Confirmar meu e-mail</a></p><p>Este link vale por 24 horas. Se você não criou esta conta, ignore este e-mail.</p></div>'
+      text: 'Olá! Para ativar sua conta na GALEO STORE, abra o link abaixo e informe a senha que você escolheu no cadastro:\n' + link + '\n\nO link vale por 24 horas. Se você não criou esta conta, ignore este e-mail.',
+      html: '<h1 style="font-size:22px;margin:0 0 12px;">Confirme seu e-mail</h1><p>Olá! Para ativar sua conta na GALEO STORE, toque no botão abaixo e informe a senha que você escolheu no cadastro.</p>' +
+        emailButton(link, 'Confirmar meu e-mail') +
+        '<p style="font-size:13px;color:#6d655c;">O link vale por 24 horas. Se você não criou esta conta, ignore este e-mail.</p>'
     })
     if (!delivery || delivery.skipped || delivery.error) throw deliveryUnavailable()
   } catch {

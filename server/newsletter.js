@@ -1,3 +1,4 @@
+import { emailButton } from './email-layout.js'
 import { createHash, randomBytes } from 'node:crypto'
 import { rateLimit } from 'express-rate-limit'
 import { normalizeEmail } from './data-protection.js'
@@ -154,10 +155,13 @@ export function createNewsletter({ db, emailService, appUrl, protection = null }
       try {
         const sent = await emailService.send({
           to: email,
-          subject: 'Confirme sua inscrição — GALEO',
+          subject: 'Confirme sua inscrição na GALEO STORE',
+          preheader: 'Confirme para receber as novidades da GALEO STORE.',
           idempotencyKey: 'newsletter-' + row.id + '-' + digest(token),
           text: 'Confirme que deseja receber novidades da GALEO: ' + confirmationLink + '\nO link vale por 24 horas. Se você não solicitou esta inscrição, ignore este e-mail. Para cancelar: ' + unsubscribeLink,
-          html: '<div style="font-family:Arial,sans-serif"><h1>Novidades da GALEO</h1><p>Confirme que deseja receber novidades da loja.</p><p><a href="' + escapeHtml(confirmationLink) + '">Confirmar inscrição</a></p><p>O link vale por 24 horas. Se você não solicitou esta inscrição, ignore este e-mail.</p><p><a href="' + escapeHtml(unsubscribeLink) + '">Cancelar inscrição</a></p></div>'
+          html: '<h1 style="font-size:22px;margin:0 0 12px;">Novidades da GALEO</h1><p>Confirme que deseja receber novidades da GALEO STORE.</p>' +
+            emailButton(confirmationLink, 'Confirmar inscrição') +
+            '<p style="font-size:13px;color:#6d655c;">O link vale por 24 horas. Se você não solicitou esta inscrição, ignore este e-mail.</p><p style="font-size:13px;"><a href="' + escapeHtml(unsubscribeLink) + '" style="color:#6d655c;">Cancelar inscrição</a></p>'
         })
         if (!sent?.id || sent.skipped || sent.error) throw unavailable()
       } catch { throw unavailable() }

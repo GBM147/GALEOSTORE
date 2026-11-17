@@ -1,3 +1,4 @@
+import { emailDocument, emailText } from './email-layout.js'
 const endpoint = 'https://api.resend.com/emails'
 const controls = /[\x00-\x1f\x7f]/
 const mailboxPattern = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/
@@ -80,7 +81,7 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
   async function send(payload) {
     if (!sendingConfigured) throw new TransactionalEmailError('EMAIL_NOT_CONFIGURED', 503)
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new TransactionalEmailError('EMAIL_PAYLOAD_INVALID', 400)
-    const { to, subject, html, text, idempotencyKey } = payload
+    const { to, subject, html, text, idempotencyKey, preheader } = payload
     const rawRecipients = Array.isArray(to) ? to : [to]
     if (!rawRecipients.length || rawRecipients.length > 50 || rawRecipients.some((value) => typeof value !== 'string' || controls.test(value) || !addressValid(value.trim()))) {
       throw new TransactionalEmailError('EMAIL_PAYLOAD_INVALID', 400)
@@ -115,8 +116,8 @@ export function createTransactionalEmail({ env = process.env, fetchImpl = global
           ...(replyToConfigured ? { reply_to: replyTo } : {}),
           to: rawRecipients.map((value) => value.trim()),
           subject,
-          html,
-          ...(text !== undefined ? { text } : {})
+          html: emailDocument({ subject, html, appUrl: urlConfigured ? appUrl : '', preheader: typeof preheader === 'string' ? preheader : '' }),
+          ...(text !== undefined ? { text: emailText(text) } : {})
         })
       })
       if (!response || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) {
