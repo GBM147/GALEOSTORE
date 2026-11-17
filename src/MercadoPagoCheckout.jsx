@@ -486,7 +486,10 @@ export default function MercadoPagoCheckout({ order: initialOrder, onPaid }) {
         pendingBody.current = null
         try { sessionStorage.removeItem(attemptKey) } catch {}
       }
-      setError(error.message || 'Não foi possível concluir a solicitação. Confira o pagamento antes de tentar novamente.')
+      const reason = typeof error.data?.reason === 'string' && /^[A-Z_]{1,40}$/.test(error.data.reason)
+        ? ' (código ' + error.data.reason + (Number.isInteger(error.data.provider_status) ? ' · ' + error.data.provider_status : '') + ')'
+        : ''
+      setError((error.message || 'Não foi possível concluir a solicitação. Confira o pagamento antes de tentar novamente.') + reason)
     } finally {
       if (current === lifecycle.current) {
         inFlight.current = false
