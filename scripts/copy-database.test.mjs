@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { connectionConfig, nextAutoIncrement, options, rowDigest, targetCreateSql } from './copy-database.mjs'
+import { connectionConfig, nextAutoIncrement, options, rowDigest, targetCreateSql, withoutAnsiQuotes } from './copy-database.mjs'
 
 const env = { SOURCE_DB_HOST: 'src.example', SOURCE_DB_USER: 'u', SOURCE_DB_PASSWORD: 'p', SOURCE_DB_NAME: 'galeo' }
 
@@ -47,4 +47,10 @@ test('hash da linha ignora a ordem das chaves do JSON e distingue valores', () =
   const protocol = [{ name: 'id', type: 3 }, { name: 'content', type: 245 }, { name: 'blob', type: 252 }]
   assert.equal(rowDigest({ id: '1', content: '{"b": 1, "a": [1, 2]}', blob: Buffer.from('x') }, protocol),
     rowDigest({ id: '1', content: '{"a":[1,2],"b":1}', blob: Buffer.from('x') }, protocol))
+})
+
+test('tira ANSI e ANSI_QUOTES do modo SQL da sessão (Aiven usa ANSI)', () => {
+  assert.equal(withoutAnsiQuotes('REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ONLY_FULL_GROUP_BY,ANSI,STRICT_ALL_TABLES'),
+    'REAL_AS_FLOAT,PIPES_AS_CONCAT,IGNORE_SPACE,ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES')
+  assert.equal(withoutAnsiQuotes(''), '')
 })

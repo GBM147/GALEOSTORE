@@ -33,7 +33,7 @@ function migrate(port, password, database) {
   assert.equal(result.status, 0, result.stderr || result.stdout)
 }
 
-let source, target
+let source, target, originalSourceMode
 test.before(async () => {
   source = await mysql.createConnection(server(sourcePort, sourcePassword))
   target = await mysql.createConnection(server(3307, targetPassword))
@@ -67,9 +67,14 @@ test.before(async () => {
     (1000000020,1000000020,1234.50,9007199254740993,1,'B','2026-11-16 18:03:59.123','2026-11-16 18:03:59','2026-11-16','{"b":1,"a":[1,"ç"]}','Camiseta 👕 ação',UNHEX('00FF10')),
     (1000000021,NULL,0.00,NULL,0,'A',NULL,'2026-01-01 00:00:00',NULL,NULL,NULL,NULL)`)
   await source.query('ALTER TABLE copy_types AUTO_INCREMENT=1000000030')
+  // Like Aiven: new source sessions start in ANSI mode (names quoted with ").
+  const [[{ mode }]] = await source.query('SELECT @@GLOBAL.sql_mode AS mode')
+  originalSourceMode = mode
+  await source.query("SET GLOBAL sql_mode='ANSI,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE,STRICT_ALL_TABLES'")
 })
 
 test.after(async () => {
+  if (originalSourceMode !== undefined) await source?.query('SET GLOBAL sql_mode=?', [originalSourceMode]).catch(() => {})
   await source?.query('DROP DATABASE IF EXISTS ' + SOURCE_DB).catch(() => {})
   await target?.query('DROP DATABASE IF EXISTS ' + TARGET_DB).catch(() => {})
   await Promise.allSettled([source?.end(), target?.end()])

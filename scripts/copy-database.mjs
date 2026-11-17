@@ -116,7 +116,15 @@ async function ensureDatabase(config) {
   finally { await connection.end() }
 }
 
+// Aiven runs MySQL in ANSI mode, so SHOW CREATE TABLE would quote names with ".
+// Dropping ANSI/ANSI_QUOTES for this session keeps the DDL in backticks.
+export function withoutAnsiQuotes(mode) {
+  return String(mode || '').split(',').map(item => item.trim()).filter(item => item && item !== 'ANSI' && item !== 'ANSI_QUOTES').join(',')
+}
+
 async function prepare(connection) {
+  const [[{ mode }]] = await connection.query('SELECT @@SESSION.sql_mode AS mode')
+  await connection.query('SET SESSION sql_mode=?', [withoutAnsiQuotes(mode)])
   await connection.query("SET SESSION time_zone='+00:00'")
   const [[version]] = await connection.query('SELECT VERSION() AS version')
   return /tidb/i.test(String(version.version))
