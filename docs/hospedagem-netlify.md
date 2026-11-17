@@ -157,7 +157,7 @@ envia tudo pela API. `--noindex` acrescenta `X-Robots-Tag` para a homologação,
 
 ```sh
 NETLIFY_AUTH_TOKEN=... npm run deploy:netlify -- --site 832678f0-b9a7-4b99-b8f7-fad63cb55245 --noindex --message "homologação"
-NETLIFY_AUTH_TOKEN=... npm run deploy:netlify -- --site 1987b91f-dacd-4665-bda8-89d899b7b51b --message "produção"
+NETLIFY_AUTH_TOKEN=... npm run deploy:netlify -- --site b68ab513-906f-4f57-8cd5-b45c64a3c54f --message "produção"
 ```
 
 Publicações enviadas pela API com arquivos já compilados precisam também
