@@ -47,9 +47,12 @@ test('test configuration requires separate database/origin, all credentials and 
 }))
 
 test('production requires explicit live enablement and exposes only the public key', async () => fixture(async () => {
-  Object.assign(process.env, { MERCADO_PAGO_MODE: 'production', MERCADO_PAGO_ACCESS_TOKEN: 'live-private-token', MERCADO_PAGO_PUBLIC_KEY: 'live-public-key', MERCADO_PAGO_WEBHOOK_SECRET: 'live-webhook-secret', APP_URL: 'https://galeo-store.netlify.app' })
+  Object.assign(process.env, { MERCADO_PAGO_MODE: 'production', MERCADO_PAGO_SELLER_ID: '42', MERCADO_PAGO_ACCESS_TOKEN: 'live-private-token', MERCADO_PAGO_PUBLIC_KEY: 'live-public-key', MERCADO_PAGO_WEBHOOK_SECRET: 'live-webhook-secret', APP_URL: 'https://galeo-store.netlify.app' })
   assert.equal(mercadoPagoOnlineConfigured(), false)
   process.env.MERCADO_PAGO_LIVE_PAYMENTS_ENABLED = 'true'
+  process.env.MERCADO_PAGO_SELLER_ID = ''
+  assert.equal(mercadoPagoOnlineConfigured(), false, 'production needs the store seller id')
+  process.env.MERCADO_PAGO_SELLER_ID = '42'
   const config = getMercadoPagoPublicConfig()
   assert.equal(config.available, true)
   assert.equal(config.public_key, 'live-public-key')
@@ -447,9 +450,9 @@ test('test diagnostic path matching ignores oversized prose and unquoted generic
 test('production SDK rejections never retain or expose provider bodies or a test diagnostic', async () => fixture(async () => {
   Object.assign(process.env, { MERCADO_PAGO_MODE: 'production', MERCADO_PAGO_LIVE_PAYMENTS_ENABLED: 'true',
     MERCADO_PAGO_ACCESS_TOKEN: 'production-private-token', MERCADO_PAGO_PUBLIC_KEY: 'production-public-key',
-    MERCADO_PAGO_WEBHOOK_SECRET: 'production-webhook-secret', APP_URL: 'https://galeo-store.netlify.app' })
+    MERCADO_PAGO_WEBHOOK_SECRET: 'production-webhook-secret', MERCADO_PAGO_SELLER_ID: '42', APP_URL: 'https://galeo-store.netlify.app' })
   const privateValue = 'private-card-token-12345678909'
-  globalThis.fetch = async () => response({ error: 'private_provider_error', message: privateValue,
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: [] }) : response({ error: 'private_provider_error', message: privateValue,
     cause: [{ code: 'private_machine_code', description: privateValue }] }, 400)
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: card() }), error => {
     assert.equal(error.code, 'PAYMENT_PROVIDER_REJECTED')
@@ -685,3 +688,26 @@ test('Point configuration and token remain independent of online test credential
   assert.equal(calls[0].options.headers.Authorization, 'Bearer local-point-only-token')
   assert.equal(JSON.parse(calls[0].options.body).type, 'point')
 }))
+
+const live = () => Object.assign(process.env, { MERCADO_PAGO_MODE: 'production', MERCADO_PAGO_LIVE_PAYMENTS_ENABLED: 'true',
+  MERCADO_PAGO_ACCESS_TOKEN: 'live-token-' + randomUUID(), MERCADO_PAGO_PUBLIC_KEY: 'live-public-key',
+  MERCADO_PAGO_WEBHOOK_SECRET: 'live-webhook-secret', MERCADO_PAGO_SELLER_ID: '42', APP_URL: 'https://galeo-store.netlify.app' })
+
+test('production confirms the store seller account before the first charge', async () => fixture(async calls => {
+  live()
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: [] }) : response(rawOrder(), 201) }
+  const created = await createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } })
+  assert.equal(created.id, 'ORDLOCAL123')
+  assert.deepEqual(calls.map(call => [call.url.replace('https://api.mercadopago.com', ''), call.options.method]), [['/users/me', 'GET'], ['/v1/orders', 'POST']])
+}))
+
+test('production refuses credentials from another account or a test user before any charge', async () => {
+  for (const seller of [{ id: 99, site_id: 'MLB', tags: [] }, { id: 42, site_id: 'MLB', tags: ['test_user'] }, { id: 42, site_id: 'MLA', tags: [] }]) {
+    await fixture(async calls => {
+      live()
+      globalThis.fetch = async (url, options) => { calls.push({ url, options }); return url.endsWith('/users/me') ? response(seller) : response(rawOrder(), 201) }
+      await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment: { method: 'pix' } }), { code: 'PAYMENT_SELLER_MISMATCH', outcomeUnknown: false })
+      assert.equal(calls.some(call => call.options.method === 'POST'), false, JSON.stringify(seller))
+    })
+  }
+})

@@ -37,7 +37,7 @@ function onlineConfiguration() {
   const testEnvironment = /^[A-Za-z0-9_]+_test$/.test(text(process.env.DB_NAME)) && validAppUrl(text(process.env.APP_URL), 'test')
   const allowed = testing
     ? testEnvironment && Boolean(testCredentialKind) && process.env.MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED === 'true' && /^\d{1,20}$/.test(sellerId)
-    : enabledMode === 'production' && process.env.MERCADO_PAGO_LIVE_PAYMENTS_ENABLED === 'true' && validAppUrl(text(process.env.APP_URL), 'production')
+    : enabledMode === 'production' && process.env.MERCADO_PAGO_LIVE_PAYMENTS_ENABLED === 'true' && validAppUrl(text(process.env.APP_URL), 'production') && /^\d{1,20}$/.test(sellerId)
   return { mode: enabledMode, accessToken, publicKey, webhookSecret, sellerId, testCredentialKind, available: Boolean(allowed && accessToken && publicKey && webhookSecret) }
 }
 
@@ -247,8 +247,8 @@ async function orderRequest({ config, operation, body = null, orderId = '', para
   } finally { clearTimeout(timer) }
 }
 
-async function assertTestSeller(config) {
-  if (config.mode !== 'test') return
+async function assertConfiguredSeller(config) {
+  if (!['test', 'production'].includes(config.mode)) return
   const key = createHash('sha256').update(JSON.stringify([config.mode, config.testCredentialKind, config.accessToken, config.publicKey, config.sellerId])).digest('hex')
   if ((testSellerCache.get(key) || 0) > Date.now()) return
   if (!testSellerRequests.has(key)) testSellerRequests.set(key, (async () => {
@@ -256,8 +256,15 @@ async function assertTestSeller(config) {
     // Orders requires credentials from an actual virtual test-user profile.
     const seller = await request('/users/me', { accessToken: config.accessToken })
     const sellerMatches = String(seller.id) === config.sellerId && seller.site_id === 'MLB'
-    const permittedProfile = config.testCredentialKind === 'test-user' && Array.isArray(seller.tags) && seller.tags.includes('test_user')
-    if (!sellerMatches || !permittedProfile) throw new MercadoPagoError('TEST_SELLER_REQUIRED', 503, 'As credenciais de teste precisam corresponder ao vendedor brasileiro configurado.')
+    const tags = Array.isArray(seller.tags) ? seller.tags : []
+    if (config.mode === 'test') {
+      const permittedProfile = config.testCredentialKind === 'test-user' && tags.includes('test_user')
+      if (!sellerMatches || !permittedProfile) throw new MercadoPagoError('TEST_SELLER_REQUIRED', 503, 'As credenciais de teste precisam corresponder ao vendedor brasileiro configurado.')
+    } else if (!sellerMatches || tags.includes('test_user')) {
+      // Live credentials must belong to the store's own account (MERCADO_PAGO_SELLER_ID):
+      // refuse before any charge instead of collecting into another account.
+      throw new MercadoPagoError('PAYMENT_SELLER_MISMATCH', 503, 'Não foi possível confirmar o vendedor configurado para os pagamentos.')
+    }
     if (testSellerCache.size >= 8) testSellerCache.delete(testSellerCache.keys().next().value)
     testSellerCache.set(key, Date.now() + 300000)
   })().finally(() => testSellerRequests.delete(key)))
@@ -266,7 +273,7 @@ async function assertTestSeller(config) {
 export async function verifyMercadoPagoTestSeller() {
   const config = onlineConfiguration()
   if (!config.available || config.mode !== 'test') throw notConfigured()
-  await assertTestSeller(config)
+  await assertConfiguredSeller(config)
   return { verified: true, seller_id: config.sellerId }
 }
 
@@ -426,7 +433,7 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
   // A different billing address/CPF and real SDK device ID are validated input.
   const diagnosticConfig = config.mode === 'test' ? { ...config, deviceId: selection.device_id || '', privateValues: [order, buyerContext, selection,
     ...text(order.customer_name).split(/\s+/), ...text(buyerContext.name).split(/\s+/)] } : null
-  await assertTestSeller(config)
+  await assertConfiguredSeller(config)
   const result = validateProviderOrder(await orderRequest({ config, operation: 'create', body: payload, idempotencyKey: key,
     deviceId: selection.device_id || '', diagnosticConfig }), config)
   if (result.external_reference !== reference || moneyCents(result.total_amount) !== total) throw unavailable()
@@ -437,7 +444,7 @@ export async function getMercadoPagoOrder(orderId) {
   const config = onlineConfiguration()
   if (!config.available) throw notConfigured()
   if (!/^[A-Za-z0-9_-]{1,160}$/.test(String(orderId))) throw invalid('O pagamento informado é inválido.')
-  await assertTestSeller(config)
+  await assertConfiguredSeller(config)
   const result = validateProviderOrder(await orderRequest({ config, operation: 'get', orderId: String(orderId) }), config)
   if (String(result.id) !== String(orderId)) throw unavailable()
   return result
@@ -473,7 +480,7 @@ export async function findMercadoPagoOrderForAttempt({ order, attempt }) {
           (moneyCents(value.total_paid_amount) === total && moneyCents(payment.paid_amount) === total)))
     } catch { return false }
   }
-  await assertTestSeller(config)
+  await assertConfiguredSeller(config)
   const parameters = new URLSearchParams({ begin_date: new Date(earliest).toISOString(), end_date: new Date(latest).toISOString(),
     external_reference: reference, page: '1', page_size: '50', sort_by: 'created_date', sort_order: 'desc' })
   const result = await orderRequest({ config, operation: 'search', parameters: Object.fromEntries(parameters) })

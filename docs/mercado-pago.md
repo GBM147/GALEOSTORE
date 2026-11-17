@@ -58,6 +58,8 @@ MERCADO_PAGO_WEBHOOK_SECRET=
 MERCADO_PAGO_SELLER_ID=
 ```
 
+Em produção, `MERCADO_PAGO_SELLER_ID` é obrigatório: é o User ID da conta que recebe as vendas, que na aplicação GaleoStore é `272966455`. Antes da primeira cobrança, e depois a cada 5 minutos, o servidor consulta `/users/me` com o Access Token. Se a conta não for esse vendedor, ou se for um usuário de teste, a loja recusa a cobrança com `PAYMENT_SELLER_MISMATCH` antes de qualquer pedido no Mercado Pago. Assim nunca cobra numa conta errada.
+
 Ativar pagamentos reais e fazer uma compra real são etapas distintas do teste automatizado e devem ser combinadas com os donos. A configuração de maquininha Point permanece separada.
 
 ## Fluxo e proteção
