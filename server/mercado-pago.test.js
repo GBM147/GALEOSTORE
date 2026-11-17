@@ -201,7 +201,10 @@ test('Pix uses the official SDK and sends item quantities, decimal prices and th
   assert.deepEqual(body.transactions.payments, [{ amount: '121.35', expiration_time: 'PT30M', payment_method: { id: 'pix', type: 'bank_transfer' } }])
   assert.equal(body.expiration_time, undefined)
   assert.equal(body.config, undefined)
-  assert.deepEqual(body.items, [{ external_code: 'galeo-11-21', title: 'Peça local — M', quantity: 2, unit_price: '50.00', category_id: 'fashion' }])
+  // Items must add up to total_amount: 2 × 50.00 + freight 21.35 = 121.35.
+  assert.deepEqual(body.items, [{ external_code: 'galeo-11-21', title: 'Peça local — M', quantity: 2, unit_price: '50.00', category_id: 'fashion' },
+    { external_code: 'galeo-frete', title: 'Frete', quantity: 1, unit_price: '21.35', category_id: 'services' }])
+  assert.equal(body.items.reduce((sum, item) => sum + Math.round(Number(item.unit_price) * 100) * item.quantity, 0), 12135)
   assert.equal(body.shipment, undefined)
   assert.match(post.options.headers['User-Agent'], /^MercadoPago Node\.js SDK v3\.6\.1 /)
   assert.match(post.options.headers['X-Tracking-Id'], /SDK3\.6\.1/)
@@ -731,4 +734,12 @@ test('production diagnostics are off by default and, when switched on, keep only
   assert.ok(diagnostic.codes.includes('invalid_identification'), JSON.stringify(diagnostic))
   const serialized = JSON.stringify(diagnostic)
   for (const secret of [cpf, email, 'live-token', 'CPF ']) assert.equal(serialized.includes(secret), false, secret)
+}))
+
+test('without freight the items alone add up to the total', async () => fixture(async calls => {
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(rawOrder({ total_amount: '100.00' }), 201) }
+  await createMercadoPagoOnlineOrder({ order: { ...order, total: '100.00', shipping_fee: '0.00' }, items, payment: { method: 'pix' } })
+  const body = JSON.parse(calls.find(call => call.url.endsWith('/v1/orders')).options.body)
+  assert.deepEqual(body.items.map(item => item.external_code), ['galeo-11-21'])
+  assert.equal(body.total_amount, '100.00')
 }))

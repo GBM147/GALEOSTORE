@@ -29,7 +29,10 @@ async function captureOrder(shippingFee, expectedTotal) {
     assert.deepEqual(items,originalItems)
     assert.equal(captured.total_amount,expectedTotal.toFixed(2))
     assert.equal(captured.transactions.payments[0].amount,expectedTotal.toFixed(2))
-    assert.deepEqual(captured.items,[{external_code:'galeo-11-21',title:'Peça local — M',quantity:2,unit_price:'50.00',category_id:'fashion'}])
+    // Orders requires items to add up to total_amount, so freight is its own line.
+    const freight = Math.round((expectedTotal - 100) * 100)
+    assert.deepEqual(captured.items,[{external_code:'galeo-11-21',title:'Peça local — M',quantity:2,unit_price:'50.00',category_id:'fashion'},
+      ...(freight > 0 ? [{external_code:'galeo-frete',title:'Frete',quantity:1,unit_price:(freight/100).toFixed(2),category_id:'services'}] : [])])
     return captured
   } finally {
     globalThis.fetch = previousFetch

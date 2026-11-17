@@ -428,6 +428,9 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
       title: size ? title + ' — ' + size : title, quantity, unit_price: (unit / 100).toFixed(2), category_id: 'fashion' }
   })
   if (itemTotal + shipping !== total) throw invalid('O total do pedido não corresponde aos itens e ao frete.')
+  // Orders requires items to add up to total_amount (order_items_total_amount_mismatch),
+  // so the freight goes in as its own line.
+  if (shipping > 0) providerItems.push({ external_code: 'galeo-frete', title: 'Frete', quantity: 1, unit_price: (shipping / 100).toFixed(2), category_id: 'services' })
   const payer = { email, ...(selection.identification ? { identification: selection.identification } : {}) }
   if (text(buyerContext.name)) {
     const [first, ...last] = string(buyerContext.name, 180).split(/\s+/)
