@@ -3,7 +3,7 @@ import { createHmac, randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { createMercadoPagoOnlineOrder, createMercadoPagoPointOrder, findMercadoPagoOrderForAttempt, getMercadoPagoOrder, getMercadoPagoPublicConfig, getMercadoPagoWebhookSecret, mapMercadoPagoOrderStatus, mercadoPagoOnlineConfigured, mercadoPagoPaymentForClient, mercadoPagoPointConfigured, mercadoPagoTestFailureDiagnostic, normalizeMercadoPagoPayment, validateMercadoPagoWebhookSignature } from './mercado-pago.js'
 
-const keys = ['MERCADO_PAGO_MODE', 'MERCADO_PAGO_ACCESS_TOKEN', 'MERCADO_PAGO_PUBLIC_KEY', 'MERCADO_PAGO_WEBHOOK_SECRET', 'MERCADO_PAGO_LIVE_PAYMENTS_ENABLED', 'MERCADO_PAGO_SELLER_ID', 'MERCADO_PAGO_POINT_TERMINAL_ID', 'GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN', 'GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY', 'GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET', 'MERCADO_PAGO_TEST_SELLER_ID', 'MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED', 'DB_NAME', 'APP_URL']
+const keys = ['MERCADO_PAGO_PRODUCTION_DIAGNOSTICS', 'MERCADO_PAGO_MODE', 'MERCADO_PAGO_ACCESS_TOKEN', 'MERCADO_PAGO_PUBLIC_KEY', 'MERCADO_PAGO_WEBHOOK_SECRET', 'MERCADO_PAGO_LIVE_PAYMENTS_ENABLED', 'MERCADO_PAGO_SELLER_ID', 'MERCADO_PAGO_POINT_TERMINAL_ID', 'GALEO_MERCADO_PAGO_TEST_ACCESS_TOKEN', 'GALEO_MERCADO_PAGO_TEST_PUBLIC_KEY', 'GALEO_MERCADO_PAGO_TEST_WEBHOOK_SECRET', 'MERCADO_PAGO_TEST_SELLER_ID', 'MERCADO_PAGO_TEST_CREDENTIALS_CONFIRMED', 'DB_NAME', 'APP_URL']
 const order = { id: 1, code: 'GALEO-LOCAL', customer_email: 'buyer-local@example.invalid', customer_name: 'Pessoa local', customer_phone: '11999999999', postal_code: '01001-000', street: 'Praça local', number: '20', neighborhood: 'Centro', city: 'São Paulo', state: 'SP', total: '121.35', shipping_fee: '21.35' }
 const items = [{ product_id: 11, variant_id: 21, size_label: 'M', product_name: 'Peça local', quantity: 2, unit_price: '50.00', line_total: '100.00' }]
 const card = () => ({ method: 'credit_card', payment_method_id: 'visa', token: 'local-card-token-' + randomUUID(), installments: 1, identification: { type: 'CPF', number: '123.456.789-09' } })
@@ -341,9 +341,9 @@ test('test rejection retains only private structured codes and removes request d
   globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: ['test_user'] }) : response(noisy, 400)
   await assert.rejects(createMercadoPagoOnlineOrder({ order, items, payment, idempotencyKey: attempt }), error => {
     assert.equal(error.outcomeUnknown, false)
-    // The official SDK retains error/cause, but discards the provider's
-    // top-level errorKey/code/errors. Never invent missing diagnostic values.
-    assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 400, codes: ['bad_request', 'invalid_order'] })
+    // The SDK drops errorKey/code/errors, so the diagnostic reads a private copy
+    // of the refused body: every machine code, still none of the request values.
+    assert.deepEqual(mercadoPagoTestFailureDiagnostic(error), { http_status: 400, codes: ['invalid_order', 'bad_request', '3001', 'missing_property'] })
     assert.equal(JSON.stringify(error).includes('invalid_order'), false, 'diagnostic must not appear in automatic exception logs')
     const copy = mercadoPagoTestFailureDiagnostic(error)
     copy.codes.push('mutated')
@@ -711,3 +711,24 @@ test('production refuses credentials from another account or a test user before 
     })
   }
 })
+
+test('production diagnostics are off by default and, when switched on, keep only codes and field names', async () => fixture(async () => {
+  live()
+  const cpf = '12345678909', email = 'buyer-private@example.invalid'
+  const providerBody = { error: 'bad_request', message: 'CPF ' + cpf + ' / ' + email,
+    errors: [{ code: 'invalid_identification', message: 'payer.identification.number ' + cpf, details: ['payer.identification.number'] }],
+    cause: [{ code: cpf, description: email }] }
+  globalThis.fetch = async url => url.endsWith('/users/me') ? response({ id: 42, site_id: 'MLB', tags: [] }) : response(providerBody, 400)
+  const payment = { method: 'pix', identification: { type: 'CPF', number: cpf } }
+  let caught
+  await assert.rejects(createMercadoPagoOnlineOrder({ order: { ...order, customer_email: email }, items, payment }), error => { caught = error; return error.code === 'PAYMENT_PROVIDER_REJECTED' })
+  assert.equal(mercadoPagoTestFailureDiagnostic(caught), null, 'off without the explicit switch')
+
+  process.env.MERCADO_PAGO_PRODUCTION_DIAGNOSTICS = 'true'
+  await assert.rejects(createMercadoPagoOnlineOrder({ order: { ...order, customer_email: email }, items, payment }), error => { caught = error; return error.code === 'PAYMENT_PROVIDER_REJECTED' })
+  const diagnostic = mercadoPagoTestFailureDiagnostic(caught)
+  assert.equal(diagnostic.http_status, 400)
+  assert.ok(diagnostic.codes.includes('invalid_identification'), JSON.stringify(diagnostic))
+  const serialized = JSON.stringify(diagnostic)
+  for (const secret of [cpf, email, 'live-token', 'CPF ']) assert.equal(serialized.includes(secret), false, secret)
+}))

@@ -41,6 +41,14 @@ function onlineConfiguration() {
   return { mode: enabledMode, accessToken, publicKey, webhookSecret, sellerId, testCredentialKind, available: Boolean(allowed && accessToken && publicKey && webhookSecret) }
 }
 
+// The bounded failure diagnostic (machine codes and outgoing field names, never
+// values) is always on in test mode. In production it needs the explicit,
+// temporary MERCADO_PAGO_PRODUCTION_DIAGNOSTICS=true switch.
+function diagnosticsOn(config) {
+  return Boolean(config?.available) && (config.mode === 'test' ||
+    (config.mode === 'production' && process.env.MERCADO_PAGO_PRODUCTION_DIAGNOSTICS === 'true'))
+}
+
 export function getMercadoPagoPublicConfig() {
   const config = onlineConfiguration()
   return { configured: config.available, available: config.available, mode: config.mode, public_key: config.available ? config.publicKey : '', methods: config.available ? ['pix', 'credit_card', 'debit_card'] : [], max_installments: 1 }
@@ -167,7 +175,7 @@ async function testFailureDiagnostic(response, config, body, idempotencyKey) {
 
 export function mercadoPagoTestFailureDiagnostic(error) {
   const config = onlineConfiguration()
-  if (config.mode !== 'test' || !config.available) return null
+  if (!diagnosticsOn(config)) return null
   const value = error && typeof error === 'object' ? testFailureDiagnostics.get(error) : null
   return value ? { http_status: value.http_status, codes: [...value.codes],
     ...(Array.isArray(value.fields) && value.fields.length ? { fields: value.fields.filter(diagnosticPath).slice(0, 16) } : {}) } : null
@@ -188,7 +196,7 @@ async function request(path, { accessToken, method = 'GET', body = null, idempot
       if (response.status >= 400 && response.status < 500 && ![408, 409, 423, 429].includes(response.status)) {
         const error = new MercadoPagoError('PAYMENT_PROVIDER_REJECTED', [400, 422].includes(response.status) ? 400 : 503, 'O Mercado Pago não aceitou os dados deste pagamento. Confira os dados ou escolha outra forma de pagamento.')
         error.providerStatus = response.status
-        if (diagnosticConfig?.mode === 'test' && diagnosticConfig.available && method === 'POST' && path === '/v1/orders') {
+        if (diagnosticsOn(diagnosticConfig) && method === 'POST' && path === '/v1/orders') {
           testFailureDiagnostics.set(error, await testFailureDiagnostic(response, diagnosticConfig, body, idempotencyKey))
         }
         throw error
@@ -214,6 +222,18 @@ async function orderRequest({ config, operation, body = null, orderId = '', para
     options: { timeout: REQUEST_TIMEOUT_MS, maxRetries: 0, redirect: 'error',
       ...(idempotencyKey ? { idempotencyKey } : {}), ...(deviceId ? { meliSessionId: deviceId } : {}) } }))
   let timer
+  // The SDK drops the Orders API `errors` list from its exceptions. With the
+  // diagnostic on, a refused create keeps a private copy of the error body for
+  // the bounded diagnostic below (codes and field names only).
+  const capture = operation === 'create' && diagnosticsOn(diagnosticConfig) ? { body: null } : null
+  const originalFetch = globalThis.fetch
+  if (capture) globalThis.fetch = async (...args) => {
+    const response = await originalFetch(...args)
+    if (!response.ok && capture.body === null) {
+      try { capture.body = (await response.clone().text()).slice(0, 32768) } catch { capture.body = '' }
+    }
+    return response
+  }
   try {
     const operationPromise = operation === 'create' ? client.create({ body })
       : operation === 'search' ? client.search({ options: parameters }) : client.get({ id: orderId })
@@ -231,12 +251,13 @@ async function orderRequest({ config, operation, body = null, orderId = '', para
       const safe = new MercadoPagoError('PAYMENT_PROVIDER_REJECTED', [400, 422].includes(status) ? 400 : 503,
         'O Mercado Pago não aceitou os dados deste pagamento. Confira os dados ou escolha outra forma de pagamento.')
       safe.providerStatus = status
-      if (operation === 'create' && diagnosticConfig?.mode === 'test' && diagnosticConfig.available) {
+      if (operation === 'create' && diagnosticsOn(diagnosticConfig)) {
         // SDK errors preserve error/message/cause, but discard some other raw
         // provider attributes. Keep only the bounded diagnostic actually known.
         let diagnostic = { http_status: status, codes: [] }
         try {
-          const raw = JSON.stringify({ error: error.error, message: error.message, cause: error.causes })
+          // Orders API errors come in `errors`; older APIs use `cause`.
+          const raw = capture?.body || JSON.stringify({ error: error.error, message: error.message, cause: error.causes ?? error.cause, errors: error.errors })
           if (Buffer.byteLength(raw) <= 32768) diagnostic = await testFailureDiagnostic(new Response(raw, { status }), diagnosticConfig, body, idempotencyKey)
         } catch { /* A diagnostic cannot change a definitive 4xx result. */ }
         testFailureDiagnostics.set(safe, diagnostic)
@@ -244,7 +265,10 @@ async function orderRequest({ config, operation, body = null, orderId = '', para
       throw safe
     }
     throw unavailable()
-  } finally { clearTimeout(timer) }
+  } finally {
+    clearTimeout(timer)
+    if (capture) globalThis.fetch = originalFetch
+  }
 }
 
 async function assertConfiguredSeller(config) {
@@ -431,7 +455,7 @@ export async function createMercadoPagoOnlineOrder({ order, items, payment, idem
   }
   // Buyer metadata comes only from our authenticated account and owned order.
   // A different billing address/CPF and real SDK device ID are validated input.
-  const diagnosticConfig = config.mode === 'test' ? { ...config, deviceId: selection.device_id || '', privateValues: [order, buyerContext, selection,
+  const diagnosticConfig = diagnosticsOn(config) ? { ...config, deviceId: selection.device_id || '', privateValues: [order, buyerContext, selection,
     ...text(order.customer_name).split(/\s+/), ...text(buyerContext.name).split(/\s+/)] } : null
   await assertConfiguredSeller(config)
   const result = validateProviderOrder(await orderRequest({ config, operation: 'create', body: payload, idempotencyKey: key,

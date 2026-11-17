@@ -238,8 +238,12 @@ export function registerOnlinePayments(app, { db, query, privacy, exigirCliente,
           // Only our own reason code and the provider HTTP status: never provider bodies.
           const reason = /^[A-Z_]{1,40}$/.test(String(error?.code || '')) ? error.code : 'PAYMENT_REJECTED'
           const providerStatus = Number.isInteger(error?.providerStatus) ? error.providerStatus : undefined
+          // With diagnostics on: only the bounded machine codes and our own field names.
+          const providerCodes = diagnostic?.codes?.slice(0, 5) || []
+          const providerFields = diagnostic?.fields?.slice(0, 3) || []
           throw problem(400, 'PAYMENT_NOT_CREATED', 'Não foi possível iniciar o pagamento. Confira os dados e tente novamente.',
-            { reason, ...(providerStatus ? { provider_status: providerStatus } : {}) })
+            { reason, ...(providerStatus ? { provider_status: providerStatus } : {}),
+              ...(providerCodes.length ? { provider_codes: providerCodes } : {}), ...(providerFields.length ? { provider_fields: providerFields } : {}) })
         }
         throw problem(503, 'PAYMENT_RESULT_PENDING', 'A confirmação desta tentativa ainda não chegou. Tente consultar ou repetir esta mesma tentativa.')
       }
