@@ -293,8 +293,7 @@ test('an interrupted schema recovery reserves identifiers at CREATE time and a l
     assert.deepEqual(await structure(runtime), beforeStructure)
     assert.deepEqual(await preservedContent(runtime), beforeContent)
     for (const table of removedTables) assert.equal((await runtime.query('SELECT COUNT(*) AS count FROM `' + table + '`'))[0].count, 0)
-    const finalCounters = await runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
-      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${removedTables.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, removedTables)
+    const finalCounters = await nextIds(runtime, removedTables)
     assert.equal(finalCounters.length, 14)
     for (const row of finalCounters) assert.ok(Number(row.next_id) >= 1_000_000_000)
     const inserted = await runtime.query('INSERT INTO customers(name,email,password_hash) VALUES(?,?,?)', ['Cliente posterior', 'partial-' + runtime.suffix + '@example.invalid', 'unused-fixture-hash'])

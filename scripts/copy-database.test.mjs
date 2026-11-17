@@ -44,4 +44,7 @@ test('hash da linha ignora a ordem das chaves do JSON e distingue valores', () =
   assert.equal(a, b)
   assert.notEqual(a, rowDigest({ id: '1', content: '{"a":[2,1],"b":1}', blob: Buffer.from('x') }, fields))
   assert.notEqual(a, rowDigest({ id: '1', content: '{"a":[1,2],"b":1}', blob: null }, fields))
+  const protocol = [{ name: 'id', type: 3 }, { name: 'content', type: 245 }, { name: 'blob', type: 252 }]
+  assert.equal(rowDigest({ id: '1', content: '{"b": 1, "a": [1, 2]}', blob: Buffer.from('x') }, protocol),
+    rowDigest({ id: '1', content: '{"a":[1,2],"b":1}', blob: Buffer.from('x') }, protocol))
 })

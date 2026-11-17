@@ -66,12 +66,15 @@ function canonicalJson(value) {
   return JSON.stringify(value)
 }
 
+// Result fields carry the numeric protocol type (245 = JSON); typeCast gets the name.
+const isJson = field => field.type === 'JSON' || field.type === 245 || field.columnType === 245
+
 export function rowDigest(row, fields) {
   const parts = fields.map(field => {
     const value = row[field.name]
     if (value === null || value === undefined) return null
     if (Buffer.isBuffer(value)) return 'hex:' + value.toString('hex')
-    if (field.type === 'JSON') {
+    if (isJson(field)) {
       try { return 'json:' + canonicalJson(JSON.parse(value)) } catch { return 'json:' + value }
     }
     return String(value)
