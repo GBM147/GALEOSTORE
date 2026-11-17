@@ -13,8 +13,9 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   - O banco ganhou as colunas do aceite e o login galeostore01 no Admin; o login
     antigo continua como reserva.
   - A versão nova está no ar, com as mesmas respostas da API de antes.
-  - Falta apagar `galeo-store-antigo` na conta antiga e passar para o galeostore01
-    as contas do Aiven, Cloudinary, Melhor Envio, Google e Render.
+  - O projeto antigo foi apagado em 17/11, e o Cloudinary passou para a conta da
+    loja. Melhor Envio e Google ficam com os donos, e o Render, só de teste, com o
+    desenvolvedor.
 - [x] **Banco no TiDB Cloud** (Técnico + Donos, 17/11): o MySQL grátis do Aiven
   acaba em 21/12/2026, então a loja passou para o TiDB Cloud Starter, também grátis.
   - As 29 tabelas foram copiadas e conferidas linha por linha.

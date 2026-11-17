@@ -59,9 +59,9 @@ ainda depende das providências abaixo.
     como reserva.
 
   Falta:
-  - apagar o projeto `galeo-store-antigo` na conta Netlify antiga;
-  - passar para o galeostore01 as contas do Aiven, Cloudinary, Melhor Envio, Google
-    (Perfil da Empresa) e Render;
+  - o projeto `galeo-store-antigo` foi apagado em 17/11, e o Cloudinary passou para a
+    conta da loja no mesmo dia. Melhor Envio e Google continuam nas contas dos donos,
+    e o Render, que é só o site de teste, na conta do desenvolvedor;
   - guardar os acessos e a recuperação das contas;
   - acompanhar os limites dos planos gratuitos;
   - definir quem controla o domínio, quando houver um.

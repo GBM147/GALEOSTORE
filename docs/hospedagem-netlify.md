@@ -38,7 +38,8 @@ equipe **Galeos** (ID `6afaffde148474e775ffbe02`, plano Free). O projeto tem o I
   `MIGRACAO_OK`. Depois, a revisão `4558536` foi publicada no deploy
   `6afb4667aeae034d9d1c82b8`.
 - Na troca de nomes, o projeto anterior (`1987b91f-dacd-4665-bda8-89d899b7b51b`, da
-  equipe Galeo Store da conta antiga) virou `galeo-store-antigo`. As 7 respostas
+  equipe Galeo Store da conta antiga) virou `galeo-store-antigo` e foi apagado em
+  17/11. As 7 respostas
   públicas da API ficaram idênticas às de antes da troca.
 
 Para administrar ou publicar, use um token da equipe Galeos. No ambiente de
