@@ -846,8 +846,13 @@ test('requisições concorrentes da mesma tentativa criam apenas uma cobrança',
   mpFixtures.creations[fixture.order.code] = { ...mpFixtures.orders[fixture.providerId], __delay_ms: 700 }
   await saveMpFixtures()
   const results = await Promise.all([startPayment(fixture), startPayment(fixture)])
-  assert.equal(results.filter(result => result.response.status === 200).length, 1)
-  assert.equal(results.filter(result => result.response.status === 409 && result.data.code === 'PAYMENT_IN_PROGRESS').length, 1)
+  const accepted = results.filter(result => result.response.status === 200).length
+  const busy = results.filter(result => result.response.status === 409 && result.data.code === 'PAYMENT_IN_PROGRESS').length
+  // MySQL's GET_LOCK(…,0) answers at once (409). TiDB waits at least 1 s, so the
+  // second request may instead see the finished attempt (200). Either way only one
+  // charge exists, which the provider calls and payment rows below prove.
+  assert.equal(accepted + busy, 2)
+  assert.ok(accepted >= 1 && busy <= 1)
   for (const result of results) {
     if (result.response.status === 200) assert.equal(result.data.payment.provider_reference, fixture.providerId)
   }

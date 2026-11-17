@@ -34,6 +34,26 @@ async function stopApi(runtime) {
   })
 }
 
+// MySQL reports the next id in information_schema. TiDB reports 0 there until
+// the first allocation, while SHOW CREATE TABLE carries the reserved floor.
+async function nextIds(runtime, names) {
+  if (process.env.GALEO_TEST_DB_ENGINE !== 'tidb') {
+    return runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${names.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, names)
+  }
+  const present = new Set(await tables(runtime))
+  const rows = []
+  for (const name of names.filter(table => present.has(table))) {
+    const [created] = await runtime.query('SHOW CREATE TABLE `' + name + '`')
+    const sql = created['Create Table']
+    const end = sql.lastIndexOf(')')
+    if (!/\bAUTO_INCREMENT\b/.test(sql.slice(0, end))) continue
+    const match = /AUTO_INCREMENT=(\d+)/.exec(sql.slice(end))
+    rows.push({ name, next_id: match ? Number(match[1]) : 0 })
+  }
+  return rows
+}
+
 async function tables(runtime) {
   return (await runtime.query('SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME')).map(row => row.name)
 }
@@ -160,8 +180,7 @@ test('startup recovers the 15 dropped operational tables and removes stale ident
       assert.deepEqual(await tables(runtime), [...removedTables, ...preservedTables].sort())
       assert.deepEqual(await structure(runtime), beforeStructure)
       for (const table of removedTables) assert.equal((await runtime.query('SELECT COUNT(*) AS count FROM `' + table + '`'))[0].count, 0, table + ' must start empty')
-      const floor = await runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${removedTables.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, removedTables)
+      const floor = await nextIds(runtime, removedTables)
       assert.equal(floor.length, 14)
       for (const row of floor) assert.ok(Number(row.next_id) >= 1_000_000_000, row.name + ' cannot reuse an old operational identifier')
     })
@@ -263,8 +282,7 @@ test('an interrupted schema recovery reserves identifiers at CREATE time and a l
     await assert.rejects(runtime.startApi(), /stopped before startup/)
     const partialTables = await tables(runtime)
     assert.deepEqual(partialTables, [...preservedTables, ...removedTables.filter(table => table !== 'newsletter_subscriptions')].sort())
-    const createdCounters = await runtime.query(`SELECT TABLE_NAME AS name,AUTO_INCREMENT AS next_id FROM information_schema.TABLES
-      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${removedTables.map(() => '?').join(',')}) AND AUTO_INCREMENT IS NOT NULL`, removedTables)
+    const createdCounters = await nextIds(runtime, removedTables)
     assert.equal(createdCounters.length, 13)
     for (const row of createdCounters) assert.ok(Number(row.next_id) >= 1_000_000_000, row.name + ' reserves safe IDs even when the process stops before ALTER')
     assert.deepEqual(await preservedContent(runtime), beforeContent)

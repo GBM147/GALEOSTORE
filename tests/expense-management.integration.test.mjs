@@ -168,7 +168,7 @@ test('a recurring template can be deleted without removing any already recorded 
   assert.equal((await runtime.request('/api/admin/finance/recurring/' + recurringId + '/record', { method: 'POST', body: { date: today } })).status, 404)
 })
 
-test('an audit failure rolls back a new expense and a recurring-template deletion', async () => {
+test('an audit failure rolls back a new expense and a recurring-template deletion', { skip: process.env.GALEO_TEST_DB_ENGINE === 'tidb' && 'O TiDB não tem triggers; a falha de auditoria é testada no MySQL.' }, async () => {
   const template = await createRecurring('Modelo para auditoria local', 12)
   const before = await financialCount()
   await runtime.adminDb.query(`CREATE TRIGGER \`${runtime.database}\`.reject_expense_audit BEFORE INSERT ON \`${runtime.database}\`.audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Local audit fixture failure'`)

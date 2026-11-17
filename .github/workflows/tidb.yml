@@ -1,0 +1,117 @@
+name: TiDB
+
+# Production moves from Aiven MySQL to TiDB Cloud Starter (MySQL-compatible).
+# This job runs the database suites against TiDB and proves the MySQL -> TiDB
+# copy used for the move. Disposable local services only.
+on:
+  push:
+    branches: [main, 'fix/**', 'feature/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tidb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tidb:
+    name: Testes no TiDB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      tidb:
+        # Same LTS line as TiDB Cloud Starter.
+        image: pingcap/tidb:v8.5.8
+        ports:
+          - 3307:4000
+      mysql:
+        # Source of the copy test, like the Aiven MySQL 8.0.
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: copy-root-only
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pcopy-root-only"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      NODE_ENV: development
+      PORT: '10000'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3307'
+      DB_USER: galeo_test
+      DB_PASSWORD: ci-test-only
+      DB_NAME: galeo_store_test
+      DB_SSL: 'false'
+      MYSQL_ROOT_PASSWORD: tidb-root-only
+      COPY_SOURCE_PORT: '3308'
+      COPY_SOURCE_ROOT_PASSWORD: copy-root-only
+      GALEO_TEST_DB_ENGINE: tidb
+      SESSION_SECRET: ci-only-session-secret-0123456789abcdef0123456789abcdef
+      DISTRIBUTOR_WEBHOOK_SECRET: ci-only-distributor-secret
+      APP_URL: http://127.0.0.1:10000
+      ALLOWED_ORIGINS: http://127.0.0.1:10000,http://127.0.0.1:5173
+      GALEO_TEST_BASE_URL: http://127.0.0.1:10000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Usuários de teste no TiDB
+        run: |
+          for attempt in $(seq 1 60); do mysql -h 127.0.0.1 -P 3307 -uroot -e 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
+          mysql -h 127.0.0.1 -P 3307 -uroot <<'SQL'
+          ALTER USER 'root'@'%' IDENTIFIED BY 'tidb-root-only';
+          CREATE USER 'galeo_test'@'%' IDENTIFIED BY 'ci-test-only';
+          CREATE DATABASE galeo_store_test;
+          GRANT ALL PRIVILEGES ON galeo_store_test.* TO 'galeo_test'@'%';
+          GRANT SELECT, TRIGGER, EVENT, CREATE USER ON *.* TO 'galeo_test'@'%';
+          SQL
+
+      - name: Pacote das funções do Netlify
+        run: npm run bundle:netlify
+
+      - name: Schema de teste
+        run: node scripts/migrate-schema.mjs
+
+      - name: Integração com a API local
+        run: |
+          node server/index.js > api.log 2>&1 &
+          echo $! > api.pid
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:10000/health && break; sleep 1; done
+          npm run test:integration
+          kill "$(cat api.pid)"
+
+      - name: Integração com bancos descartáveis
+        run: |
+          clear_limits() { mysql -h 127.0.0.1 -P 3307 -uroot -ptidb-root-only galeo_store_test -e 'DELETE FROM rate_limit_counters'; }
+          clear_limits && npm run test:security
+          clear_limits && npm run test:email
+          npm run test:netlify
+          npm run test:products
+          npm run test:shipping
+          npm run test:expenses
+          npm run test:home
+          npm run test:media
+          npm run test:recovery
+
+      # test:cleanup is MySQL-only (it inspects triggers and events).
+      - name: Integração da newsletter
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -uroot -ptidb-root-only -e "GRANT ALL PRIVILEGES ON \`galeo\\_store\\_test%\`.* TO 'galeo_test'@'%' WITH GRANT OPTION"
+          npm run test:newsletter
+
+      - name: Cópia MySQL para TiDB
+        run: npm run test:copy
+
+      - name: Log da API
+        if: failure()
+        run: tail -n 120 api.log || true

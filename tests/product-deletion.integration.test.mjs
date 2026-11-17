@@ -269,7 +269,7 @@ for (const [saleStatus, orderStatus] of [['PAGA', 'CANCELLED'], ['CANCELADA', 'R
   })
 }
 
-test('an audit failure rolls back deletion of the product, gallery and all stock movements', async t => {
+test('an audit failure rolls back deletion of the product, gallery and all stock movements', { skip: process.env.GALEO_TEST_DB_ENGINE === 'tidb' && 'O TiDB não tem triggers; a falha de auditoria é testada no MySQL.' }, async t => {
   const product = await productWithHistory('delete-rollback')
   const sale = await saleFixture(product, 'CANCELADA')
   const order = await orderFixture(product, 'CANCELLED')

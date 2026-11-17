@@ -19,7 +19,9 @@ export async function resolveProductImage(input, query) {
   if (!['original', 'ai', 'galeo'].includes(input.image_variant)) {
     throw new ProductImageSelectionError('Escolha a versão original, sem fundo ou com Fundo GALEO da imagem principal.')
   }
-  const [asset] = await query('SELECT id,media_type,url,ai_url,ai_status FROM media_assets WHERE id=? FOR SHARE', [assetId])
+  // FOR UPDATE, not FOR SHARE: TiDB has no shared row locks, and the exclusive
+  // lock still keeps the chosen photo from changing until the product is saved.
+  const [asset] = await query('SELECT id,media_type,url,ai_url,ai_status FROM media_assets WHERE id=? FOR UPDATE', [assetId])
   if (!asset) throw new ProductImageSelectionError('Mídia da imagem principal não encontrada.', 404)
   if (asset.media_type !== 'image') throw new ProductImageSelectionError('A imagem principal deve ser uma foto.')
   if (input.image_variant !== 'original' && (asset.ai_status !== 'done' || !asset.ai_url)) {
