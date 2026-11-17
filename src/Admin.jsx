@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import ProductSearch from './ProductSearch'
 import MediaLibrary from './MediaLibrary'
@@ -10,6 +10,7 @@ import { activeProductVariants, productHasVariants } from './productVariants'
 import ShippingServiceIdentity from './ShippingServiceIdentity'
 import AdminErrorEvents from './AdminErrorEvents'
 import ProductWizard from './admin/ProductWizard'
+import { THEME_DEFAULTS, paletteKey, themePalette } from './themePalette'
 import { SearchIcon } from './icons'
 import { ResponsiveImage } from './ResponsiveImage'
 import { imageWidths } from './cloudinaryImage'
@@ -541,9 +542,12 @@ function HomeEditor({ user }) {
           {area === 'visual' && visual && (
             <div className="home-editor-form visual-grid">
               <label>Tema<select value={visual.theme || 'dark'} onChange={(e) => setVisual((current) => ({ ...current, theme: e.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
-              {[
-                ['background','Fundo'],['surface','Superfície'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave'],['accent_deep','Destaque profundo']
-              ].map(([key,label]) => <label key={key}>{label}<input type="text" value={visual.palette?.[key] || ''} onChange={(e) => setVisual((current) => ({ ...current, palette: { ...(current.palette || {}), [key]: e.target.value } }))} placeholder="#000000" /></label>)}
+              {[['dark','Cores do modo escuro'],['light','Cores do modo claro']].map(([mode,title]) => <Fragment key={mode}>
+                <div className="home-editor-inline-settings home-editor-full"><strong>{title}</strong> (vazio usa a cor padrão)</div>
+                {[
+                  ['background','Fundo'],['surface','Superfície'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave'],['accent_deep','Destaque profundo']
+                ].map(([key,label]) => <label key={mode + key}>{label}<input type="text" value={themePalette(visual, mode)[key] || ''} onChange={(e) => setVisual((current) => ({ ...current, [paletteKey(mode)]: { ...themePalette(current, mode), [key]: e.target.value } }))} placeholder={THEME_DEFAULTS[mode][key]} /></label>)}
+              </Fragment>)}
               <div className="home-editor-inline-settings home-editor-full">Os campos visuais ficam salvos no CMS e aplicados na vitrine publicada</div>
               <div className="home-editor-savebar home-editor-full"><button className="button button-primary" type="button" onClick={() => saveSetting('storefront_visual_defaults', visual)} disabled={saving}>Salvar visual no rascunho ↗</button></div>
             </div>

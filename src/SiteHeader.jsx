@@ -24,7 +24,7 @@ export default function SiteHeader({ theme, onToggle, navigation = null, cartIte
   const links = navigationLinks(navigation)
   const editing = Boolean(editor?.editing)
   const editMenu = event => { event.preventDefault(); editor.select({ kind:'settings', tab:'navigation' }) }
-  const toggleTheme = editing ? () => editor.updateSetting('storefront_visual_defaults', current => ({ ...current, theme:theme === 'dark' ? 'light' : 'dark' })) : onToggle
+  const toggleTheme = editing ? () => { editor.updateSetting('storefront_visual_defaults', current => ({ ...current, theme:theme === 'dark' ? 'light' : 'dark' })); editor.setTheme?.(null) } : onToggle
 
   const isActive = useCallback(url => {
     try {

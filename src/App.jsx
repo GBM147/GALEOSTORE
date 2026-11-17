@@ -7,6 +7,7 @@ import RevealGrid from './RevealGrid'
 import HeroVisual from './HeroVisual'
 import NewsletterSignup, { NewsletterConfirmation } from './NewsletterSignup'
 import VisualHomeEditor, { EditableSection, EditableText, EditorLink, EditorMediaButton, useVisualEditor } from './VisualHomeEditor'
+import { applyThemePalette } from './themePalette'
 import { cartCount, readCart, STORE_API_BASE } from './storeApi'
 import { formatProductPrice, productHasPrice } from './productAvailability'
 import { loadStorefrontJson } from './storefrontData'
@@ -678,24 +679,18 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    if (themePreference) {
+    // The editor's preview mode is not the visitor's own choice.
+    if (themePreference && !visualMode) {
       try { localStorage.setItem('galeo-theme', themePreference) } catch {}
     }
-  }, [theme, themePreference])
+  }, [theme, themePreference, visualMode])
+
+  // In the visual editor the page follows the store's initial theme whenever it
+  // changes; "Cores do modo" can still preview the other theme meanwhile.
+  useEffect(() => { if (visualMode) setThemePreference(null) }, [visualMode, defaultTheme])
 
   useEffect(() => {
-    const palette = siteSettings.storefront_visual_defaults?.palette || {}
-    const root = document.documentElement
-    const vars = { background:'--bg', surface:'--surface', surface_alt:'--surface-2', text:'--text', muted:'--muted', accent:'--accent', accent_soft:'--accent-soft', accent_deep:'--accent-deep', line:'--line' }
-
-    if (theme === 'light') {
-      Object.values(vars).forEach((cssVar) => root.style.removeProperty(cssVar))
-      return
-    }
-
-    Object.entries(vars).forEach(([key, cssVar]) => {
-      if (palette[key]) root.style.setProperty(cssVar, palette[key])
-    })
+    applyThemePalette(document.documentElement, siteSettings.storefront_visual_defaults, theme)
   }, [siteSettings, theme])
 
   const storefront = (
@@ -742,5 +737,5 @@ export default function App() {
   if (!visualMode) return storefront
   if (previewDenied) return <main className="section-shell page-space"><h1>Editor indisponível</h1><p role="alert">Entre no painel com a conta de proprietário para editar o rascunho.</p><a className="button button-primary" href="/admin">Entrar no painel</a></main>
   if (!homeReady || !settingsLoaded || settingsSource !== 'draft') return <main className="section-shell page-space"><p role="status">Carregando o rascunho da loja…</p></main>
-  return <VisualHomeEditor sections={homeSections} settings={siteSettings} products={catalog} categories={categories} onSectionsChange={setHomeSections} onSettingsChange={next => { setThemePreference(null); setSiteSettings(next) }}>{storefront}</VisualHomeEditor>
+  return <VisualHomeEditor sections={homeSections} settings={siteSettings} products={catalog} categories={categories} onSectionsChange={setHomeSections} onSettingsChange={setSiteSettings} theme={theme} onThemeChange={setThemePreference}>{storefront}</VisualHomeEditor>
 }

@@ -60,6 +60,11 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
     newsletter é cancelada e os pedidos ficam guardados, como diz a Privacidade.
   - Avisos por e-mail de senha alterada e de conta excluída. Código em
     `server/customer-account.js` e `src/AccountPage.jsx`; testes no MySQL e no TiDB.
+- [x] **Cores do modo claro no editor** (Técnico, 17/11): em Editor da loja > Cores e
+  tema, o seletor **Modo escuro | Modo claro** escolhe de qual modo são as cores, e a
+  página mostra esse modo. Cada modo guarda as suas cores (`palette` e
+  `palette_light`), e "Restaurar cores padrão" volta às do `styles.css`
+  (`src/themePalette.js`). Antes, só o modo escuro mudava.
 - [x] **Página 404** (Técnico): página "Página não encontrada" com `noindex` e links para o catálogo e o início. Feito em 06/11, no ar desde 16/11.
 - [ ] **Produtos e categorias de teste na vitrine** (Donos): a produção mostra os produtos "teste" e "teste2" (R$ 50, sem categoria e sem foto) e a categoria "Nova categoria". Remover ou substituir antes de divulgar.
 - [ ] **Conteúdo da Home** (Donos): campanhas e categorias no CMS estão sem

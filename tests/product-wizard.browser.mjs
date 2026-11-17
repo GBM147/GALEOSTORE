@@ -183,6 +183,7 @@ test('a lista em cartões filtra, busca e abre a edição direto nas fotos', asy
     { ...base, id: 33, name: 'Camiseta local acabando', price: 89.9, stock: 1, min_stock: 2, active: 1, image: '/images/product-placeholder.svg?cover=33' }
   ] })
   const cards = page.locator('.admin-product-card')
+  await cards.nth(2).waitFor()
   assert.equal(await cards.count(), 3)
   const filters = page.getByRole('group', { name: 'Mostrar produtos' })
   assert.deepEqual(await filters.getByRole('button').allTextContents(), ['Todos (3)', 'Na loja (2)', 'Rascunhos (1)', 'Estoque baixo (2)', 'Sem foto (1)'])

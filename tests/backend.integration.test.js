@@ -341,12 +341,17 @@ test('configurações visuais aceitam as cores CSS usadas no padrão da loja', a
   try {
     const saved = await client.request('/api/admin/home/settings/storefront_visual_defaults', {
       method: 'PUT',
-      body: { value: { theme: 'dark', palette: { background: '#050505', line: 'rgba(224,189,125,.19)', surface: 'rgb(1,2,3)', accent: 'hsl(10,50%,20%)' } } }
+      body: { value: { theme: 'dark', palette: { background: '#050505', line: 'rgba(224,189,125,.19)', surface: 'rgb(1,2,3)', accent: 'hsl(10,50%,20%)' }, palette_light: { background: ' #fafafa ', text: '#111111', unknown: '#222222' } } }
     })
     assert.equal(saved.response.status, 200, saved.data.error)
     assert.equal(saved.data.value.palette.line, 'rgba(224,189,125,.19)')
+    // Each theme keeps its own colors; unknown keys are dropped.
+    assert.deepEqual(saved.data.value.palette_light, { background: '#fafafa', text: '#111111' })
     const unsafe = await client.request('/api/admin/home/settings/storefront_visual_defaults', { method: 'PUT', body: { value: { palette: { background: 'url(https://example.invalid/image)' } } } })
     assert.equal(unsafe.response.status, 400)
+    const unsafeLight = await client.request('/api/admin/home/settings/storefront_visual_defaults', { method: 'PUT', body: { value: { palette_light: { text: 'red;background:url(x)' } } } })
+    assert.equal(unsafeLight.response.status, 400)
+    assert.match(unsafeLight.data.error, /modo claro/)
   } finally {
     await execute("UPDATE home_settings SET setting_value=?,draft_value=?,updated_by=?,updated_at=? WHERE setting_key='storefront_visual_defaults'", [jsonParameter(original), jsonParameter(existing[0].draft_value), existing[0].updated_by, existing[0].updated_at])
   }

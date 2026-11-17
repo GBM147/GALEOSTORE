@@ -163,3 +163,38 @@ test('Dados da empresa: o editor avisa o que falta e salva no rascunho', async t
   assert.equal(saved.cnpj, '11.222.333/0001-81')
   assert.equal(saved.email, 'contato@galeo.test')
 })
+
+test('Cores e tema: cada modo guarda as suas cores e a página mostra o modo editado', async t => {
+  const { page, calls } = await fixture(t)
+  const rootColor = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())
+  const waitColor = value => page.waitForFunction(expected => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === expected, value)
+  const waitTheme = value => page.waitForFunction(expected => document.documentElement.dataset.theme === expected, value)
+  await panel(page).getByRole('button', { name: /Cores e tema/ }).click()
+  const modes = panel(page).getByRole('group', { name: 'Cores do modo', exact: true })
+  const background = panel(page).getByLabel('Fundo', { exact: true })
+  assert.equal(await modes.getByRole('button', { name: 'Modo escuro', exact: true }).getAttribute('aria-pressed'), 'true')
+  assert.equal(await background.inputValue(), '#050505', 'mostra a cor em uso, não preto')
+
+  await modes.getByRole('button', { name: 'Modo claro', exact: true }).click()
+  await waitTheme('light')
+  assert.equal(await background.inputValue(), '#eee9df')
+  await background.fill('#f0e0d0')
+  await waitColor('#f0e0d0')
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light', 'mudar uma cor não troca o modo da tela')
+
+  await modes.getByRole('button', { name: 'Modo escuro', exact: true }).click()
+  await waitTheme('dark')
+  assert.equal(await rootColor(), '#050505', 'o modo escuro continua com a cor dele')
+  assert.equal(await background.inputValue(), '#050505')
+  await modes.getByRole('button', { name: 'Modo claro', exact: true }).click()
+  await waitColor('#f0e0d0')
+
+  await saveDraft(page)
+  const visual = calls.filter(call => call.method === 'PUT' && call.path === '/api/admin/home/settings/storefront_visual_defaults').at(-1)?.body.value
+  assert.equal(visual.palette_light.background, '#f0e0d0')
+  assert.equal(visual.palette?.background, undefined)
+  assert.equal(visual.theme, 'dark', 'o tema inicial da loja não muda')
+  await panel(page).getByRole('button', { name: 'Restaurar cores padrão do modo claro', exact: true }).click()
+  await waitColor('#eee9df')
+  assert.equal(await background.inputValue(), '#eee9df')
+})

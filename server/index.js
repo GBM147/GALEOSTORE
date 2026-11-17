@@ -2154,16 +2154,21 @@ app.put('/api/admin/home/settings/:key', exigirLogin, exigirOwner, async (req, r
   }
 
   if (key === 'storefront_visual_defaults') {
-    const palette = value.palette && typeof value.palette === 'object' ? value.palette : {}
+    // `palette` holds the dark theme colors and `palette_light` the light ones.
     const validColor = (color) => typeof color === 'string' && /^(#[0-9a-f]{3,8}|rgba?\([^)]{1,80}\)|hsla?\([^)]{1,80}\))$/i.test(color.trim())
-    const safe = {}
-    for (const paletteKey of ['background','surface','surface_alt','text','muted','accent','accent_soft','accent_deep','line']) {
-      if (palette[paletteKey] !== undefined) {
-        if (!validColor(palette[paletteKey])) return res.status(400).json({ error:'Cor inválida em ' + paletteKey + '.' })
-        safe[paletteKey] = String(palette[paletteKey]).trim()
+    const palettes = {}
+    for (const [field, label] of [['palette',''],['palette_light',' (modo claro)']]) {
+      const palette = value[field] && typeof value[field] === 'object' && !Array.isArray(value[field]) ? value[field] : {}
+      const safe = {}
+      for (const paletteKey of ['background','surface','surface_alt','text','muted','accent','accent_soft','accent_deep','line']) {
+        if (palette[paletteKey] !== undefined) {
+          if (!validColor(palette[paletteKey])) return res.status(400).json({ error:'Cor inválida em ' + paletteKey + label + '.' })
+          safe[paletteKey] = String(palette[paletteKey]).trim()
+        }
       }
+      palettes[field] = safe
     }
-    setting = { ...value, visual_direction:'editorial_multibrand', theme:['dark','light'].includes(String(value.theme)) ? String(value.theme) : 'dark', palette:safe }
+    setting = { ...value, visual_direction:'editorial_multibrand', theme:['dark','light'].includes(String(value.theme)) ? String(value.theme) : 'dark', ...palettes }
   }
 
   if (key === 'navigation') {

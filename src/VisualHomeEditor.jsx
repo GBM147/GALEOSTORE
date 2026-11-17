@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { THEME_DEFAULTS, paletteKey, themeName, themePalette } from './themePalette'
 import { createPortal } from 'react-dom'
 import { Link, useLocation } from 'react-router-dom'
 import { adminApi } from './adminApi'
@@ -428,7 +429,7 @@ function SelectionPanel({ selection, editor, onClose }) {
       {kind === 'campaign' && item && <CampaignOptions item={item} links={links} defaults={editor.settings.campaign_defaults} onChange={updateItem} onChoose={(target) => chooseTarget({ ...target,campaign:true,campaignIndex:itemIndex })} />}
       {kind === 'products' && <ProductChoices content={content} products={editor.products} onChange={(value) => editor.updateSection(section.key,() => value)} />}
       {kind === 'section' && <><p>Clique nos textos desta seção para editar diretamente na página.</p>{section?.key === 'newsletter' && <Field label="Texto do botão da newsletter" value={content.button_label} onChange={(value) => update('button_label',value)} />}</>}
-      {kind === 'settings' && <><div className="visual-settings-tabs" role="group" aria-label="Áreas de configurações">{[['company','Empresa'],['navigation','Menu'],['footer','Rodapé'],['visual','Cores e tema'],['campaign','Movimento']].map(([key,label]) => <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div><SettingsOptions tab={tab} settings={editor.settings} update={editor.updateSetting} links={links} /><a href="/admin?tab=editor&mode=advanced">Mais opções e histórico de versões ↗</a></>}
+      {kind === 'settings' && <><div className="visual-settings-tabs" role="group" aria-label="Áreas de configurações">{[['company','Empresa'],['navigation','Menu'],['footer','Rodapé'],['visual','Cores e tema'],['campaign','Movimento']].map(([key,label]) => <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div><SettingsOptions tab={tab} settings={editor.settings} update={editor.updateSetting} links={links} theme={editor.theme} onThemeChange={editor.setTheme} /><a href="/admin?tab=editor&mode=advanced">Mais opções e histórico de versões ↗</a></>}
       {(kind === 'category' || kind === 'campaign') && !item && <p>Este item foi removido. Feche as opções e escolha outro.</p>}
     </fieldset>}
   </PanelFrame>
@@ -458,7 +459,7 @@ function ProductChoices({ content, products, onChange }) {
   return <><label className="visual-field"><span>O que mostrar na Home</span><select value={content.source || 'latest'} onChange={(event) => onChange({ ...content,source:event.target.value })}><option value="latest">Produtos mais recentes</option><option value="manual">Escolher produtos</option></select></label>{content.source === 'manual' && <><Field label="Buscar produto" type="search" value={search} onChange={setSearch} /><p>{selected.length} produto(s) selecionado(s). A ordem de seleção será usada na Home.</p><div className="visual-product-grid">{filtered.map((product) => <label key={product.id} className="visual-product-choice"><input type="checkbox" checked={selected.includes(Number(product.id))} onChange={(event) => onChange({ ...content,product_ids:event.target.checked ? [...selected,Number(product.id)] : selected.filter((id) => id !== Number(product.id)) })} /><img src={product.image || '/images/product-placeholder.svg'} alt="" loading="lazy" /><span>{product.name}</span></label>)}</div>{!filtered.length && <p>Nenhum produto encontrado. Cadastre seus produtos no painel para selecionar aqui.</p>}</>}</>
 }
 
-function SettingsOptions({ tab,settings,update,links }) {
+function SettingsOptions({ tab,settings,update,links,theme,onThemeChange }) {
   if (tab === 'navigation') {
     const current = settings.navigation || {items:[]}
     const items = current.items || []
@@ -478,10 +479,20 @@ function SettingsOptions({ tab,settings,update,links }) {
   }
   if (tab === 'campaign') return <><p>Este padrão é aplicado às campanhas automaticamente.</p><AnimationFields value={settings.campaign_defaults} onChange={(value) => update('campaign_defaults',() => value)} /></>
   const current = settings.storefront_visual_defaults || {}
-  return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>Letras da loja: Bodoni Moda nos títulos, Inter nos textos e Cinzel no nome GALEO.</p><div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([key,label]) => <Field key={key} type="color" label={label} value={/^#[\da-f]{6}$/i.test(current.palette?.[key] || '') ? current.palette[key] : '#000000'} onChange={(value) => update('storefront_visual_defaults',(old) => ({ ...old,palette:{ ...old.palette,[key]:value } }))} />)}</div></>
+  // The fields edit the colors of the theme on screen; switching it previews the other one.
+  const mode = themeName(theme)
+  const key = paletteKey(mode)
+  const palette = themePalette(current, mode)
+  const hex = value => /^#[\da-f]{6}$/i.test(String(value || '').trim()) ? String(value).trim() : ''
+  const setColor = name => value => update('storefront_visual_defaults',(old) => ({ ...old,[key]:{ ...themePalette(old, mode),[name]:value } }))
+  return <><label className="visual-field"><span>Tema inicial da loja</span><select value={current.theme || 'dark'} onChange={(event) => update('storefront_visual_defaults',(old) => ({ ...old,theme:event.target.value }))}><option value="dark">Escuro</option><option value="light">Claro</option></select></label><p>Letras da loja: Bodoni Moda nos títulos, Inter nos textos e Cinzel no nome GALEO.</p>
+    <div className="visual-settings-tabs visual-theme-switch" role="group" aria-label="Cores do modo">{[['dark','Modo escuro'],['light','Modo claro']].map(([value,label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => onThemeChange?.(value)}>{label}</button>)}</div>
+    <p className="visual-field-note">Editando as cores do {mode === 'light' ? 'modo claro' : 'modo escuro'}. A página mostra esse modo; o outro guarda as cores dele.</p>
+    <div className="visual-color-grid">{[['background','Fundo'],['surface','Superfícies'],['text','Texto'],['muted','Texto secundário'],['accent','Destaque'],['accent_soft','Destaque suave']].map(([name,label]) => <Field key={mode + name} type="color" label={label} value={hex(palette[name]) || hex(THEME_DEFAULTS[mode][name]) || '#000000'} onChange={setColor(name)} />)}</div>
+    <button type="button" disabled={!Object.keys(palette).length} onClick={() => update('storefront_visual_defaults',(old) => ({ ...old,[key]:{} }))}>Restaurar cores padrão do {mode === 'light' ? 'modo claro' : 'modo escuro'}</button></>
 }
 
-export default function VisualHomeEditor({ sections = [], settings = {}, products = [], categories = [], onSectionsChange, onSettingsChange, children }) {
+export default function VisualHomeEditor({ sections = [], settings = {}, products = [], categories = [], onSectionsChange, onSettingsChange, theme = 'dark', onThemeChange, children }) {
   const location = useLocation()
   const [authorized,setAuthorized] = useState(null)
   const [editing,setEditing] = useState(true)
@@ -631,12 +642,12 @@ export default function VisualHomeEditor({ sections = [], settings = {}, product
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     window.requestAnimationFrame(() => document.querySelector('[data-editor-section="' + key + '"]')?.scrollIntoView({ block:'start', behavior:reduce ? 'auto' : 'smooth' }))
   }
-  const context = useMemo(() => ({ editing:editing && authorized === true, busy,sections,settings,products,categories,current:selection?.sectionKey || null,
+  const context = useMemo(() => ({ editing:editing && authorized === true, busy,sections,settings,products,categories,current:selection?.sectionKey || null,theme,setTheme:onThemeChange,
     select:(value) => { if (!operation.current) { opener.current = document.activeElement; setSelection(value); setError('') } },updateSection,updateSetting,
     confirmLeave:() => !dirtyRef.current || window.confirm(leaveMessage),
     setVisibility:(key,visible) => { if (!operation.current) onSectionsChange((current) => current.map((item) => item.key === key ? { ...item,visible } : item)) },
     reorder:(keys) => { if (!operation.current) onSectionsChange((current) => keys.map((key,index) => ({ ...current.find((item) => item.key === key),order:(index + 1) * 10 }))) }
-  }),[editing,authorized,busy,sections,settings,products,categories,selection,baselineVersion])
+  }),[editing,authorized,busy,sections,settings,products,categories,selection,baselineVersion,theme,onThemeChange])
   const panelSelection = selection && !['publish','discard'].includes(selection.kind) ? selection : null
   const panelVisible = panelOpen || Boolean(panelSelection)
   if (authorized === null) return <div className="visual-editor-access" role="status">Verificando acesso ao editor…</div>
