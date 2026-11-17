@@ -239,8 +239,12 @@ test('server errors are logged for the owners without personal data', async () =
   assert.equal(listed.headers.get('cache-control'), 'no-store')
   assert.equal(listed.data.events.length, before + 1)
   const [event] = listed.data.events
-  assert.deepEqual({ method: event.method, route: event.route, status: event.status, code: event.code, context: event.context },
-    { method: 'GET', route: '/api/store/categories', status: 500, code: 'ER_NO_SUCH_TABLE', context: 'Erro não tratado:' })
+  assert.deepEqual({ method: event.method, route: event.route, status: event.status, context: event.context },
+    { method: 'GET', route: '/api/store/categories', status: 500, context: 'Erro não tratado:' })
+  // A query racing the RENAME can get TiDB's "schema changed" error (8028),
+  // which mysql2 reports without a code name.
+  const codes = process.env.GALEO_TEST_DB_ENGINE === 'tidb' ? ['ER_NO_SUCH_TABLE', 'Error'] : ['ER_NO_SUCH_TABLE']
+  assert.ok(codes.includes(event.code), event.code)
   assert.equal(JSON.stringify(listed.data).includes('cliente@example.com'), false)
   // Customers and visitors never see the log.
   assert.notEqual((await call('/api/admin/error-events', { client: customer })).status, 200)
