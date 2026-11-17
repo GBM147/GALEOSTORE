@@ -15,6 +15,12 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   - A versão nova está no ar, com as mesmas respostas da API de antes.
   - Falta apagar `galeo-store-antigo` na conta antiga e passar para o galeostore01
     as contas do Aiven, Cloudinary, Melhor Envio, Google e Render.
+- [x] **Banco no TiDB Cloud** (Técnico + Donos, 17/11): o MySQL grátis do Aiven
+  acaba em 21/12/2026, então a loja passou para o TiDB Cloud Starter, também grátis.
+  - As 29 tabelas foram copiadas e conferidas linha por linha.
+  - Os testes rodam no MySQL e no TiDB.
+  - Faltam dois passos: apagar o `galeo-tarefas` e o Aiven depois de uns dias
+    estável, e acompanhar o uso no painel do TiDB.
 - [ ] **Mercado Pago — concluir a homologação** (Técnico): publicar a branch
   `fix/mercado-pago-device-nonce` na homologação, fechar o item Notificações
   (95/100 na última medição), testar pelo site cartão aprovado, recusado, Pix e

@@ -1,10 +1,14 @@
 # Hospedagem gratuita no Netlify
 
-A GALEO usa o Netlify Free para a interface e a API, Aiven para MySQL,
-Cloudinary para fotos/vídeos e Resend para e-mails. O banco e as imagens
-existentes continuam nos mesmos serviços. Pagamentos permanecem pendentes;
-a integração de cotações do Melhor Envio está publicada e aguarda autorização
-da conta e medidas reais das peças, conforme [o guia de frete](melhor-envio.md).
+A GALEO usa:
+- o Netlify Free para a interface e a API;
+- o TiDB Cloud Starter, compatível com MySQL, para o banco, desde 17/11/2026
+  (veja [Banco de dados](#banco-de-dados-tidb-cloud));
+- o Cloudinary para fotos e vídeos;
+- o Resend para e-mails.
+
+Os pagamentos online continuam pendentes. As cotações do Melhor Envio já estão
+publicadas, conforme [o guia de frete](melhor-envio.md).
 
 O Vercel Hobby restringe uso comercial; por isso não é o plano gratuito
 adequado para esta loja. O Netlify permite projetos comerciais no Free.
@@ -44,6 +48,54 @@ abrir. A configuração do próprio projeto foi ajustada com
 `sso_login: true` e `sso_login_context: non_production`, sem alterar o padrão da
 equipe. O login administrativo da loja continua sendo exigido pela aplicação.
 
+## Banco de dados (TiDB Cloud)
+
+O Aiven encerrou o MySQL grátis: em 21/12/2026 o serviço é desligado e os dados
+são apagados. Desde 17/11/2026, às 13:13 UTC, a loja usa o **TiDB Cloud Starter**,
+na conta galeostore01@gmail.com. Ele é grátis e compatível com MySQL 8.
+
+**Onde está o banco:**
+- cluster `galeo-store`, na AWS **N. Virginia (us-east-1)**, com endpoint público;
+- `DB_NAME=galeo_store`, `DB_PORT=4000`;
+- o usuário tem o formato `<prefixo>.root` e aparece no botão **Connect** do
+  painel, junto do host;
+- a senha só vive no Netlify, como valor secreto.
+
+**Conexão:**
+- O TiDB Cloud usa certificado público, então a produção não tem `DB_SSL_CA`.
+- `DB_SSL` e `DB_SSL_REJECT_UNAUTHORIZED` continuam `true`, com verificação do
+  nome do host.
+- O limite grátis por mês é de 5 GiB e 50 milhões de RUs. Se passar, o banco fica
+  lento ou recusa conexões novas até o mês virar. O uso aparece no painel do TiDB.
+
+**Como foi a mudança:**
+- `npm run db:copy` (`scripts/copy-database.mjs`) copiou as 29 tabelas, mantendo os
+  IDs e o próximo ID de cada uma. A cópia leu um retrato consistente da origem e
+  conferiu linha por linha com hash.
+- No TiDB, as tabelas copiadas usam `AUTO_ID_CACHE=1`, para os IDs seguirem em
+  sequência como no MySQL.
+- O Aiven roda em modo ANSI, então a cópia lê a estrutura sem `ANSI_QUOTES`.
+- A cópia rodou em build avulso no projeto interno `galeo-tarefas`, com a origem
+  em `SOURCE_DB_*` e o destino em `DB_*`. Primeiro um ensaio, depois a cópia
+  final, e por fim a publicação da loja com as variáveis do TiDB.
+
+**Para voltar ao Aiven (até 21/12):**
+1. Recolocar na produção os valores de `SOURCE_DB_*` guardados no `galeo-tarefas`,
+   incluindo `DB_SSL_CA`.
+2. Publicar de novo.
+
+Depois de uns dias estável, apagar o `galeo-tarefas` e o serviço no Aiven.
+
+**Diferenças conhecidas do TiDB, já cobertas no código e nos testes:**
+- Não há trava compartilhada, então a escolha da capa usa `FOR UPDATE`.
+- `GET_LOCK` espera no mínimo 1 s.
+- `information_schema.TABLES.AUTO_INCREMENT` mostra 0 até o primeiro ID.
+- Não há triggers nem eventos. Por isso `test:cleanup` e a ferramenta de limpeza
+  de dados de teste são só para MySQL.
+
+O job **TiDB** do GitHub Actions roda as suítes de banco no TiDB 8.5 e testa a
+cópia MySQL → TiDB a cada envio.
+
 1. Criar/importar `GBM147/GALEOSTORE` em uma equipe no **Free**, sem habilitar
    plano pago ou recarga automática.
 2. Usar `netlify.toml`: Node 24, build `npm run build`, saída `dist`, funções
@@ -64,9 +116,9 @@ equipe. O login administrativo da loja continua sendo exigido pela aplicação.
 | `NODE_ENV` | `production` |
 | `APP_URL` | URL HTTPS canônica da loja no Netlify ou domínio próprio |
 | `ALLOWED_ORIGINS` | A mesma URL, sem barra final |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Dados do MySQL Aiven existente; respeitar a porta informada pelo serviço |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Dados do TiDB Cloud (botão **Connect** no painel), porta `4000`; a senha fica como secreta |
 | `DB_SSL`, `DB_SSL_REJECT_UNAUTHORIZED` | `true` para TLS com certificado validado |
-| `DB_SSL_CA` | Certificado CA do serviço Aiven, quando necessário; PEM ou `\n` literal |
+| `DB_SSL_CA` | Não usar com o TiDB Cloud, que tem certificado público. Só para provedor com CA própria, como era o Aiven; PEM ou `\n` literal |
 | `DB_CONNECTION_LIMIT` | `2` por instância; não usar `1` com os fluxos transacionais existentes |
 | `SESSION_SECRET` | Preservar exatamente o segredo existente |
 | `DATA_ENCRYPTION_ENABLED`, `DATA_ENCRYPTION_KEY`, `DATA_ENCRYPTION_KEY_ID` | Preservar o estado e as chaves existentes; não gerar outra chave na migração |

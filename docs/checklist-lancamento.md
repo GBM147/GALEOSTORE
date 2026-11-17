@@ -75,6 +75,9 @@ controle da loja; pode ser um domínio que os donos já possuam.
 ## Trabalho técnico que fica conosco
 
 - Comprovar com os donos que o e-mail de confirmação chega no site novo (16/11).
+- O banco passou do Aiven grátis (desligado em 21/12/2026) para o TiDB Cloud
+  Starter em 17/11, sem perda de dados, conforme [a hospedagem](hospedagem-netlify.md).
+  Depois de uns dias estável, apagar o projeto `galeo-tarefas` e o serviço no Aiven.
 - O monitor de queda (GitHub Actions, a cada 30 minutos) roda a partir da `main`
   desde 17/11. Antes disso, o agendamento não rodava, porque o arquivo só existia
   na branch de trabalho.
