@@ -4,7 +4,9 @@ A GALEO usa:
 - o Netlify Free para a interface e a API;
 - o TiDB Cloud Starter, compatível com MySQL, para o banco, desde 17/11/2026
   (veja [Banco de dados](#banco-de-dados-tidb-cloud));
-- o Cloudinary para fotos e vídeos;
+- o Cloudinary para fotos e vídeos. Desde 17/11/2026 a loja usa a conta da própria
+  loja, com o cloud name `lqux8ugm`. Ali foram testados o envio de foto pelo Admin
+  e a versão sem fundo. A conta antiga, `q2xpaz4o`, não recebe mais envios;
 - o Resend para e-mails.
 
 Os pagamentos online continuam pendentes. As cotações do Melhor Envio já estão
@@ -123,7 +125,7 @@ cópia MySQL → TiDB a cada envio.
 | `SESSION_SECRET` | Preservar exatamente o segredo existente |
 | `DATA_ENCRYPTION_ENABLED`, `DATA_ENCRYPTION_KEY`, `DATA_ENCRYPTION_KEY_ID` | Preservar o estado e as chaves existentes; não gerar outra chave na migração |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Bootstrap do primeiro dono; não redefinem a senha de uma conta já cadastrada |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Conta Cloudinary existente; chave secreta somente no servidor |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Conta Cloudinary da loja (`lqux8ugm`, desde 17/11); a chave secreta fica só no servidor. A remoção de fundo usa o add-on de IA da conta |
 | `RESEND_API_KEY` | Conta Resend existente |
 | `EMAIL_FROM` | Preencher após os donos escolherem e verificarem o remetente; não inventar um endereço |
 | `STORE_NOTIFICATION_EMAIL` | Endereço opcional de aviso de pedidos |
