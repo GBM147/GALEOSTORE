@@ -76,6 +76,10 @@ jobs:
           GRANT SELECT, TRIGGER, EVENT, CREATE USER ON *.* TO 'galeo_test'@'%';
           SQL
 
+      # Some suites serve the built storefront pages (e.g. /account).
+      - name: Build
+        run: npm run build
+
       - name: Pacote das funções do Netlify
         run: npm run bundle:netlify
 
