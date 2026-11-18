@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { customerApi } from './storeApi'
+import GoogleSignIn from './GoogleSignIn'
 import { usePageMeta } from './pageMeta'
 import './account.css'
 
@@ -153,6 +154,37 @@ export default function AccountPage() {
     } finally { setSaving(false) }
   }
 
+  async function googleSuccess(data) {
+    setError(''); setSuccess('')
+    setUser(data.user); setProfile({ name:data.user.name || '', phone:data.user.phone || '' })
+    clearPasswords()
+    try {
+      const orderData = await customerApi('/api/customer/orders')
+      setOrders(orderData.orders || [])
+    } catch {}
+    navigate(returnTo)
+  }
+
+  function googleError(err) {
+    if (err.code === 'GOOGLE_TERMS_REQUIRED') {
+      if (mode !== 'register') chooseMode('register')
+      setError(err.message)
+      return
+    }
+    setSuccess(''); setError(err.message)
+  }
+
+  async function requestPasswordLink() {
+    if (saving || !user?.email) return
+    setSaving(true); setPasswordStatus({ error:'', success:'' })
+    try {
+      const data = await customerApi('/api/customer/password-reset', { method:'POST', body:{ email:user.email } })
+      setPasswordStatus({ error:'', success:(data?.message || 'Enviamos um link para o seu e-mail.').replace('Se houver uma conta com este e-mail, enviamos', 'Enviamos') })
+    } catch (err) {
+      setPasswordStatus({ error:err.message, success:'' })
+    } finally { setSaving(false) }
+  }
+
   async function register(event) {
     event.preventDefault()
     if (registrationStatus !== 'available' || saving) return
@@ -286,6 +318,7 @@ export default function AccountPage() {
           <div className="account-auth-tabs"><button className={mode==='login'?'active':''} type="button" aria-pressed={mode==='login'} disabled={saving} onClick={() => chooseMode('login')}>Entrar</button><button className={mode==='register'?'active':''} type="button" aria-pressed={mode==='register'} disabled={saving} onClick={() => chooseMode('register')}>Criar conta</button></div>
           {mode === 'login' ? (
             <form className="account-form" onSubmit={login}>
+              <GoogleSignIn mode="signin" divider="ou entre com e-mail" onSuccess={googleSuccess} onError={googleError} />
               <label>E-mail<input type="email" autoComplete="email" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm,email:e.target.value})} required /></label>
               <label>Senha<input type="password" autoComplete="current-password" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm,password:e.target.value})} required /></label>
               <button className="text-button account-forgot" type="button" disabled={saving} onClick={() => { const email = loginForm.email; chooseMode('forgot'); setForgotEmail(email) }}>Esqueci minha senha</button>
@@ -323,14 +356,15 @@ export default function AccountPage() {
             </div>
           ) : mode === 'register' ? (
             <form className="account-form" onSubmit={register}>
+              <label className="terms-accept"><input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} required /><span>Li e aceito os <Link to="/termos" target="_blank" rel="noopener noreferrer">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</Link>.</span></label>
+              {error && <p className="form-error" role="alert">{error}</p>}
+              <GoogleSignIn mode="signup" acceptTerms={acceptTerms} divider="ou preencha seus dados" onSuccess={googleSuccess} onError={googleError} />
               <label>Nome<input autoComplete="name" value={registerForm.name} onChange={(e) => setRegisterForm({...registerForm,name:e.target.value})} required /></label>
               <label>E-mail<input type="email" autoComplete="email" value={registerForm.email} onChange={(e) => setRegisterForm({...registerForm,email:e.target.value})} required /></label>
               <label>Telefone<input autoComplete="tel" value={registerForm.phone} onChange={(e) => setRegisterForm({...registerForm,phone:e.target.value})} /></label>
               <label>Senha<input type="password" autoComplete="new-password" minLength="10" value={registerForm.password} onChange={(e) => setRegisterForm({...registerForm,password:e.target.value})} required /></label>
               <label>Confirmar senha<input type="password" autoComplete="new-password" minLength="10" value={registerForm.passwordConfirm} onChange={(e) => setRegisterForm({...registerForm,passwordConfirm:e.target.value})} required /></label>
-              <label className="terms-accept"><input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} required /><span>Li e aceito os <Link to="/termos" target="_blank" rel="noopener noreferrer">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</Link>.</span></label>
               <p>Você receberá um link para confirmar seu e-mail. A conta será liberada após a confirmação.</p>
-              {error && <p className="form-error">{error}</p>}
               <button className="button button-primary" disabled={saving}>{saving ? 'Criando…' : 'Criar conta ↗'}</button>
             </form>
           ) : mode === 'verify' ? (
@@ -392,15 +426,20 @@ export default function AccountPage() {
           </form>
         </section>
         <section className="account-side-card" aria-labelledby="account-password-title">
-          <div className="account-card-heading"><h2 id="account-password-title">Alterar senha</h2></div>
-          <form className="account-form" onSubmit={changePassword}>
+          <div className="account-card-heading"><h2 id="account-password-title">{user.auth_method === 'google' ? 'Senha' : 'Alterar senha'}</h2></div>
+          {user.auth_method === 'google' ? <div className="account-form">
+            <p className="account-card-note">Você entrou com o Google. Se quiser também entrar com e-mail e senha, enviamos um link para criar ou trocar a senha.</p>
+            {passwordStatus.error && <p className="form-error" role="alert">{passwordStatus.error}</p>}
+            {passwordStatus.success && <p className="form-success" role="status">{passwordStatus.success}</p>}
+            <button className="button button-primary" type="button" disabled={saving} onClick={requestPasswordLink}>{saving ? 'Enviando…' : 'Criar senha por e-mail ↗'}</button>
+          </div> : <form className="account-form" onSubmit={changePassword}>
             <label>Senha atual<input type="password" autoComplete="current-password" value={passwordForm.current} onChange={(e) => setPasswordForm({...passwordForm,current:e.target.value})} required /></label>
             <label>Nova senha<input type="password" autoComplete="new-password" minLength="10" maxLength="72" value={passwordForm.next} onChange={(e) => setPasswordForm({...passwordForm,next:e.target.value})} required /></label>
             <label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength="10" maxLength="72" value={passwordForm.confirm} onChange={(e) => setPasswordForm({...passwordForm,confirm:e.target.value})} required /></label>
             {passwordStatus.error && <p className="form-error" role="alert">{passwordStatus.error}</p>}
             {passwordStatus.success && <p className="form-success" role="status">{passwordStatus.success}</p>}
             <button className="button button-primary" disabled={saving}>{saving ? 'Salvando…' : 'Alterar senha ↗'}</button>
-          </form>
+          </form>}
         </section>
         <section className="account-side-card account-delete-card" aria-labelledby="account-delete-title">
           <div className="account-card-heading"><h2 id="account-delete-title">Excluir conta</h2></div>
@@ -410,7 +449,9 @@ export default function AccountPage() {
             <button className="button account-delete-open" type="button" disabled={saving} onClick={() => { setDeleteError(''); setDeleteForm({ ...closedDeleteForm, open:true }) }}>Excluir minha conta</button>
           ) : (
             <form className="account-form" onSubmit={deleteAccount}>
-              <label>Sua senha<input type="password" autoComplete="current-password" value={deleteForm.password} onChange={(e) => setDeleteForm({...deleteForm,password:e.target.value})} required /></label>
+              {user.auth_method === 'google'
+                ? <p className="account-card-note">Você entrou com o Google: basta confirmar abaixo.</p>
+                : <label>Sua senha<input type="password" autoComplete="current-password" value={deleteForm.password} onChange={(e) => setDeleteForm({...deleteForm,password:e.target.value})} required /></label>}
               <label className="terms-accept"><input type="checkbox" checked={deleteForm.confirm} onChange={(e) => setDeleteForm({...deleteForm,confirm:e.target.checked})} required /><span>Entendo que a exclusão é definitiva.</span></label>
               {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
               <button className="button account-delete-button" disabled={saving}>{saving ? 'Excluindo…' : 'Excluir definitivamente'}</button>

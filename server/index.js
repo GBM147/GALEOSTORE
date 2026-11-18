@@ -41,6 +41,7 @@ import { createBackgroundTasks } from './background-tasks.js'
 import { MySqlRateLimitStore, RATE_LIMIT_DDL, pruneRateLimits } from './mysql-rate-limit-store.js'
 import { validateRuntimeSchema } from './runtime-schema.js'
 import { createResetToken, parseResetToken, passwordMark, removedCustomerEmail, resetLink, resetWindow, verifyResetToken } from './customer-account.js'
+import { createGoogleIdentity, googleClientId } from './google-identity.js'
 import { emailButton } from './email-layout.js'
 import { createMelhorEnvio, ensureMelhorEnvioSchema, MelhorEnvioError } from './melhor-envio.js'
 import { createDirectUploads, getVerifiedDirectAsset } from './direct-uploads.js'
@@ -157,6 +158,8 @@ const sendTransactionalEmail = transactionalEmail.send
 const sendEmailSafely = transactionalEmail.sendSafely
 const confirmationEmailConfigured = transactionalEmail.confirmationConfigured
 const newsletter = createNewsletter({ db, emailService: transactionalEmail, appUrl, protection: dataProtection })
+// "Sign in with Google": needs only the public Client ID; hidden when unset.
+const googleIdentity = createGoogleIdentity({ clientId: googleClientId() })
 const directUploads = createDirectUploads({ multipartUpload, cloudinary, query, sessionSecret: process.env.SESSION_SECRET, cloudinaryConfigurado })
 const mediaUpload = directUploads.mediaUpload
 const shippingService = createMelhorEnvio({ db, query, sessionSecret: process.env.SESSION_SECRET, protection: dataProtection })
@@ -190,9 +193,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com', 'https://api.cloudinary.com', 'https://api.mercadopago.com', 'https://events.mercadopago.com', 'https://http2.mlstatic.com'],
-      scriptSrc: ["'self'", 'https://sdk.mercadopago.com', 'https://www.mercadopago.com', 'https://www.mercadopago.com.br', 'https://http2.mlstatic.com'],
-      frameSrc: ['https://sdk.mercadopago.com', 'https://secure-fields.mercadopago.com', 'https://www.mercadopago.com', 'https://www.mercadopago.com.br', 'https://http2.mlstatic.com'],
+      connectSrc: ["'self'", 'https://galeo-api-go.onrender.com', 'https://api.cloudinary.com', 'https://api.mercadopago.com', 'https://events.mercadopago.com', 'https://http2.mlstatic.com', 'https://accounts.google.com/gsi/'],
+      scriptSrc: ["'self'", 'https://sdk.mercadopago.com', 'https://www.mercadopago.com', 'https://www.mercadopago.com.br', 'https://http2.mlstatic.com', 'https://accounts.google.com/gsi/client'],
+      frameSrc: ['https://sdk.mercadopago.com', 'https://secure-fields.mercadopago.com', 'https://www.mercadopago.com', 'https://www.mercadopago.com.br', 'https://http2.mlstatic.com', 'https://accounts.google.com/gsi/'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
       mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
       objectSrc: ["'none'"],
@@ -200,6 +203,8 @@ app.use(helmet({
     }
   },
   crossOriginEmbedderPolicy: false,
+  // The Google sign-in popup must be able to report back to the page.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }))
@@ -263,6 +268,7 @@ const limitarPagamento = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 20, 
 const limitarStatusPagamento = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 180, prefixo: 'online-payment-status' })
 const limitarRecuperacaoSenha = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 5, prefixo: 'customer-password-reset' })
 const limitarRedefinicaoSenha = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 10, prefixo: 'customer-password-reset-confirm' })
+const limitarConfigGoogle = criarLimitador({ janelaMs: 15 * 60 * 1000, maximo: 60, prefixo: 'customer-google-config' })
 
 const Store = MySQLStoreFactory(session)
 // Use the actual TLS-configured pool: the store's internal pool builder omits ssl.
@@ -827,7 +833,7 @@ function validarCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next()
   // Anonymous quotations are read-only, rate-limited and never buy labels.
   if (req.path === '/api/store/shipping/quotes') return next()
-  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/customer/verify-email' || req.path === '/api/customer/resend-verification' || req.path === '/api/customer/password-reset' || req.path === '/api/customer/password-reset/confirm' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
+  if (req.path === '/api/auth/login' || req.path === '/api/customer/login' || req.path === '/api/customer/register' || req.path === '/api/customer/verify-email' || req.path === '/api/customer/resend-verification' || req.path === '/api/customer/password-reset' || req.path === '/api/customer/password-reset/confirm' || req.path === '/api/customer/google' || req.path === '/api/integrations/mercado-pago/webhook' || req.path === '/api/integrations/distributor/webhook') return next()
 
   const expected = String(req.session.csrfToken || '')
   const provided = String(req.get('X-CSRF-Token') || '')
@@ -1548,13 +1554,7 @@ app.post('/api/customer/verify-email', limitarConfirmacaoEmail, async (req,res) 
     const [customerRows] = await conn.execute('SELECT id,name,email,private_data FROM customers WHERE id=? LIMIT 1', [verified.id])
     const customer = customerRows[0] ? privacy.decodeRow('customers', customerRows[0]) : null
     await conn.commit()
-    if (customer?.email) await sendEmailSafely({
-      to: customer.email,
-      subject: 'Boas-vindas à GALEO Store',
-      idempotencyKey: 'welcome-customer-' + verified.id,
-      text: 'Olá, ' + customer.name + '. Seu e-mail foi confirmado. Agora você pode entrar na sua conta na GALEO Store para acompanhar seus pedidos.',
-      html: '<div style="font-family:Arial,sans-serif"><h1>Boas-vindas à GALEO</h1><p>Olá, ' + escapeHtml(customer.name) + '</p><p>Seu e-mail foi confirmado. Agora você pode entrar na sua conta para acompanhar seus pedidos.</p></div>'
-    })
+    if (customer?.email) await enviarBoasVindas({ ...customer, id: verified.id })
     // Confirmation never grants or revives a customer login, including an old
     // session from before verification became mandatory. Preserve owner login.
     if (req.session.customerId) {
@@ -1640,6 +1640,114 @@ app.post('/api/customer/password-reset/confirm', limitarRedefinicaoSenha, async 
   } finally { conn.release() }
 })
 
+function enviarBoasVindas(customer, { google = false } = {}) {
+  const how = google ? 'Sua conta foi criada com o Google. Para entrar, use o botão "Continuar com o Google" na página da conta.' : 'Seu e-mail foi confirmado. Agora você pode entrar na sua conta para acompanhar seus pedidos.'
+  return sendEmailSafely({
+    to: customer.email,
+    subject: 'Boas-vindas à GALEO Store',
+    idempotencyKey: 'welcome-customer-' + customer.id,
+    text: 'Olá, ' + customer.name + '. ' + how + ' Na GALEO Store você acompanha seus pedidos em Minha conta.',
+    html: '<div style="font-family:Arial,sans-serif"><h1>Boas-vindas à GALEO</h1><p>Olá, ' + escapeHtml(customer.name) + '</p><p>' + escapeHtml(how) + '</p></div>'
+  })
+}
+
+// "Sign in with Google". The page gets a one-time nonce here, Google signs it
+// into the ID token, and the sign-in below accepts only that nonce: a token
+// captured elsewhere cannot open a session in another browser.
+const GOOGLE_NONCE_TTL_MS = 10 * 60 * 1000
+const GOOGLE_RECENT_MS = 15 * 60 * 1000
+const entrouPeloGoogle = req => req.session.customerAuth?.method === 'google'
+const entrouPeloGoogleRecente = req => entrouPeloGoogle(req) && Date.now() - Number(req.session.customerAuth.at) < GOOGLE_RECENT_MS
+
+app.get('/api/customer/google/config', limitarConfigGoogle, async (req,res) => {
+  res.set('Cache-Control','no-store')
+  if (!googleIdentity.clientId) return res.json({ available:false })
+  const nonce=randomBytes(24).toString('base64url')
+  // Keep the last few: two tabs or a quick reload may each have asked for one.
+  const valid=(req.session.googleNonces || []).filter(item => Number(item?.expires) > Date.now())
+  req.session.googleNonces=[...valid.slice(-2), { value:nonce, expires:Date.now()+GOOGLE_NONCE_TTL_MS }]
+  try { await salvarSessao(req) } catch(error) {
+    console.error('Erro ao preparar o login com o Google:', error?.code || 'INTERNAL_ERROR')
+    return res.status(503).json({ available:false })
+  }
+  res.json({ available:true, client_id:googleIdentity.clientId, nonce })
+})
+
+app.post('/api/customer/google', limitarAutenticacao, async (req,res) => {
+  if (!googleIdentity.clientId) return res.status(503).json({ success:false, code:'GOOGLE_UNAVAILABLE', error:'O login com o Google não está disponível agora.' })
+  // Any attempt uses up every nonce of this session.
+  const issued=(req.session.googleNonces || []).filter(item => item?.value && Number(item.expires) > Date.now()).map(item => item.value)
+  delete req.session.googleNonces
+  const descartarNonce=() => salvarSessao(req).catch(() => {})
+  if (!issued.length) {
+    await descartarNonce()
+    return res.status(400).json({ success:false, code:'GOOGLE_SESSION_EXPIRED', error:'O tempo para entrar com o Google acabou. Toque no botão de novo.' })
+  }
+  let identity
+  try { identity=await googleIdentity.verify(req.body?.credential, { nonce:issued }) } catch(error) {
+    await descartarNonce()
+    if (error?.code === 'GOOGLE_EMAIL_UNVERIFIED') return res.status(400).json({ success:false, code:error.code, error:error.message })
+    if (error?.code === 'GOOGLE_KEYS_UNAVAILABLE') return res.status(503).json({ success:false, code:error.code, error:error.message })
+    return res.status(401).json({ success:false, code:'GOOGLE_TOKEN_INVALID', error:'Não foi possível confirmar sua conta Google. Toque no botão de novo.' })
+  }
+  const conn=await db.getConnection()
+  let customer=null, created=false
+  try {
+    await conn.beginTransaction()
+    const [rows]=await conn.execute('SELECT id,name,email,phone,password_hash,active,email_verified_at,private_data FROM customers WHERE email=? LIMIT 1 FOR UPDATE',[privacy.emailForLookup('customers', identity.email)])
+    customer=rows[0] ? privacy.decodeRow('customers', rows[0]) : null
+    if (customer && !customer.active) {
+      await conn.rollback(); await descartarNonce()
+      return res.status(401).json({ success:false, code:'ACCOUNT_UNAVAILABLE', error:'Esta conta não está disponível.' })
+    }
+    if (!customer) {
+      // A new account needs the same explicit acceptance as the e-mail sign-up.
+      if (req.body?.accept_terms !== true) {
+        await conn.rollback(); await descartarNonce()
+        return res.status(409).json({ success:false, code:'GOOGLE_TERMS_REQUIRED', email:identity.email, error:'Ainda não há conta com este Google. Para criar, marque o aceite dos Termos de Uso e da Política de Privacidade e toque em "Cadastrar com o Google".' })
+      }
+      const name=identity.name.length >= 2 ? identity.name : identity.email.split('@')[0].slice(0,180)
+      // Nobody knows this password; a password can be created later via "Esqueci minha senha".
+      const passwordHash=await bcrypt.hash(randomBytes(32).toString('hex'),12)
+      const personal={ name, email:identity.email, phone:'' }
+      const safe=privacy.pendingFields('customers', personal)
+      const [result]=await conn.execute('INSERT INTO customers(name,email,password_hash,phone) VALUES(?,?,?,?)',[safe.name,safe.email,passwordHash,safe.phone])
+      await privacy.completeInsert('customers', result.insertId, personal, conn)
+      await conn.execute('UPDATE customers SET terms_version=?,terms_accepted_at=NOW(),email_verified_at=NOW() WHERE id=?',[LEGAL_VERSION,result.insertId])
+      customer={ id:result.insertId, name, email:identity.email, phone:'', password_hash:passwordHash }
+      created=true
+    } else if (!customer.email_verified_at) {
+      // Google proves control of the address. A password chosen by whoever
+      // registered it before, possibly someone else, stops working.
+      const passwordHash=await bcrypt.hash(randomBytes(32).toString('hex'),12)
+      await conn.execute('UPDATE customers SET password_hash=?,email_verified_at=NOW() WHERE id=?',[passwordHash,customer.id])
+      await conn.execute('DELETE FROM customer_email_verifications WHERE customer_id=?',[customer.id])
+      customer.password_hash=passwordHash
+    }
+    await conn.commit()
+  } catch(error) {
+    await conn.rollback().catch(() => {})
+    await descartarNonce()
+    if (error?.code === 'ER_DUP_ENTRY') return res.status(409).json({ success:false, code:'GOOGLE_RETRY', error:'Não foi possível concluir agora. Toque no botão do Google de novo.' })
+    console.error('Erro no login com o Google:', error?.code || 'INTERNAL_ERROR')
+    return res.status(500).json({ success:false, error:'Não foi possível entrar com o Google.' })
+  } finally { conn.release() }
+  try {
+    if (created) await enviarBoasVindas(customer, { google:true })
+    await renovarSessao(req)
+    req.session.customerId=customer.id
+    req.session.customerMark=passwordMark(customer.password_hash, process.env.SESSION_SECRET)
+    req.session.customerAuth={ method:'google', at:Date.now() }
+    req.session.csrfToken=randomBytes(32).toString('hex')
+    configurarPersistenciaSessao(req.session, true)
+    await salvarSessao(req)
+  } catch(error) {
+    console.error('Erro ao abrir a sessão do Google:', error?.code || 'INTERNAL_ERROR')
+    return res.status(500).json({ success:false, error:'Não foi possível entrar com o Google.' })
+  }
+  res.json({ success:true, created, user:{ id:customer.id, name:customer.name, email:customer.email, phone:customer.phone || '', auth_method:'google' }, csrfToken:req.session.csrfToken })
+})
+
 app.post('/api/customer/login', limitarAutenticacao, async (req,res) => {
   const email=String(req.body?.email || '').trim().toLowerCase()
   const password=String(req.body?.password || '')
@@ -1675,7 +1783,7 @@ app.get('/api/customer/me', async (req,res) => {
     }
     const csrfToken=gerarCsrfToken(req)
     await salvarSessao(req)
-    res.json({success:true,authenticated:true,user:{id:rows[0].id,name:rows[0].name,email:rows[0].email,phone:rows[0].phone,created_at:rows[0].created_at},csrfToken})
+    res.json({success:true,authenticated:true,user:{id:rows[0].id,name:rows[0].name,email:rows[0].email,phone:rows[0].phone,created_at:rows[0].created_at,auth_method:entrouPeloGoogle(req) ? 'google' : 'password'},csrfToken})
   } catch(error) {
     console.error('Erro ao carregar conta do cliente:',error)
     res.status(500).json({error:'Não foi possível carregar sua conta.'})
@@ -1685,6 +1793,7 @@ app.get('/api/customer/me', async (req,res) => {
 app.post('/api/customer/logout', exigirCliente, async (req,res) => {
   delete req.session.customerId
   delete req.session.customerMark
+  delete req.session.customerAuth
   req.session.csrfToken=randomBytes(32).toString('hex')
   await salvarSessao(req)
   res.json({success:true})
@@ -1739,14 +1848,20 @@ app.put('/api/customer/password', exigirCliente, limitarAlteracaoSenha, async (r
 // blocks the deletion until it is delivered or cancelled.
 app.delete('/api/customer/account', exigirCliente, limitarAlteracaoSenha, async (req,res) => {
   const password=String(req.body?.password || '')
-  if (req.body?.confirm !== true || !password) return res.status(400).json({ success:false, error:'Confirme a exclusão e informe sua senha.' })
+  // Right after "Continuar com o Google", that sign-in stands in for the password.
+  const googleRecente=entrouPeloGoogleRecente(req)
+  if (req.body?.confirm !== true) return res.status(400).json({ success:false, error:'Confirme a exclusão da conta.' })
+  if (!password && !googleRecente) {
+    if (entrouPeloGoogle(req)) return res.status(400).json({ success:false, code:'GOOGLE_REAUTH_REQUIRED', error:'Por segurança, saia e entre de novo com o Google para excluir a conta.' })
+    return res.status(400).json({ success:false, error:'Confirme a exclusão e informe sua senha.' })
+  }
   const conn=await db.getConnection()
   let email=''
   try {
     await conn.beginTransaction()
     const [rows]=await conn.execute('SELECT id,name,email,password_hash,active,private_data FROM customers WHERE id=? LIMIT 1 FOR UPDATE',[req.customer.id])
     const customer=rows[0] ? privacy.decodeRow('customers', rows[0]) : null
-    if (!customer?.active || !(await bcrypt.compare(password, customer.password_hash))) {
+    if (!customer?.active || (password ? !(await bcrypt.compare(password, customer.password_hash)) : !googleRecente)) {
       await conn.rollback()
       return res.status(400).json({ success:false, code:'CURRENT_PASSWORD_INVALID', error:'A senha está incorreta.' })
     }
@@ -1776,6 +1891,7 @@ app.delete('/api/customer/account', exigirCliente, limitarAlteracaoSenha, async 
   })
   delete req.session.customerId
   delete req.session.customerMark
+  delete req.session.customerAuth
   if (!req.session.userId) req.session.csrfToken=randomBytes(32).toString('hex')
   await salvarSessao(req)
   res.json({ success:true, authenticated:false, message:'Sua conta foi excluída e seus dados pessoais foram removidos. Enviamos uma confirmação para o seu e-mail.' })

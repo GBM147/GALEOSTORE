@@ -103,6 +103,7 @@ function privacy(x) {
       ]],
       ['dados', 'Quais dados coletamos', [
         '**Cadastro:** nome, e-mail, telefone e senha. A senha é guardada de forma cifrada (hash), e ninguém da loja consegue vê-la.',
+        '**Entrar com o Google (opcional):** se você usar o botão do Google, ele nos informa só o seu nome e o seu e-mail confirmado. Não recebemos a sua senha do Google.',
         '**Pedidos:** endereço de entrega, CEP, peças compradas, valores e o andamento do pedido.',
         '**Pagamento:** o CPF e os dados do cartão são digitados nos campos seguros do Mercado Pago. A loja recebe só o resultado do pagamento, nunca o número do cartão. Na página de pagamento, o Mercado Pago usa um identificador do aparelho para prevenir fraudes.',
         '**Newsletter:** seu e-mail, só depois que você confirma a inscrição.',
@@ -120,9 +121,9 @@ function privacy(x) {
         '- **Melhor Envio e transportadoras (como os Correios):** cálculo do frete e entrega; recebem nome, endereço, CEP e telefone.',
         '- **Resend:** envio dos e-mails da loja (confirmação de conta, pedidos e newsletter).',
         '- **BrasilAPI:** busca do endereço pelo CEP; recebe só o CEP.',
-        '- **Netlify e Render:** hospedagem do site e do servidor. **Aiven:** banco de dados, com conexão protegida.',
+        '- **Netlify e Render:** hospedagem do site e do servidor. **TiDB Cloud:** banco de dados, com conexão protegida.',
         '- **Cloudinary:** fotos e vídeos dos produtos; não recebe dados de clientes.',
-        '- **Google:** só quando você toca em "Avaliar no Google" e vai ao site do Google, que segue a política de privacidade dele.',
+        '- **Google:** quando você escolhe "Continuar com o Google" para entrar na conta, e quando toca em "Avaliar no Google" e vai ao site do Google, que segue a política de privacidade dele.',
         'Também podemos fornecer dados a autoridades quando a lei exigir. Não vendemos seus dados.'
       ]],
       ['internacional', 'Dados fora do Brasil', [

@@ -91,6 +91,14 @@
 .app main .account-form .account-forgot { justify-self: end; margin: -14px 0 -8px; }
 .app main .account-hint { margin: 0; color: var(--muted); font-size: 12px; }
 
+/* Sign in with Google: Google's own button, then a divider before the e-mail form. */
+.app main .account-google { display: grid; gap: 14px; }
+.app main .account-google[data-ready="false"] { display: none; }
+.app main .account-google-button { display: flex; justify-content: center; min-height: 44px; }
+.app main .account-divider { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--muted); font-size: 12px; }
+.app main .account-divider::before, .app main .account-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.app main .account-card-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+
 /* Signed out: centered heading, a rounded card and Entrar/Criar conta as a
    segmented control. */
 .app main .account-auth-heading { text-align: center; }

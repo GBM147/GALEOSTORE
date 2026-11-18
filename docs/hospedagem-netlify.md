@@ -130,6 +130,7 @@ cópia MySQL → TiDB a cada envio.
 | `RESEND_API_KEY` | Conta Resend existente |
 | `EMAIL_FROM` | Preencher após os donos escolherem e verificarem o remetente; não inventar um endereço |
 | `STORE_NOTIFICATION_EMAIL` | Endereço opcional de aviso de pedidos |
+| `GOOGLE_CLIENT_ID` | "Continuar com o Google" na conta do cliente: ID do cliente OAuth (Aplicativo da Web) do projeto GALEO STORE no Google Cloud, terminado em `.apps.googleusercontent.com`. Não é segredo; sem ele o botão não aparece. A origem autorizada é `https://galeo-store.netlify.app`; se a loja ganhar domínio próprio, incluir a nova origem no Google Cloud |
 
 Segredos opcionais das integrações futuras continuam desabilitados até sua
 contratação/configuração. Links de confirmação de e-mail novos usam `APP_URL`;

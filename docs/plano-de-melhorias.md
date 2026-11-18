@@ -65,6 +65,13 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
     newsletter é cancelada e os pedidos ficam guardados, como diz a Privacidade.
   - Avisos por e-mail de senha alterada e de conta excluída. Código em
     `server/customer-account.js` e `src/AccountPage.jsx`; testes no MySQL e no TiDB.
+- [ ] **Entrar e criar conta com o Google** (Técnico + Donos, 18/11): botão oficial
+  "Continuar com o Google" em `/conta` (`src/GoogleSignIn.jsx`), com o token conferido
+  no servidor (`server/google-identity.js`) e um nonce de uso único na sessão.
+  - Conta nova só com o aceite dos Termos. Conta pendente fica confirmada, e a senha
+    antiga é trocada. Quem entrou pelo Google cria senha por e-mail e exclui a conta
+    sem senha nos 15 minutos depois de entrar.
+  - Falta o ID do cliente OAuth do Google Cloud (`GOOGLE_CLIENT_ID`) e a publicação.
 - [x] **Cores do modo claro no editor** (Técnico, 17/11): em Editor da loja > Cores e
   tema, o seletor **Modo escuro | Modo claro** escolhe de qual modo são as cores, e a
   página mostra esse modo. Cada modo guarda as suas cores (`palette` e

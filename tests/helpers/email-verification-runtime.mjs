@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { createHash, createHmac, generateKeyPairSync, randomBytes, sign } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -52,6 +52,7 @@ export class VerificationRuntime {
   suffix = randomBytes(8).toString('hex')
   password = 'Local-email-' + randomBytes(12).toString('hex')
   replyTo = 'fixture-replies@example.invalid'
+  googleClientId = 'local-test.apps.googleusercontent.com'
 
   async initialize() {
     if (!loopback.has(process.env.DB_HOST) || process.env.DB_NAME !== 'galeo_store_test') {
@@ -64,6 +65,11 @@ export class VerificationRuntime {
     this.directory = await mkdtemp(join(tmpdir(), 'galeo-email-test-'))
     this.fixturePath = join(this.directory, 'resend.json')
     await this.setMailStatus(200)
+    // A local stand-in for Google's signing key; the API reads its public half.
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    this.googleKey = privateKey
+    this.googleKeysPath = join(this.directory, 'google-jwks.json')
+    await writeFile(this.googleKeysPath, JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'local-test-key', alg: 'RS256', use: 'sig' }] }), { mode: 0o600 })
     this.db = mysql.createPool({
       host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 3306),
       user: process.env.DB_USER, password: process.env.DB_PASSWORD,
@@ -79,6 +85,16 @@ export class VerificationRuntime {
   }
 
   email(label) { return `verify-${label}-${this.suffix}@example.invalid` }
+
+  // An ID token as "Sign in with Google" would return it, signed with the local key.
+  googleToken(claims = {}) {
+    const seconds = Math.floor(Date.now() / 1000)
+    const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const payload = { iss: 'https://accounts.google.com', aud: this.googleClientId, azp: this.googleClientId, sub: 'google-' + randomBytes(6).toString('hex'),
+      email_verified: true, name: 'Cliente Google local', iat: seconds - 5, exp: seconds + 3600, ...claims }
+    const head = encode({ alg: 'RS256', kid: 'local-test-key', typ: 'JWT' }) + '.' + encode(payload)
+    return head + '.' + sign('RSA-SHA256', Buffer.from(head), this.googleKey).toString('base64url')
+  }
   client(ip) { return new VerificationClient(this, ip) }
   async setMailStatus(status) { await writeFile(this.fixturePath, JSON.stringify({ status }), { mode: 0o600 }) }
 
@@ -138,7 +154,7 @@ export class VerificationRuntime {
 
   async startApi({ provider = true, sender = true } = {}) {
     await this.stopApi()
-    this.child = spawn(process.execPath, ['--import', './tests/helpers/resend-fetch.mjs', 'server/index.js'], {
+    this.child = spawn(process.execPath, ['--import', './tests/helpers/resend-fetch.mjs', '--import', './tests/helpers/google-fetch.mjs', 'server/index.js'], {
       cwd: projectDirectory,
       env: {
         ...process.env, PORT: '10006', NODE_ENV: 'test',
@@ -148,6 +164,8 @@ export class VerificationRuntime {
         EMAIL_REPLY_TO: this.replyTo,
         STORE_NOTIFICATION_EMAIL: 'notification@example.invalid',
         GALEO_TEST_RESEND_FIXTURES: this.fixturePath,
+        GOOGLE_CLIENT_ID: this.googleClientId,
+        GALEO_TEST_GOOGLE_JWKS: this.googleKeysPath,
         MERCADO_PAGO_ACCESS_TOKEN: '', MERCADO_PAGO_POINT_TERMINAL_ID: '',
         CLOUDINARY_URL: '', CLOUDINARY_CLOUD_NAME: '', CLOUDINARY_API_KEY: '', CLOUDINARY_API_SECRET: ''
       },
