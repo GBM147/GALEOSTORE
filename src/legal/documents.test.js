@@ -34,11 +34,19 @@ test('sem dados da empresa, os textos continuam corretos e apontam para o Contat
   assert.match(allText(legalDocument('contact', {})), /serão publicados em breve/)
 })
 
-test('trocas seguem a escolha dos donos: 7 dias, 1ª troca paga pela loja, defeito em 90 dias', () => {
-  const text = allText(legalDocument('exchanges', { company, footer }))
-  assert.match(text, /até 7 dias corridos depois de receber o pedido/)
+test('trocas seguem a política dos donos sem tirar os direitos da compra pelo site', () => {
+  const doc = legalDocument('exchanges', { company, footer })
+  const text = allText(doc)
+  assert.match(text, /trocadas em até 7 dias corridos: na loja física, contados da compra; no site, contados do recebimento/)
+  assert.match(text, /\*\*Não trocamos:\*\* peças sem etiqueta, peças com sinais de uso e peças compradas em promoção/)
+  assert.match(text, /Não fazemos devolução do valor por arrependimento de compras feitas na loja/)
+  // Online purchases keep the legal 7-day withdrawal with refund, sale items included.
+  assert.match(text, /quem compra pelo site pode desistir da compra em até 7 dias corridos depois de receber o pedido/)
+  assert.match(text, /vale também para peças de promoção/)
+  assert.match(text, /o reembolso é total, incluindo o frete pago na compra/)
   assert.match(text, /primeira troca de cada pedido é por conta da loja/)
-  assert.match(text, /90 dias do recebimento/)
+  assert.match(text, /90 dias do recebimento \(art\. 26 do CDC\)\. Vale para todas as peças, inclusive as de promoção/)
+  assert.deepEqual(doc.sections.map(section => section.id), ['troca', 'arrependimento', 'loja-fisica', 'defeito', 'como-pedir', 'reembolso'])
 })
 
 test('texto com negrito e links', () => {

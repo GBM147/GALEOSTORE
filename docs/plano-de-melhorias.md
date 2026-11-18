@@ -35,9 +35,14 @@ contas ou decisões da loja; **Técnico** = pode ser feito no código.
   a imagem provisória. Faltam fotos, descrições, preços, tamanhos e estoque
   conferidos, além de peso e medidas da embalagem para o frete.
 - [x] **Páginas obrigatórias e aceite** (Técnico, 12/11; no ar desde 16/11):
-  `/termos` (Termos de Uso e Condições de Compra), `/privacidade` (LGPD), `/trocas`
-  (arrependimento e troca em 7 dias; 1ª troca com frete pago pela loja; defeito em 90
-  dias), `/entregas` e `/contato`, com resumo no topo, índice e versão (12/11/2026).
+  `/termos` (Termos de Uso e Condições de Compra), `/privacidade` (LGPD), `/trocas`,
+  `/entregas` e `/contato`, com resumo no topo, índice e versão (18/11/2026).
+  - `/trocas` segue a política dos donos de 18/11: troca em 7 dias com etiqueta;
+    não trocam peças sem etiqueta, usadas ou de promoção; sem devolução do valor por
+    arrependimento na loja física.
+  - Nas compras pelo site continuam a desistência em 7 dias com reembolso, que é lei
+    (art. 49 do CDC) e vale também para promoção, a 1ª troca com frete pago pela loja
+    e o defeito em 90 dias.
   Rodapé com a coluna "Institucional" e razão social + CNPJ na última linha; newsletter
   com o link da Privacidade. Aceite obrigatório no cadastro ("Li e aceito os Termos de
   Uso e a Política de Privacidade") e na compra ("Li e concordo com os Termos de Uso e a

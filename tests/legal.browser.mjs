@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
+import { LEGAL_VERSION_LABEL } from '../src/legal/pages.js'
 
 const { chromium } = createRequire(import.meta.url)('playwright')
 const baseUrl = process.env.FRONTEND_TEST_URL || 'http://127.0.0.1:5173'
@@ -56,7 +57,7 @@ for (const [theme, width] of [['dark', 1280], ['light', 390]]) {
       await page.getByRole('heading', { level:1, name:title, exact:true }).waitFor()
       assert.equal(await page.getByRole('navigation', { name:'Políticas da loja' }).getByRole('link', { name:link, exact:true }).getAttribute('aria-current'), 'page')
       if (path !== '/contato') {
-        assert.equal(await page.locator('.legal-version').textContent(), 'Versão de 12 de novembro de 2026')
+        assert.equal(await page.locator('.legal-version').textContent(), 'Versão de ' + LEGAL_VERSION_LABEL)
         await page.getByRole('heading', { name:'Resumo', exact:true }).waitFor()
       }
       assert.ok(await noHorizontalScroll(page), path + ' sem rolagem lateral')

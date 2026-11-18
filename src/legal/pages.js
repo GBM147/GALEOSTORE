@@ -9,5 +9,5 @@ export const LEGAL_PAGES = [
 ]
 
 // Version of the terms in force; stored with each acceptance.
-export const LEGAL_VERSION = '2026-11-12'
-export const LEGAL_VERSION_LABEL = '12 de novembro de 2026'
+export const LEGAL_VERSION = '2026-11-18'
+export const LEGAL_VERSION_LABEL = '18 de novembro de 2026'

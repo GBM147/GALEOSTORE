@@ -156,31 +156,41 @@ function privacy(x) {
 function exchanges(x) {
   return {
     title: 'Trocas, Devoluções e Arrependimento',
-    description: 'Como desistir da compra em 7 dias, trocar tamanho ou modelo e o que fazer se a peça tiver defeito na ' + x.store + '.',
+    description: 'Regras de troca da ' + x.store + ' na loja física e no site, desistência de compras pelo site em 7 dias e o que fazer se a peça tiver defeito.',
     summary: [
-      'Desistiu? Você tem 7 dias do recebimento para devolver, com reembolso total, frete incluído.',
-      'Trocas de tamanho ou modelo também em até 7 dias do recebimento, com a peça sem uso e com etiqueta.',
-      'A 1ª troca de cada pedido tem o frete pago pela loja.',
+      'Trocas em até 7 dias, com a etiqueta na peça e sem sinais de uso.',
+      'Não trocamos peças sem etiqueta, com sinais de uso ou de promoção.',
+      'Comprou pelo site? Você pode desistir em até 7 dias do recebimento, com reembolso total, frete incluído, como manda a lei.',
+      'Na loja física não fazemos devolução do valor por arrependimento de compra.',
+      'A 1ª troca de cada pedido do site tem o frete pago pela loja.',
       'Peça com defeito: avise em até 90 dias; o frete é por nossa conta.'
     ],
+    // Exchange rules are the owners' choice. The 7-day withdrawal with refund for
+    // online purchases (CDC art. 49) and the defect warranty are required by law.
     sections: [
-      ['arrependimento', 'Direito de arrependimento (7 dias)', [
-        'Pelo art. 49 do Código de Defesa do Consumidor, você pode desistir da compra em até 7 dias corridos depois de receber o pedido, sem precisar explicar o motivo.',
+      ['troca', 'Trocas', [
+        'As peças podem ser trocadas em até 7 dias corridos: na loja física, contados da compra; no site, contados do recebimento do pedido.',
+        'A peça precisa estar com a etiqueta e sem sinais de uso, como lavagem, manchas ou odor.',
+        '**Não trocamos:** peças sem etiqueta, peças com sinais de uso e peças compradas em promoção.',
+        'A troca depende do estoque. Se não houver o tamanho ou o modelo que você quer, você pode escolher outra peça.',
+        '**Frete da troca (compras pelo site):** a primeira troca de cada pedido é por conta da loja, na ida e na volta. A partir da segunda troca do mesmo pedido, o frete é por conta do cliente.'
+      ]],
+      ['arrependimento', 'Desistência de compras pelo site (7 dias)', [
+        'Pelo art. 49 do Código de Defesa do Consumidor, quem compra pelo site pode desistir da compra em até 7 dias corridos depois de receber o pedido, sem precisar explicar o motivo. Esse direito vale também para peças de promoção.',
         'O frete da devolução é por nossa conta, e o reembolso é total, incluindo o frete pago na compra.',
         'A peça deve voltar como você recebeu: sem sinais de uso além de provar, com as etiquetas e os acessórios.'
       ]],
-      ['troca', 'Troca de tamanho ou modelo', [
-        'Você pode trocar o tamanho ou o modelo em até 7 dias corridos depois de receber o pedido. A peça precisa estar sem uso, sem lavagem e com a etiqueta.',
-        'A troca depende do estoque. Se não houver o que você quer, você pode escolher outra peça ou receber o valor de volta.',
-        '**Frete da troca:** a primeira troca de cada pedido é por conta da loja, na ida e na volta. A partir da segunda troca do mesmo pedido, o frete é por conta do cliente.'
+      ['loja-fisica', 'Compras na loja física', [
+        'Não fazemos devolução do valor por arrependimento de compras feitas na loja. O direito de desistência do art. 49 do CDC vale só para compras feitas fora da loja, como as do site.',
+        'As trocas seguem as regras acima, em até 7 dias da compra, e a garantia contra defeito vale normalmente.'
       ]],
       ['defeito', 'Peça com defeito', [
-        'Se a peça tiver defeito, avise em até 90 dias do recebimento (art. 26 do CDC). O frete é por nossa conta.',
+        'Se a peça tiver defeito, avise em até 90 dias do recebimento (art. 26 do CDC). Vale para todas as peças, inclusive as de promoção. O frete é por nossa conta.',
         'Temos até 30 dias para resolver (art. 18 do CDC). Se não for resolvido nesse prazo, você escolhe entre trocar por uma peça igual, receber o valor de volta ou ter um desconto proporcional.'
       ]],
       ['como-pedir', 'Como pedir', [
-        'Fale com a gente ' + x.contact + ', com o número do pedido. Em caso de defeito, mande fotos da peça.',
-        'Passamos as instruções e o código de postagem. Guarde o comprovante de envio.'
+        'Compras pelo site: fale com a gente ' + x.contact + ', com o número do pedido. Em caso de defeito, mande fotos da peça. Passamos as instruções e o código de postagem; guarde o comprovante de envio.',
+        'Compras na loja física: leve a peça com a etiqueta à loja, dentro do prazo.'
       ]],
       ['reembolso', 'Reembolso', [
         'Assim que a peça chega e é conferida, pedimos o reembolso ao Mercado Pago, pelo mesmo meio de pagamento da compra.',
